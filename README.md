@@ -77,13 +77,19 @@ Only the main session can dispatch subagents, so the orchestrator lives there ra
 
 Prerequisites: Docker, and VS Code with the Dev Containers extension.
 
-1. Put your Anthropic API key in `.env` at the repo root (gitignored):
+1. Create `.env` at the repo root (gitignored):
 
        ANTHROPIC_API_KEY=sk-ant-...
+       CLOUDFLARE_API_TOKEN=...        # only needed to deploy
 
-   Use a dedicated key with a spend cap — the agents run unattended. (If you use Claude Code with a
-   Claude subscription instead of an API key, you can skip this and run `claude` and sign in when
-   prompted; remove the `--env-file` line from `.devcontainer/devcontainer.json` if you do.)
+   Use a dedicated Anthropic key with a spend cap — the agents run unattended. The Cloudflare token
+   is only needed for `wrangler deploy`; local development does not need it, and it exists because
+   `wrangler login` opens a browser, which a container cannot do.
+
+   **The file must exist**, even if empty: the container passes it to Docker with `--env-file`, and a
+   missing file stops the container from starting. (If you use Claude Code with a Claude subscription
+   instead of an API key, run `claude` and sign in when prompted; you can drop the `--env-file` line
+   from `.devcontainer/devcontainer.json` if you would rather not keep a `.env` at all.)
 
 2. Open this folder in VS Code and reopen it in the container: **Reopen in Container** on the
    notification, or the Command Palette (Cmd+Shift+P) → **Dev Containers: Reopen in Container**.
