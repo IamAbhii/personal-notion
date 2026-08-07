@@ -8,6 +8,13 @@ Build Personal Space exactly as specified in [REQUIREMENTS.md](./REQUIREMENTS.md
 is the contract: its phases, success criteria and final criteria decide when work is done. When in
 doubt, REQUIREMENTS.md wins.
 
+[ARCHITECTURE.md](./ARCHITECTURE.md) records the decisions that are **fixed** for this project and is
+mandatory reading before you write any code: the stack, the hosted deployment target, Google sign-in,
+the tenancy seams for future multi-user and multi-workspace support, offline editing with a sync
+queue, production readiness, and the code comment convention. REQUIREMENTS.md still wins on *what*
+the product does; ARCHITECTURE.md decides *how* it is built, and its choices are not up for
+relitigation mid-build. Read the sections relevant to your task, not the whole file.
+
 ## The team
 
 This project is built by one main Claude Code session and four subagents.
@@ -68,6 +75,10 @@ If a boundary would be crossed, stop and report instead of working around it wit
 - Screenshots live under `screenshots/`.
 - No emojis in code, comments, print statements or logging. (Emoji page icons in the product's
   data and UI are a feature, not a violation.)
+- Comment the code as ARCHITECTURE.md's "Code comments" section requires: a short comment on every
+  exported function, component, hook and route handler saying what it does and why; brief comments on
+  non-obvious logic; and a `// Future:` comment at every scalability seam, naming the change that
+  would be made. This is a review criterion, not a nicety — the orchestrator sends work back without it.
 - Keep it simple: small modules, clear names, no defensive programming, no overengineering. Prefer
   popular, well-supported libraries over custom code.
 
