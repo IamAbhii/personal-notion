@@ -20,7 +20,7 @@ network returns. Access is gated by **Google sign-in**. Hosting cost is effectiv
 | Offline | **IndexedDB** (`idb`/Dexie) + an op queue, `vite-plugin-pwa` service worker | Editing works with no network |
 | Backend | **TypeScript on Cloudflare Workers** with **Hono** | No server to patch, no process to supervise |
 | Database | **Cloudflare D1** (managed SQLite) via **Drizzle ORM** | SQLite semantics, zero ops, portable schema |
-| Search | **SQLite FTS5** | A real full-text index, not `LIKE` |
+| Search | Client-side over the local copy | Instant, works offline, no server index |
 | Auth | **Google Sign-In (OAuth 2.0 / OIDC)**, implemented in-app | Portable and testable; no edge-provider lock-in |
 | Unit tests | **Vitest**, backend via `@cloudflare/vitest-pool-workers` | Handlers run in the real `workerd` runtime |
 | End-to-end tests | **Playwright** | Drives the real app in a real browser |
@@ -41,8 +41,11 @@ Worker invocation, which is why offline sync flushes in ordered chunks.
 - **Offline-first, and that is what makes edge hosting safe.** Mutations are intent-based ops with
   client-minted UUIDs, persisted to IndexedDB before any network attempt, replayed in order against an
   idempotent `/sync` endpoint backed by an `applied_ops` table. A retried request is never applied twice.
-- **Concurrent editing is out of scope, but designed for.** The policy is last-write-wins. Every row
-  carries a `version` and every op a `base_version`, recorded but not enforced — turning on optimistic
+  Ops are the write path from Phase 1, so the offline queue is added on top of an existing shape rather
+  than replacing every mutation in the app.
+- **Concurrent editing is out of scope, but designed for.** The policy is last-write-wins, and an
+  overwrite of newer data is **reported to you rather than silent**. Every row carries a `version` and
+  every op a `base_version`, compared but not enforced — turning on optimistic
   concurrency is a one-line change, and a future CRDT has an append-only ordered op log to build on.
 - **Cloudflare lock-in is contained.** All data access goes through a repository layer; `env.DB` and
   Workers globals do not leak past it. Moving to Node + SQLite on a VM, or to Turso, rewrites that one

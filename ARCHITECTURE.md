@@ -86,9 +86,11 @@ locally and fails in production.
   required anyway for user-defined properties, and it keeps the 100-column ceiling irrelevant.
 - **Single-threaded per database, queries queue.** Fine for one user; another reason sync arrives in
   bounded chunks rather than one enormous batch.
-- **FTS5 is available** (including `fts5vocab`), so search is a real full-text index rather than
-  `LIKE`. But **D1 export does not support virtual tables**: the FTS table must be derivable from the
-  source tables and rebuildable by a migration, never the only home for any data.
+- **No server-side search index, and no FTS5.** The contract asks for quick-find over page, database
+  and row *titles* only. The client already holds the whole workspace locally for offline use, so search
+  is client-side filtering over that copy: instant, works offline, and no virtual table to keep in sync
+  or rebuild on export. D1 does support FTS5 if searching inside block content is ever added — that is
+  the trigger for revisiting this, and nothing else.
 - **Migrations** are `wrangler d1 migrations` files, forward-only, applied in deploy. The same files run
   against local D1 in development and in tests, so a migration is exercised before it ships.
 - **Durable Objects require the paid plan.** They are the natural vehicle for future realtime
@@ -176,8 +178,15 @@ of each. This is the whole point: going multi-account must add rows and screens,
   `{ user: { id, email, name }, memberships: [{ workspaceId, name, role }] }`. It returns an **array**
   today with one element. The client picks the workspace from this list; it never assumes a singleton,
   never hardcodes an id, and never has a "the workspace" global.
-- `GET|POST|PATCH|DELETE /api/workspaces/:workspaceId/pages/...`, `.../databases/...`, `.../views/...`,
-  `.../search` — every data route nested under the workspace. No unscoped data route exists.
+- `GET /api/workspaces/:workspaceId/snapshot` — the whole workspace in one response: the page tree,
+  every block, databases, properties, rows, values and view settings, each with its `version`. This is
+  what the client stores locally to work offline, and it is the only read the app needs on cold start.
+  Because Workers allows **10 ms CPU per invocation on free**, this is the likeliest handler to hit that
+  ceiling: it must stream or paginate rather than build one large object in memory, and it takes an
+  `If-None-Match`/`ETag` so an unchanged workspace costs almost nothing.
+- `GET|POST|PATCH|DELETE /api/workspaces/:workspaceId/pages/...`, `.../databases/...`, `.../views/...` —
+  every data route nested under the workspace. No unscoped data route exists. There is **no search
+  endpoint**: search is client-side over the local copy.
 - `POST /api/workspaces/:workspaceId/sync` — the offline op batch, scoped like everything else. Ops
   carry `workspace_id` and the server rejects any op whose workspace does not match the path.
 - **Authorisation on every request:** `:workspaceId` must appear in the session's memberships, else
@@ -191,9 +200,50 @@ of each. This is the whole point: going multi-account must add rows and screens,
   without `workspace_id` in its `WHERE`, a client that reads `memberships[0]` as an invariant rather
   than a current fact, or a seed script that assumes exactly one user.
 
+## Data model details (fixed)
+
+Small decisions with schema consequences, settled now because each is painful to change later.
+
+- **Ordering is fractional, not integer positions.** Blocks in a page, rows in a database and pages in
+  the sidebar each carry a `sort_key` string, and an item is moved by computing a key between its new
+  neighbours. With integer positions, dragging one block rewrites every sibling — turning one gesture
+  into N ops, N row-writes and N chances for last-write-wins to clobber. Fractional keys make a move
+  exactly one op on one row. Use a maintained library (`fractional-indexing` or equivalent).
+- **Pages have a `sort_key` even though the sidebar has no drag-reorder.** REQUIREMENTS.md specifies
+  dragging for blocks and board cards, not for the page tree, so the tree renders in `sort_key` order
+  seeded to creation order and there is no reorder UI. The column exists so adding one later is a
+  feature, not a migration. `// Future:` comment required at the render site.
+- **Database properties are rows, not columns** — a property is a row in `properties`, a cell is a row
+  in `property_values`. Required for user-defined properties anyway, and it keeps D1's 100-column
+  ceiling irrelevant.
+- **Theme is per device, not per account.** Light/dark lives in `localStorage`, so it works offline,
+  applies before first paint with no flash, and needs no round trip. It deliberately does not follow you
+  between devices — a phone in bed and a laptop at a desk reasonably want different answers.
+
+## Seed data (fixed)
+
+The seed is a **reusable template applied when a workspace is created**, not a one-off insert at deploy
+time. One function, `seedWorkspace(ctx)`, takes a workspace id and populates it; deploy calls it once for
+your workspace, and the multi-account future calls the same function on first sign-in so every new account
+gets a populated first run. This is why it must be parameterised by `workspace_id` and callable on demand
+rather than being a hand-written SQL migration full of literal ids.
+
+- The template is data (a TypeScript module of plain objects), not SQL, so it is readable and reviewable.
+- It is idempotent per workspace: calling it twice does not duplicate content.
+- It grows with the phases, per REQUIREMENTS.md, so no feature ever ships empty.
+- Because ids are client- or server-minted UUIDs rather than fixed literals, the same template can be
+  applied to any number of workspaces without collision.
+
 ## Offline and sync (fixed)
 
 The installed app is fully usable with no network, including editing. This is in scope for the build.
+
+**Ops are the write path from Phase 1, not a Phase 6 retrofit.** Every mutation in the app is an op from
+the first line of code, even while the offline queue does not exist yet: in Phases 1-5 the client builds
+an op and posts it immediately, awaiting the result. Phase 6 then adds only the durable queue, the flush
+loop, the service worker and the status indicator. Building Phases 1-5 on plain REST mutations and
+converting later would mean rewriting every write path in the product — the editor's autosave, every
+drag-reorder, every cell and property edit. This ordering is deliberate; do not "simplify" it away.
 
 - **Local store:** IndexedDB through a maintained wrapper (`idb` or Dexie — not hand-rolled). It holds
   a copy of the workspace for reading and the pending write queue. TanStack Query stays the server-state
@@ -225,6 +275,15 @@ The installed app is fully usable with no network, including editing. This is in
   from the queue, and local state reconciled from the server rather than left silently diverged.
 - **Deletes are ops too.** Deletion stays permanent (no trash, per REQUIREMENTS.md), but the `op_id`
   lives on in `applied_ops` so a replayed delete is a no-op rather than an error.
+- **Unsent ops for the same target coalesce.** Typing produces one op per debounced pause per block; left
+  to accumulate, an hour offline on one page yields thousands of queued ops describing a paragraph. So an
+  op that is still unsent and targets the same `(entity, entity_id, field)` **replaces** the pending one
+  rather than appending. Only ops already in flight are immutable. Without this the ≤25-op chunk limit
+  turns a normal offline session into dozens of sequential round trips.
+- **An op whose target no longer exists is dropped, not resurrected.** Delete a parent page on one device
+  and add a child under it on another, both offline: on sync the child's op refers to a missing parent.
+  The server rejects it with a reason, the client drops it and tells the user what was lost. Recreating
+  deleted ancestors to host an orphan would silently undo an explicit deletion, which is worse.
 
 ### Concurrency: out of scope now, designed for later
 
@@ -232,9 +291,12 @@ Concurrent editing — two devices changing the same thing at once — is **not*
 is **last write wins by server arrival order**. The design carries what a future implementation needs:
 
 - Every content row has a `version` integer, bumped on every write, and `updated_at`.
-- Every op carries `base_version` — the version the client believed it was editing. Today the server
-  **records it and does not reject on mismatch**; that is the one line that changes to turn on
-  optimistic concurrency, and the recorded data makes conflicts measurable before then.
+- Every op carries `base_version` — the version the client believed it was editing. The server
+  **applies the op regardless (still last write wins) but reports every mismatch** in the sync response,
+  and the client surfaces it: "3 changes overwrote newer edits". This is the one real data-loss path in
+  the design — two of your own devices, both offline, same page — and it costs almost nothing to make
+  visible rather than silent. Turning on true optimistic concurrency later means refusing on mismatch
+  instead of reporting it: one line, plus a resolution UI.
 - Ops are fine-grained and field-level rather than whole-document PUTs, so two edits to different
   parts of one page can be merged by a later implementation instead of clobbering.
 - The op log is append-only and ordered, which is the substrate any future CRDT or
@@ -250,8 +312,8 @@ Because this is exposed to the internet and shared, these are build requirements
 - **Backups and restore:** D1 **Time Travel** provides 30-day point-in-time restore with no cron and no
   object storage. The restore procedure is documented in README.md and **must be executed once against
   a throwaway database** before the project is called done — an untested restore is not a backup.
-  A periodic `wrangler d1 export` to a local file is the off-platform copy; note it cannot include the
-  FTS virtual table, which is why that table is rebuildable from source data.
+  A periodic `wrangler d1 export` to a local file is the off-platform copy. There are no virtual tables
+  in the schema, so nothing blocks the export.
 - **Transport and headers:** HTTPS is inherent on Workers. Set HSTS, a strict `Content-Security-Policy`,
   `X-Content-Type-Options` and `Referrer-Policy` explicitly in the Worker via Hono's secure-headers
   middleware. The CSP must be tight enough that the Google sign-in redirect still works — verify it,

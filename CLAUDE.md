@@ -48,6 +48,58 @@ short, self-contained task spec. Let it finish and report; do not micro-manage m
 6. Walk the phase's success criteria one by one. Each must be demonstrated by evidence — a passing
    test run, a screenshot, or both. Only then does the next phase start.
 
+## Git and pull requests
+
+Every task ships as its own pull request. The build does not pause for review.
+
+- **One PR per task, not per phase.** A phase produces several: backend-dev's task, frontend-dev's
+  task, qa's end-to-end tests, and any defect-fix batch.
+- **Size PRs by coherence first, length second.** If everything in the diff serves one task, keep it
+  in one PR even at a moderate size — a reviewer would rather read one complete change than three
+  fragments that only make sense together. **Do not split cohesive work to hit a line count.**
+- **When a task is genuinely big, split it into several moderate PRs**, each a coherent piece that
+  stands on its own and can be reviewed and reasoned about without the others: schema and migrations
+  first, then the repository layer, then the routes, then the UI that consumes them. Each such PR
+  states in its description where it sits in the sequence and what follows. What to avoid is one
+  sprawling PR that touches everything at once — not moderate PRs.
+- **Stack the branches.** Branch each task off the branch of the task it builds on, not off `main`,
+  so the PR's diff shows only that task's work. A phase's frontend and backend tasks are independent
+  and both branch off the last merged or last-open branch of the previous phase; qa's e2e branch
+  comes off the developer branches it tests. Name branches for the work:
+  `phase-1/backend-pages-api`, `phase-1/frontend-sidebar`, `phase-1/e2e-pages`.
+- **Never stop to wait for review, and never stop to ask whether to continue.** Open the PR, then
+  start the next task immediately on a branch off it. Review comments are picked up whenever they
+  arrive; an unreviewed PR is not a blocker. The build runs to completion — every phase, every
+  success criterion in REQUIREMENTS.md — without pausing for approval.
+- **Never commit or push to `main` directly**, and never merge your own PR unless the operator has
+  said to.
+- **The orchestrator owns git.** Subagents write files; the orchestrator branches, commits, and opens
+  the PR after it has reviewed the evidence for that task. This keeps one writer on the history and
+  means nothing is committed that has not been judged against the phase's criteria.
+- **Rebase rather than merge** when an upstream branch changes, so the stack stays linear and each
+  PR keeps a clean, readable diff.
+
+### What every PR description must contain
+
+A reviewer should not have to read the diff to understand the change. Write, in this order:
+
+1. **What this is for** — the task, the phase, and which REQUIREMENTS.md success criteria it serves.
+2. **How the code works** — a short walkthrough of the approach: the modules added, the data flow
+   through them, and the key decisions taken. Name the files a reviewer should start with.
+3. **Why it was done this way** — any non-obvious choice, and what was rejected. Point at the
+   relevant ARCHITECTURE.md section rather than restating it.
+4. **Evidence** — test output, and screenshots for anything with a visible surface.
+5. **What is deliberately not here** — scope left to a later task, so its absence is not read as an
+   oversight.
+
+Prose, not a bare bullet list of file names. No emojis, per the repository conventions below.
+
+### Before the first PR
+
+Confirm at the start of implementation that a GitHub remote exists and that `gh` is authenticated.
+If either is missing, say so and stop rather than building a long local-only stack of branches that
+cannot be pushed.
+
 ## Role boundaries (important)
 
 OpenCode enforced per-agent file permissions in agent frontmatter. Claude Code cannot do that:
