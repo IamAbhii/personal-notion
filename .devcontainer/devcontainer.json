@@ -1,8 +1,35 @@
 {
   "name": "personal-space",
   "image": "mcr.microsoft.com/devcontainers/typescript-node:24",
+
+  // The GitHub CLI is required, not optional: CLAUDE.md's workflow opens a pull request per task
+  // with `gh`, and the base image ships git but not gh.
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+
+  // Injects .env from the host at container creation: ANTHROPIC_API_KEY for the agents, and
+  // CLOUDFLARE_API_TOKEN so `wrangler deploy` works without an interactive browser login.
+  // Changing .env requires "Dev Containers: Rebuild Container" to take effect.
   "runArgs": ["--env-file", "${localWorkspaceFolder}/.env"],
+
+  // Declared rather than left to port auto-detection, so the running app is reachable
+  // deterministically. 8787 is wrangler dev, serving both the API and the PWA on one origin;
+  // 5173 is the Vite dev server.
+  "forwardPorts": [8787, 5173],
+  "portsAttributes": {
+    "8787": {
+      "label": "personal-space (wrangler dev)",
+      "onAutoForward": "notify"
+    },
+    "5173": {
+      "label": "vite dev server",
+      "onAutoForward": "silent"
+    }
+  },
+
   "postCreateCommand": "bash .devcontainer/setup.sh",
+
   "customizations": {
     "vscode": {
       "extensions": ["anthropic.claude-code"]
