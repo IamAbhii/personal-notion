@@ -5,6 +5,12 @@ set -euo pipefail
 echo "Installing Claude Code..."
 npm install -g @anthropic-ai/claude-code
 
+# The Claude Code typescript-lsp plugin spawns the language server by name from PATH, so it has to
+# be a global install: a root devDependency in node_modules/.bin is invisible to it. TypeScript
+# comes along because the server needs a compiler to answer with.
+echo "Installing the TypeScript language server (global, on PATH, for the Claude Code LSP plugin)..."
+npm install -g typescript-language-server typescript
+
 # Playwright needs two separate things: OS-level shared libraries (graphics, fonts, codecs) and a
 # browser binary. The libraries are apt packages and version-independent, so they are installed
 # once here, at create time, while root is available. The browser binary is deliberately NOT

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  // Solution-style root project: `npm run typecheck` (tsc --build) checks this project and then
+  // every referenced workspace package. Today the only thing to check is the repo's own ESLint
+  // config; Phase 1 adds one reference per package it creates.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "strict": true,
+    "skipLibCheck": true,
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true
+  },
+  "files": ["eslint.config.js"],
+  // Future: when packages/frontend and packages/worker land, add
+  // { "path": "packages/frontend" } and { "path": "packages/worker" } here so one root typecheck
+  // covers the whole workspace. Each package's tsconfig extends ./tsconfig.base.json.
+  "references": []
+}

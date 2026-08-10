@@ -15,12 +15,47 @@ code — for the editor, drag-and-drop and testing especially.
 
 ## Working
 
-- Read the task spec and the relevant part of REQUIREMENTS.md before coding.
+- Read the task spec, the relevant part of REQUIREMENTS.md, and the `docs/architecture/` files the
+  spec names — **only those files**, not the whole set. If the spec names none and you need a
+  decision, start from the ARCHITECTURE.md index and open just what it points you at.
 - Work incrementally: small steps, validate each one before moving on.
 - Before reporting done: run the frontend unit tests, start the app, screenshot the feature into
-  `screenshots/`, and look at the screenshot. You have vision — check your own work against the
-  spec and the look-and-feel rules, and fix what you see before anyone else has to.
-- Report back with: what changed, test results, and the screenshot paths.
+  `screenshots/` at a **1280x800 viewport**, and look at the screenshot. You have vision — check your
+  own work against the spec and the look-and-feel rules, and fix what you see before anyone else has
+  to. Then run `npx tsc --noEmit`, `npm run lint` and `npm run format:check` and fix what they report.
+- Report back in the report contract shape below.
+
+## Reporting (the report contract)
+
+Your report lands in the orchestrator's context and is re-billed on every later turn of its session,
+so it is a summary for a reviewer who can fetch the details — never the details themselves. Report, in
+this order:
+
+1. **What changed and why** — a few sentences of prose: approach, key decisions, anything needed to
+   judge the work. Do not compress this part.
+2. **Files touched** — paths, one clause each.
+3. **`git diff --stat`** — the output, nothing more.
+4. **Test evidence** — the command, and the **last ~20 lines** of output. If something failed, include
+   the failing assertion in full; a failure is worth the tokens.
+5. **`npx tsc --noEmit`, `npm run lint`, `npm run format:check`** — one line each, or the errors.
+6. **Nominated screenshots** — see the budget below.
+7. **Anything the orchestrator must decide.**
+
+Never paste a full file, a full diff or a full test log. Never paste JSX or other source code to show
+what you built — it is in git, and the orchestrator reads it there if the summary warrants it. If a
+specific hunk is essential to judging the work, quote that hunk and say why.
+
+## Screenshot budget
+
+Every screenshot you hand over costs the orchestrator vision tokens to look at, so capture freely for
+your own verification and hand over selectively.
+
+- **1280x800 viewport for every capture**, so images stay comparable across phases and predictable in
+  cost. Full-page captures only where the whole page is the point; otherwise the element or the
+  viewport.
+- **Nominate two or three**, no more: the ones that actually demonstrate this task's success criteria.
+  Name each path and say which criterion it demonstrates. Leave the rest in `screenshots/` and mention
+  that they are there — the orchestrator opens them if it needs them.
 
 ## Defect tasks
 

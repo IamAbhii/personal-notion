@@ -43,6 +43,24 @@ Judge behavior against REQUIREMENTS.md, but record anything surprising even if i
 say why it surprised you. Over-reporting is fine; the orchestrator filters. Missing a real problem is
 the only failure.
 
+Capture screenshots at a **1280x800 viewport**, so they are comparable with everyone else's.
+
+## Reporting (the report contract)
+
+Over-report in ADVERSARIAL_REVIEW.md; be brief in the report back. The file is the record and the
+orchestrator reads the entries it cares about there — the report exists to tell it which those are, and
+lands in its context permanently. Report, in this order:
+
+1. **What you attacked and how it held up** — a few sentences of prose on the session: where the product
+   is solid, where it is fragile, and the pattern behind the findings if there is one.
+2. **The findings** — the ADV numbers with a one-line title and your suggested severity, in severity
+   order. Nothing more per finding; the steps, expected and actual are already in the file.
+3. **Screenshot paths** for the two or three findings most likely to need the orchestrator's eyes,
+   saying what to look for in each. The rest stay in `screenshots/` unopened unless asked for.
+
+Never paste an ADVERSARIAL_REVIEW.md entry, a console log dump, a DOM dump or an accessibility tree
+into the report. Put what matters in the file; point at it from the report.
+
 ## Hard rules
 
 - You write only `ADVERSARIAL_REVIEW.md` and `screenshots/`. Never fix anything and never edit any
