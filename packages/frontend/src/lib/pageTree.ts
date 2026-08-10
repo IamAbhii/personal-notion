@@ -45,11 +45,21 @@ export function childrenOf(pages: PageRecord[], parentId: string | null): PageRe
 /**
  * A fractional key that places a new page after the last existing sibling. Fractional keys mean a
  * later reorder is one op on one row instead of rewriting every sibling's position.
+ *
+ * `reservedKeys` are keys already minted for creates that have not landed in `pages` yet. Without
+ * them two clicks that both happen before the first result is applied compute the same key, and
+ * colliding keys leave the two rows in snapshot order with no key available between them.
  */
-export function sortKeyForNewChild(pages: PageRecord[], parentId: string | null): string {
-  const siblings = childrenOf(pages, parentId);
-  const last = siblings[siblings.length - 1];
-  return generateKeyBetween(last?.sortKey ?? null, null);
+export function sortKeyForNewChild(
+  pages: PageRecord[],
+  parentId: string | null,
+  reservedKeys: readonly string[] = [],
+): string {
+  const keys = [...childrenOf(pages, parentId).map((page) => page.sortKey), ...reservedKeys].sort(
+    (a, b) => (a < b ? -1 : a > b ? 1 : 0),
+  );
+  const last = keys[keys.length - 1];
+  return generateKeyBetween(last ?? null, null);
 }
 
 /** A fractional key strictly between two neighbours, either of which may be absent. */

@@ -1,3 +1,5 @@
+import { describeLoadFailure } from '../lib/errors';
+
 // Full-window states that sit outside a workspace: loading, failure, and a signed-in user with no
 // workspace to open.
 
@@ -13,13 +15,17 @@ export function AppLoading() {
   );
 }
 
-/** Shown when the app cannot reach the API or the API refuses. */
-export function AppError({ message }: { message: string }) {
+/**
+ * Shown when the app cannot reach the API or the API refuses. It takes the error rather than a
+ * message so a lost network reads as "you are offline" instead of the raw fetch text.
+ */
+export function AppError({ error }: { error: unknown }) {
+  const { title, detail } = describeLoadFailure(error);
   return (
     <div className="status">
       <div className="status__card">
-        <p className="status__eyebrow status__eyebrow--error">Something went wrong</p>
-        <p className="status__lead">{message}</p>
+        <p className="status__eyebrow status__eyebrow--error">{title}</p>
+        <p className="status__lead">{detail}</p>
         <button
           type="button"
           className="button button--primary"

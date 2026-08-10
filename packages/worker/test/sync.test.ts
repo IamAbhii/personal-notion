@@ -1,5 +1,6 @@
 // Tests for the only write path in the product: op application order, idempotent replay, the 25-op
 // chunk limit, rejection of ops whose target is gone, cascade deletes and version mismatch reporting.
+import { env } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 import { getPage, listPages } from '../src/repo/pages';
 import { apiFetch, createAccount, makeOp } from './helpers';
@@ -180,5 +181,149 @@ describe('POST /api/workspaces/:workspaceId/sync', () => {
     const response = await sync(owner, [{ opId: 'x', type: 'page.create' }]);
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({ error: 'invalid_request' });
+  });
+
+  // DEF-002: the cascade used to be an ON DELETE CASCADE foreign key, which SQLite runs as a
+  // trigger, and D1 caps trigger recursion at nine levels. Pages nest to any depth, so the subtree
+  // is now computed in the repository layer and deleted explicitly.
+  describe.each([1, 9, 10, 25, 60])('deleting a chain of depth %i', (depth) => {
+    it('removes every descendant and leaves siblings alone', async () => {
+      const owner = await createAccount();
+      const chain = Array.from({ length: depth }, () => crypto.randomUUID());
+      const siblingId = crypto.randomUUID();
+
+      // Created in chunks of 25, the batch limit: one op per level, each parented to the level above.
+      for (let start = 0; start < chain.length; start += 25) {
+        const ops = chain.slice(start, start + 25).map((id, offset) => {
+          const index = start + offset;
+          return makeOp(owner.workspaceId, 'page.create', id, {
+            title: `Level ${index}`,
+            parentId: index === 0 ? null : chain[index - 1],
+          });
+        });
+        const response = await sync(owner, ops);
+        expect(response.status).toBe(200);
+      }
+      await sync(owner, [
+        makeOp(owner.workspaceId, 'page.create', siblingId, { title: 'Untouched' }),
+      ]);
+      expect(await listPages(owner.db, owner.ctx)).toHaveLength(depth + 1);
+
+      const response = await sync(owner, [makeOp(owner.workspaceId, 'page.delete', chain[0]!)]);
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as SyncResponse;
+      expect(body.results[0]?.status).toBe('applied');
+
+      const left = await listPages(owner.db, owner.ctx);
+      expect(left.map((page) => page.id)).toEqual([siblingId]);
+    });
+  });
+
+  // DEF-003: a stored sortKey that is not a fractional index used to make every later create under
+  // that parent throw out of key generation, permanently.
+  it('rejects an op whose sortKey is not a valid fractional index', async () => {
+    const owner = await createAccount();
+    const poison = makeOp(owner.workspaceId, 'page.create', crypto.randomUUID(), {
+      title: 'Poison',
+      sortKey: 'zz',
+    });
+
+    const response = await sync(owner, [poison]);
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as SyncResponse;
+    expect(body.results[0]?.status).toBe('rejected');
+    expect(body.results[0]?.reason).toMatch(/sortKey/);
+    expect(await listPages(owner.db, owner.ctx)).toHaveLength(0);
+  });
+
+  it('creates a page under a parent that already has an invalid sibling sortKey', async () => {
+    const owner = await createAccount();
+    const parentId = crypto.randomUUID();
+    await sync(owner, [makeOp(owner.workspaceId, 'page.create', parentId, { title: 'Parent' })]);
+
+    // Written straight to D1, the way a row created before the validation existed would look.
+    const poisonedId = crypto.randomUUID();
+    await env.DB.prepare(
+      `INSERT INTO pages (id, workspace_id, parent_id, title, icon, sort_key, version, created_at, updated_at)
+       VALUES (?, ?, ?, 'Legacy', NULL, 'zz', 1, 0, 0)`,
+    )
+      .bind(poisonedId, owner.workspaceId, parentId)
+      .run();
+
+    const childId = crypto.randomUUID();
+    const response = await sync(owner, [
+      makeOp(owner.workspaceId, 'page.create', childId, { parentId, title: 'New child' }),
+    ]);
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as SyncResponse;
+    expect(body.results[0]?.status).toBe('applied');
+    expect(await getPage(owner.db, owner.ctx, childId)).toBeDefined();
+  });
+
+  // DEF-004: a duplicated opId used to break the applied_ops primary key and lose the whole batch.
+  it('treats a duplicate opId inside one batch as a replay and applies the rest', async () => {
+    const owner = await createAccount();
+    const duplicatedId = crypto.randomUUID();
+    const duplicated = makeOp(
+      owner.workspaceId,
+      'page.create',
+      duplicatedId,
+      { title: 'Twice' },
+      { opId: 'duplicate-op-id' },
+    );
+    const others = Array.from({ length: 3 }, (_, index) =>
+      makeOp(owner.workspaceId, 'page.create', crypto.randomUUID(), { title: `Other ${index}` }),
+    );
+
+    const response = await sync(owner, [duplicated, ...others, { ...duplicated, clientSeq: 999 }]);
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as SyncResponse;
+    expect(body.results.map((result) => result.status)).toEqual([
+      'applied',
+      'applied',
+      'applied',
+      'applied',
+      'replayed',
+    ]);
+    // The duplicated page exists once, and none of the valid ops were lost.
+    expect(await listPages(owner.db, owner.ctx)).toHaveLength(4);
+    expect(await getPage(owner.db, owner.ctx, duplicatedId)).toBeDefined();
+  });
+
+  // DEF-005: title and icon were unbounded, and a value past D1's row limit escaped as a bare 500.
+  it('rejects an over-length title and an over-length icon per op', async () => {
+    const owner = await createAccount();
+    const longTitle = makeOp(owner.workspaceId, 'page.create', crypto.randomUUID(), {
+      title: 'x'.repeat(100_000),
+    });
+    const longIcon = makeOp(owner.workspaceId, 'page.create', crypto.randomUUID(), {
+      title: 'Fine',
+      icon: '🙂'.repeat(2_000),
+    });
+    const good = makeOp(owner.workspaceId, 'page.create', crypto.randomUUID(), { title: 'Fine' });
+
+    const response = await sync(owner, [longTitle, longIcon, good]);
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as SyncResponse;
+    expect(body.results.map((result) => result.status)).toEqual([
+      'rejected',
+      'rejected',
+      'applied',
+    ]);
+    expect(body.results[0]?.reason).toMatch(/title/);
+    expect(body.results[1]?.reason).toMatch(/icon/);
+    expect(await listPages(owner.db, owner.ctx)).toHaveLength(1);
+  });
+
+  it('answers an unexpected server error with the JSON error envelope, not a bare 500', async () => {
+    const owner = await createAccount();
+    // An entity id past D1's 2 MB row ceiling throws deep in the write path (SQLITE_TOOBIG). The
+    // point is the shape of the response, not this particular cause.
+    const op = makeOp(owner.workspaceId, 'page.create', 'x'.repeat(3_000_000), { title: 'Huge' });
+
+    const response = await sync(owner, [op]);
+    expect(response.status).toBe(500);
+    expect(response.headers.get('Content-Type')).toMatch(/application\/json/);
+    expect(await response.json()).toMatchObject({ error: 'internal_error' });
   });
 });

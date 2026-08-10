@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { EmojiPickerPopover } from './EmojiPickerPopover';
 import { InlineTitleInput } from './InlineTitleInput';
+import { collapseBreadcrumb } from '../lib/treeLayout';
 import type { PageRecord } from '../api/types';
 
 export interface PageViewProps {
@@ -33,25 +34,39 @@ export function PageView({
       {/* A sticky bar so the trail to the current page survives scrolling.
           Future: the sync status indicator (synced / N pending / offline) lands on its right. */}
       <div className="topbar">
+        {/* The chain is collapsed rather than rendered whole: pages nest to any depth, and a 26-deep
+            trail otherwise wraps to several lines and pushes itself out of the fixed-height bar. */}
         <nav className="breadcrumb" aria-label="Breadcrumb">
-          {breadcrumb.map((crumb, index) => (
-            <span className="breadcrumb__item" key={crumb.id}>
+          {collapseBreadcrumb(breadcrumb).map((item, index) => (
+            <span className="breadcrumb__item" key={item.kind === 'page' ? item.page.id : 'gap'}>
               {index > 0 ? (
                 <span className="breadcrumb__sep" aria-hidden="true">
                   /
                 </span>
               ) : null}
-              <button
-                type="button"
-                className="breadcrumb__link"
-                aria-current={crumb.id === page.id ? 'page' : undefined}
-                onClick={() => onSelectPage(crumb.id)}
-              >
-                <span className="breadcrumb__icon" aria-hidden="true">
-                  {crumb.icon}
+              {item.kind === 'gap' ? (
+                <span
+                  className="breadcrumb__gap"
+                  title={`${item.hidden.length} pages between: ${item.hidden.map((crumb) => crumb.title).join(' / ')}`}
+                >
+                  ...
                 </span>
-                {crumb.title}
-              </button>
+              ) : (
+                <button
+                  type="button"
+                  className="breadcrumb__link"
+                  aria-current={item.page.id === page.id ? 'page' : undefined}
+                  title={item.page.title}
+                  onClick={() => onSelectPage(item.page.id)}
+                >
+                  <span className="breadcrumb__icon" aria-hidden="true">
+                    {item.page.icon}
+                  </span>
+                  {/* A long title is truncated here rather than in the button, so the icon stays
+                      visible instead of being pushed out by the text. */}
+                  <span className="breadcrumb__label">{item.page.title}</span>
+                </button>
+              )}
             </span>
           ))}
         </nav>

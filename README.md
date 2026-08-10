@@ -114,7 +114,19 @@ port — open it in your own browser to watch and use the product.
 ## Running the app (once built)
 
 You need [Node.js 22 or newer](https://nodejs.org) and nothing else: no Cloudflare account, no Google
-credentials, no internet. In a terminal, in this folder, run these two commands once:
+credentials, no internet. **Node 22 is a hard requirement, not a preference** — Wrangler refuses to
+run on Node 20 and the app will not start.
+
+The required version is pinned in [`.nvmrc`](./.nvmrc), so if you use
+[nvm](https://github.com/nvm-sh/nvm) the right version is one command:
+
+    nvm use          # reads .nvmrc; run `nvm install` first if you do not have Node 22 yet
+
+Check it before anything else — this is the most common reason the app fails to start:
+
+    node --version   # must print v22 or higher
+
+In a terminal, in this folder, run these two commands once:
 
     cp packages/worker/.dev.vars.example packages/worker/.dev.vars
     npm install
@@ -124,8 +136,9 @@ Then, every time you want to use the app, one command:
     npm start
 
 Wait for the line `Ready on http://localhost:8787`, then open **http://localhost:8787** in your
-browser. The sidebar comes up populated with a starter set of pages. Sign-in is bypassed locally, so
-there is nothing to log into. Press `Ctrl+C` in the terminal to stop it.
+browser. The sidebar comes up populated with a starter set of pages — around 25 of them, nested
+several levels deep, each with an emoji icon. Sign-in is bypassed locally, so there is nothing to log
+into. Press `Ctrl+C` in the terminal to stop it.
 
 `npm start` builds the app, applies any new database migrations to the local database, and starts the
 one server that serves both the app and its API. Your pages live in a local database file under
@@ -135,6 +148,23 @@ Two extra commands, for working on the code rather than using it:
 
     npm run dev    # Vite dev server on :5173 with hot reload, proxying /api to the Worker on :8787
     npm test       # the backend and frontend unit test suites
+
+### If it will not start
+
+**`Address already in use` on port 8787.** Something is still serving the app. Killing the process
+that holds the port is not enough — `wrangler dev` supervises it and respawns it within a second, so
+you have to kill the supervisor at the top of the tree:
+
+    lsof -nP -iTCP:8787 -sTCP:LISTEN -t   # the workerd process holding the port
+    ps -o ppid= -p <that pid>             # walk up the parents to the `npm start` at the top
+    kill -9 <the npm start pid>
+    lsof -nP -iTCP:8787 -sTCP:LISTEN -t   # confirm this prints nothing before starting again
+
+Note that the supervising process can survive being reparented, so identify it by walking the parent
+chain rather than by matching a command name.
+
+**Migrations.** If you pulled changes and the app behaves oddly, apply any new migrations to your
+local database with `npm run migrate:local`. `npm start` does this for you.
 
 Deploying is one Worker, one D1 database and one static-assets binding. Secrets go in via
 `wrangler secret put`, never into `wrangler.toml`:

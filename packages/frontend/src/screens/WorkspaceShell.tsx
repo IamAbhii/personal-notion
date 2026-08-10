@@ -2,7 +2,9 @@ import { Outlet, useNavigate, useParams } from '@tanstack/react-router';
 import { useSuspenseQuery } from '@tanstack/react-query';
 import { meQueryOptions, snapshotQueryOptions } from '../api/queries';
 import { usePageMutations } from '../hooks/usePageMutations';
+import { useNotices } from '../hooks/useNotices';
 import { Sidebar } from '../components/Sidebar';
+import { NoticeStack } from '../components/NoticeStack';
 import { WorkspaceContext } from '../workspace/context';
 import { descendantIds } from '../lib/pageTree';
 import type { PageRecord } from '../api/types';
@@ -21,14 +23,16 @@ export function WorkspaceShell() {
   const pages = snapshot.pages;
 
   const membership = me.memberships.find((entry) => entry.workspaceId === workspaceId);
-  const mutations = usePageMutations(me.user.id, workspaceId, pages);
+  const { notices, notify, dismiss } = useNotices();
+  const mutations = usePageMutations(me.user.id, workspaceId, pages, notify);
 
   const selectPage = (pageId: string) =>
     void navigate({ to: '/w/$workspaceId/page/$pageId', params: { workspaceId, pageId } });
 
   const createPage = async (parentId: string | null) => {
     const pageId = await mutations.createPage(parentId);
-    selectPage(pageId);
+    // Null means the write failed and the user has been told; there is no page to open.
+    if (pageId) selectPage(pageId);
   };
 
   const deletePage = async (page: PageRecord) => {
@@ -68,6 +72,7 @@ export function WorkspaceShell() {
         <div className="shell__content">
           <Outlet />
         </div>
+        <NoticeStack notices={notices} onDismiss={dismiss} />
       </div>
     </WorkspaceContext.Provider>
   );
