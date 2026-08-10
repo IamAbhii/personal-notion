@@ -1,0 +1,17 @@
+# Dependencies and build output
+node_modules/
+dist/
+build/
+.wrangler/
+coverage/
+
+# Generated and binary-ish artefacts
+package-lock.json
+*.tsbuildinfo
+screenshots/
+
+# Operator-owned files: the product contract and the agent configuration. These are written by
+# hand and must not be reflowed by a formatter.
+REQUIREMENTS.md
+CLAUDE.md
+.claude/
