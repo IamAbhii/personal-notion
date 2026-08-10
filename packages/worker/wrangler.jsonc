@@ -1,0 +1,36 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "personal-space",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-01-15",
+  "observability": { "enabled": true },
+
+  // The built PWA is served by the same Worker, so the API and the app share one origin (no CORS,
+  // one cookie domain). Unmatched non-API paths fall back to index.html for client-side routing,
+  // and /api/* always reaches the Worker even when a file of that name happens to exist.
+  "assets": {
+    "directory": "../frontend/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"],
+  },
+
+  // Local development and tests run against a local SQLite file created by Miniflare; the
+  // database_id below is replaced by the real one at deploy time.
+  // Future: `wrangler d1 create personal-space` in the deployment phase writes the real
+  // database_id here (or it moves into an env-specific block).
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "personal-space",
+      "database_id": "local-development",
+      "migrations_dir": "migrations",
+    },
+  ],
+
+  // Non-secret defaults. Secrets (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, SESSION_SECRET) live in
+  // .dev.vars locally and in `wrangler secret put` in production, never here.
+  "vars": {
+    "NODE_ENV": "development",
+  },
+}

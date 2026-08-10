@@ -113,11 +113,28 @@ port — open it in your own browser to watch and use the product.
 
 ## Running the app (once built)
 
-Local development needs no Cloudflare account, no Google credentials and no internet — `wrangler dev`
-runs the Worker against a local D1 database, with sign-in bypassed:
+You need [Node.js 22 or newer](https://nodejs.org) and nothing else: no Cloudflare account, no Google
+credentials, no internet. In a terminal, in this folder, run these two commands once:
 
+    cp packages/worker/.dev.vars.example packages/worker/.dev.vars
     npm install
-    npm run dev
+
+Then, every time you want to use the app, one command:
+
+    npm start
+
+Wait for the line `Ready on http://localhost:8787`, then open **http://localhost:8787** in your
+browser. The sidebar comes up populated with a starter set of pages. Sign-in is bypassed locally, so
+there is nothing to log into. Press `Ctrl+C` in the terminal to stop it.
+
+`npm start` builds the app, applies any new database migrations to the local database, and starts the
+one server that serves both the app and its API. Your pages live in a local database file under
+`.wrangler/`, so they are still there the next time you start it.
+
+Two extra commands, for working on the code rather than using it:
+
+    npm run dev    # Vite dev server on :5173 with hot reload, proxying /api to the Worker on :8787
+    npm test       # the backend and frontend unit test suites
 
 Deploying is one Worker, one D1 database and one static-assets binding. Secrets go in via
 `wrangler secret put`, never into `wrangler.toml`:

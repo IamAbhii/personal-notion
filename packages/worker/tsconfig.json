@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  // The Worker package: type checking only, emit is Wrangler's job. The Workers runtime types plus
+  // the vitest-pool-workers types (for the `cloudflare:test` module) are the only ambient types.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["@cloudflare/workers-types/experimental", "@cloudflare/vitest-pool-workers/types"],
+    "tsBuildInfoFile": "./node_modules/.cache/tsconfig.worker.tsbuildinfo"
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts", "vitest.config.ts"]
+}

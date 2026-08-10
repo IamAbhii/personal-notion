@@ -8,14 +8,23 @@
     "packages/worker"
   ],
   "scripts": {
+    "start": "npm run build:frontend && npm run migrate:local && npm run start:worker",
+    "build:frontend": "npm run build -w @personal-space/frontend",
+    "migrate:local": "npm run migrate:local -w @personal-space/worker",
+    "start:worker": "npm run dev -w @personal-space/worker",
+    "dev": "concurrently -k -n worker,web -c blue,magenta \"npm run start:worker\" \"npm run dev -w @personal-space/frontend\"",
+    "test": "npm run test:worker && npm run test:frontend",
+    "test:worker": "npm run test -w @personal-space/worker",
+    "test:frontend": "npm run test -w @personal-space/frontend",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "typecheck": "tsc --build --force"
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p packages/worker && tsc --noEmit -p packages/frontend"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
+    "concurrently": "^9.2.4",
     "eslint": "^9.39.5",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react-hooks": "^7.1.1",
