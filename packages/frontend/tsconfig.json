@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  // The PWA package. Extends the workspace base (strict, type-check only) and adds the DOM libs,
+  // the React JSX transform and the ambient types Vite and Vitest provide.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "types": ["vite/client", "vitest/globals"],
+    "tsBuildInfoFile": "./node_modules/.tmp/frontend.tsbuildinfo"
+  },
+  "include": ["src", "vite.config.ts", "vitest.setup.ts"]
+}

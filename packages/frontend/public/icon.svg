@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Personal Space">
+  <rect width="512" height="512" rx="112" fill="#16151b" />
+  <rect x="112" y="112" width="96" height="288" rx="26" fill="#ecad0a" />
+  <rect x="240" y="112" width="160" height="96" rx="26" fill="#209dd7" />
+  <rect x="240" y="240" width="160" height="160" rx="26" fill="#753991" />
+</svg>
