@@ -8,12 +8,17 @@ Build Personal Space exactly as specified in [REQUIREMENTS.md](./REQUIREMENTS.md
 is the contract: its phases, success criteria and final criteria decide when work is done. When in
 doubt, REQUIREMENTS.md wins.
 
-[ARCHITECTURE.md](./ARCHITECTURE.md) records the decisions that are **fixed** for this project and is
-mandatory reading before you write any code: the stack, the hosted deployment target, Google sign-in,
-the tenancy seams for future multi-user and multi-workspace support, offline editing with a sync
-queue, production readiness, and the code comment convention. REQUIREMENTS.md still wins on *what*
-the product does; ARCHITECTURE.md decides *how* it is built, and its choices are not up for
-relitigation mid-build. Read the sections relevant to your task, not the whole file.
+The decisions that are **fixed** for this project live in `docs/architecture/`, one file per area,
+indexed by [ARCHITECTURE.md](./ARCHITECTURE.md): the stack, the hosted deployment target, D1's
+constraints, Google sign-in, the tenancy seams for future multi-user and multi-workspace support, the
+data model and seed, offline editing with a sync queue, production readiness, and the code comment
+convention. REQUIREMENTS.md still wins on *what* the product does; these decide *how* it is built,
+and they are not up for relitigation mid-build.
+
+**Read only the file your task needs.** That is why the decisions are split across files rather than
+kept in one: a task spec names the one or two files that apply, and the agent reads those. Reading the
+whole set to find your section wastes the context budget it exists to protect. If a task spec forgets
+to name a file, start from the ARCHITECTURE.md index and open only what the index says is relevant.
 
 ## The team
 
@@ -33,20 +38,150 @@ This project is built by one main Claude Code session and four subagents.
 Dispatch a subagent with the Task tool, naming the agent (for example `frontend-dev`). Give it a
 short, self-contained task spec. Let it finish and report; do not micro-manage mid-task.
 
+## One session per phase
+
+**Each phase runs in a fresh Claude Code session.** The orchestrator is the most expensive model in
+the project, and its context accumulates every dispatch, diff, screenshot and test log in the
+session; every later turn re-bills that whole history. A six-phase build in one session pays phase 6
+prices for phase 1's screenshots.
+
+Phase boundaries are the natural cut points because no state is lost at them: REQUIREMENTS.md holds
+the contract, `docs/architecture/` holds the fixed decisions, the PR stack and git history hold the
+work, and DEFECTS.md and ADVERSARIAL_REVIEW.md hold the open ledgers. Everything the next phase needs
+is on disk.
+
+So: when a phase gate passes, do not start the next phase in the same session. Write the handoff, then
+stop and tell the operator to start a fresh session for the next phase. The handoff is short — appended
+to the end of the phase's gate summary, and nowhere else:
+
+- which phase just passed, and the branch its last PR sits on
+- the open PR numbers in the stack, in order
+- any OPEN or FIX-READY defect numbers, and any PENDING adversary findings
+- anything learned that is not written down anywhere else (and if it matters beyond one phase, it
+  belongs in `docs/architecture/` or DEFECTS.md instead, not in a handoff note)
+
+A fresh session's first act is to read REQUIREMENTS.md's next phase, that handoff, and `git log --oneline`
+plus `gh pr list` to confirm the stack — not to re-read the previous phase's diffs.
+
 ## How the orchestrator runs each phase
 
 1. Read the phase in REQUIREMENTS.md. Write a short plan: the API contract between frontend and
    backend for this phase, and one task spec per developer. A task spec says what to build, which
-   unit tests to add, and which success criteria it serves.
+   unit tests to add, which success criteria it serves, **and which `docs/architecture/` files to
+   read** — name them by path, so the agent reads two files rather than nine.
 2. Dispatch backend-dev and frontend-dev in parallel with their specs — one message, two Task
    calls. They can start together because the contract is fixed first.
-3. When both report done, review the evidence: diffs, test output, and the frontend screenshots.
-   You have vision — look at the screenshots and judge them against the look-and-feel rules and the
-   phase's criteria. Send specific fixes back if they fall short.
+3. When both report done, review the evidence against the report contract below: the summary,
+   `git diff --stat`, the tail of the test output, and the screenshots the agent nominated. You have
+   vision — look at those screenshots and judge them against the look-and-feel rules and the phase's
+   criteria. Pull the full diff for a file only when the summary looks wrong or a criterion is not
+   demonstrated. Send specific fixes back if they fall short.
 4. Have qa write and run the phase's end-to-end tests, run the full suites, and capture screenshots.
 5. Dispatch the adversary on a short pass over the features this phase added. Triage every finding.
 6. Walk the phase's success criteria one by one. Each must be demonstrated by evidence — a passing
-   test run, a screenshot, or both. Only then does the next phase start.
+   test run, a screenshot, or both. Only then does the phase gate pass — and then the next phase
+   starts in a new session, per the section above.
+
+## The report contract
+
+**Every subagent reports to a fixed shape.** A finishing agent's natural instinct is to paste the full
+diff and the full test log into its report, and all of that lands in the orchestrator's context and is
+re-billed on every subsequent turn of the session. The report is a summary for a reviewer who can fetch
+the details, not the details.
+
+A report contains, in this order:
+
+1. **What changed and why** — a few sentences of prose: the approach, the key decisions, anything the
+   orchestrator needs to judge the work. This is the part that matters; do not compress it.
+2. **Files touched** — the list of paths, with one clause each on what changed in it.
+3. **`git diff --stat`** — the output, nothing more.
+4. **Test evidence** — the command run and the **last ~20 lines** of its output: the pass/fail counts
+   and any failure summary. Not the full log. If something failed, also include the failing
+   assertion itself, however long it is — a failure is the one case where detail is worth the tokens.
+5. **`npx tsc --noEmit`, `npm run lint` and `npm run format:check`** — the result of each in one line
+   ("clean"), or the errors if not clean.
+6. **Screenshots** — nominated, per the budget below.
+7. **Anything the orchestrator must decide** — contract problems, a test that looks wrong, a boundary
+   you would have had to cross.
+
+Never paste a full file, a full diff or a full test log into a report. Never paste source code into a
+report to show what you wrote — the diff is in git, and the orchestrator reads it there if the summary
+warrants it. If you think the orchestrator must see a specific hunk to judge the work, quote that hunk
+and say why.
+
+## Screenshot budget
+
+Screenshots are the most expensive evidence in the build: each one costs the orchestrator vision
+tokens to look at, and a phase gate that hands over everything in `screenshots/` quietly becomes the
+most expensive turn of the session.
+
+- **Fix the viewport at 1280x800** for every screenshot, in the Playwright config and in any ad-hoc
+  capture. One size keeps captures comparable across phases and keeps each image's cost predictable.
+- **Nominate, do not dump.** An agent's report names the **two or three** screenshots that actually
+  demonstrate the phase's criteria, says which criterion each one demonstrates, and lets the rest sit
+  in `screenshots/` for the orchestrator to open on request. Capture as many as you need for your own
+  verification; hand over the ones that prove something.
+- **Full-page captures only where the point is the whole page.** Otherwise capture the element or the
+  viewport.
+- The orchestrator looks at the nominated ones, and opens more only when a criterion is not
+  demonstrated or something looks wrong.
+
+## Code formatting, linting and type checking
+
+**The very first implementation task of the project — before any product code is written — sets up
+Prettier and ESLint.** Doing it first means every later diff is already formatted and linted, so no
+PR ever mixes product changes with a formatting sweep. It ships as its own PR, on its own branch,
+ahead of the Phase 1 task branches.
+
+That setup task delivers:
+
+- **Prettier** owns all formatting. One `.prettierrc.json` at the repo root plus a `.prettierignore`
+  for build output, lockfiles and `screenshots/`. Nobody argues about style; Prettier decides.
+- **ESLint 9 flat config** (`eslint.config.js`) using the standard recommended rule sets:
+  `@eslint/js` recommended, `typescript-eslint` recommended, and the React hooks and react-refresh
+  rules scoped to frontend files so Worker code is not linted for React rules.
+  `eslint-config-prettier` goes **last** in the composition, so ESLint catches bugs and never fights
+  Prettier over formatting.
+- **npm scripts** at the root: `format`, `format:check`, `lint`, `lint:fix`, and `typecheck`
+  (`tsc --noEmit` across the workspace).
+
+Every agent runs these on the files it touched before it reports done. A task is not finished while
+`npm run lint` or `npm run typecheck` fails.
+
+### The TypeScript language server
+
+The same setup task installs a TypeScript/JavaScript language server and wires it into Claude Code, so
+type information comes from the compiler rather than from reading files and guessing. Two pieces are
+needed, and neither implies the other:
+
+1. **The binary** — `npm install -g typescript-language-server typescript`. It must be **global**, on
+   `PATH`: the plugin spawns it by name, so a root devDependency in `node_modules/.bin` is invisible to
+   it. The devcontainer installs it in `.devcontainer/setup.sh` alongside Claude Code itself.
+2. **The Claude Code plugin** — `/plugin install typescript-lsp@claude-plugins-official`. Claude Code's
+   LSP tool ships built in but is **inactive until a code-intelligence plugin activates it**, and the
+   plugin configures the connection without installing the binary. Installing one without the other
+   gets you nothing: no plugin means no LSP tool, and no binary means
+   `Executable not found in $PATH`.
+
+Once both are in place, use it:
+
+- **Prefer the LSP over grep for anything type-shaped.** Go-to-definition, find-references, hover types
+  and call hierarchies answer "where is this used" and "what is this type" exactly, in one call, where
+  a text search returns near-misses and costs several reads to disambiguate. This matters most on the
+  seams the architecture docs call out — the repository layer's `ctx` type
+  ([tenancy](./docs/architecture/tenancy.md)), `resolveAccess`
+  ([auth](./docs/architecture/auth.md)), the sync op shape
+  ([offline and sync](./docs/architecture/offline-sync.md)) — where a rename must reach every caller.
+- **It is a cost decision as much as a correctness one.** A hover type is tens of tokens; working out
+  what `ctx` is by reading three files is thousands, and those thousands stay in the orchestrator's
+  context for the rest of the session. Reach for the LSP first on every type question.
+- **Diagnostics after every edit are the fast feedback loop.** Read them and fix before moving on;
+  `npm run typecheck` is the gate at commit time, not the way to find a type error you just wrote.
+- **Subagents do not get the LSP tool.** It is main-session configuration, and plugin inheritance into
+  Task agents is not a documented guarantee. So frontend-dev, backend-dev, qa and adversary verify
+  types the way they always have — `npx tsc --noEmit` through Bash — and report the output. The
+  orchestrator, which is the main session, is the one that uses the LSP: for reviewing a diff's blast
+  radius and confirming a change reached every call site, without reading whole files to do it.
 
 ## Git and pull requests
 
@@ -71,6 +206,12 @@ Every task ships as its own pull request. The build does not pause for review.
   start the next task immediately on a branch off it. Review comments are picked up whenever they
   arrive; an unreviewed PR is not a blocker. The build runs to completion — every phase, every
   success criterion in REQUIREMENTS.md — without pausing for approval.
+- **Before every commit, run the type check and the linter, and fix what they report — then commit.**
+  In order: `npm run typecheck`, `npm run lint`, `npm run format:check`. A type error, a lint error or
+  an unformatted file is fixed before the commit is made, never after and never in a follow-up commit.
+  Use `npm run lint:fix` and `npm run format` for the mechanical fixes; fix real type errors by hand
+  rather than by widening a type to `any` or reaching for `@ts-expect-error`. Nothing that fails these
+  three commands is ever committed, so every commit on every branch is green.
 - **Never commit or push to `main` directly**, and never merge your own PR unless the operator has
   said to.
 - **The orchestrator owns git.** Subagents write files; the orchestrator branches, commits, and opens
@@ -86,9 +227,9 @@ A reviewer should not have to read the diff to understand the change. Write, in 
 1. **What this is for** — the task, the phase, and which REQUIREMENTS.md success criteria it serves.
 2. **How the code works** — a short walkthrough of the approach: the modules added, the data flow
    through them, and the key decisions taken. Name the files a reviewer should start with.
-3. **Why it was done this way** — any non-obvious choice, and what was rejected. Point at the
-   relevant ARCHITECTURE.md section rather than restating it.
-4. **Evidence** — test output, and screenshots for anything with a visible surface.
+3. **Why it was done this way** — any non-obvious choice, and what was rejected. Link the relevant
+   `docs/architecture/` file rather than restating it.
+4. **Evidence** — test output, and the nominated screenshots for anything with a visible surface.
 5. **What is deliberately not here** — scope left to a later task, so its absence is not read as an
    oversight.
 
@@ -127,7 +268,7 @@ If a boundary would be crossed, stop and report instead of working around it wit
 - Screenshots live under `screenshots/`.
 - No emojis in code, comments, print statements or logging. (Emoji page icons in the product's
   data and UI are a feature, not a violation.)
-- Comment the code as ARCHITECTURE.md's "Code comments" section requires: a short comment on every
+- Comment the code as [docs/architecture/comments.md](./docs/architecture/comments.md) requires: a short comment on every
   exported function, component, hook and route handler saying what it does and why; brief comments on
   non-obvious logic; and a `// Future:` comment at every scalability seam, naming the change that
   would be made. This is a review criterion, not a nicety — the orchestrator sends work back without it.
@@ -197,8 +338,26 @@ final phase completes.
 
 ## Cost discipline (orchestrator)
 
-The main session is the most capable and most expensive model. Spend it on judgment, not typing:
+The main session is the most capable and most expensive model, and the subagents are deliberately
+cheaper: the developers and the adversary run on Sonnet, qa on Haiku, and only the orchestrator on the
+top model. Spend the expensive context on judgment, not typing or transcription:
 
-- Never write or edit code. Delegate all code to the developer subagents.
-- Read diffs, summaries, test output and screenshots — not whole source trees.
+- **Never write or edit code.** Delegate all code to the developer subagents.
+- **One session per phase.** The single largest saving in the build — see "One session per phase"
+  above. Everything the orchestrator reads stays in context and is re-billed on every later turn, so a
+  session that spans six phases is the expensive failure mode.
+- **Take the summary, not the artefact.** Read the report contract's summary, `git diff --stat` and the
+  test tail. Pull a full diff or a full log only when the summary looks wrong or a success criterion is
+  not demonstrated by what you were given.
+- **Name the architecture file in the task spec**, so an agent reads one file instead of nine.
+- **Budget vision.** Look at the two or three nominated screenshots; open more only on doubt.
+- **Use the LSP for type questions** rather than reading files to infer types.
 - Keep plans and task specs short. Let subagents finish and report before intervening.
+
+Two things deliberately not done, so they are not proposed again as improvements:
+
+- **No PostToolUse hook running `tsc` on every edit.** It injects compiler output into the context on
+  every edit, including the many where nobody cares, and the pre-commit gate (`typecheck`, `lint`,
+  `format:check`) already catches the same errors for a fraction of the tokens.
+- **No trimming of the MCP tool list.** Those tools are deferred behind tool search and cost only their
+  names, so there is nothing meaningful to reclaim.

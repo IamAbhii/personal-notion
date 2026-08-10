@@ -13,21 +13,21 @@ network returns. Access is gated by **Google sign-in**. Hosting cost is effectiv
 
 ## Stack
 
-| Layer | Choice | Why |
-|---|---|---|
-| Frontend | **React + TypeScript**, built with **Vite** | Fast builds, first-class TS |
-| Routing / data / tables | **TanStack** Router, Query, Table, Form | One coherent, well-supported family |
-| Offline | **IndexedDB** (`idb`/Dexie) + an op queue, `vite-plugin-pwa` service worker | Editing works with no network |
-| Backend | **TypeScript on Cloudflare Workers** with **Hono** | No server to patch, no process to supervise |
-| Database | **Cloudflare D1** (managed SQLite) via **Drizzle ORM** | SQLite semantics, zero ops, portable schema |
-| Search | Client-side over the local copy | Instant, works offline, no server index |
-| Auth | **Google Sign-In (OAuth 2.0 / OIDC)**, implemented in-app | Portable and testable; no edge-provider lock-in |
-| Unit tests | **Vitest**, backend via `@cloudflare/vitest-pool-workers` | Handlers run in the real `workerd` runtime |
-| End-to-end tests | **Playwright** | Drives the real app in a real browser |
-| Hosting | **Cloudflare Workers + D1 + static assets**, one origin | Free tier covers it; TLS, CDN and DDoS included |
+| Layer                   | Choice                                                                      | Why                                             |
+| ----------------------- | --------------------------------------------------------------------------- | ----------------------------------------------- |
+| Frontend                | **React + TypeScript**, built with **Vite**                                 | Fast builds, first-class TS                     |
+| Routing / data / tables | **TanStack** Router, Query, Table, Form                                     | One coherent, well-supported family             |
+| Offline                 | **IndexedDB** (`idb`/Dexie) + an op queue, `vite-plugin-pwa` service worker | Editing works with no network                   |
+| Backend                 | **TypeScript on Cloudflare Workers** with **Hono**                          | No server to patch, no process to supervise     |
+| Database                | **Cloudflare D1** (managed SQLite) via **Drizzle ORM**                      | SQLite semantics, zero ops, portable schema     |
+| Search                  | Client-side over the local copy                                             | Instant, works offline, no server index         |
+| Auth                    | **Google Sign-In (OAuth 2.0 / OIDC)**, implemented in-app                   | Portable and testable; no edge-provider lock-in |
+| Unit tests              | **Vitest**, backend via `@cloudflare/vitest-pool-workers`                   | Handlers run in the real `workerd` runtime      |
+| End-to-end tests        | **Playwright**                                                              | Drives the real app in a real browser           |
+| Hosting                 | **Cloudflare Workers + D1 + static assets**, one origin                     | Free tier covers it; TLS, CDN and DDoS included |
 
 **Running cost:** USD 0 on a `*.workers.dev` subdomain. Backups are D1 **Time Travel** (30-day
-point-in-time restore) rather than a backup cron. See [ARCHITECTURE.md](./ARCHITECTURE.md) for the
+point-in-time restore) rather than a backup cron. See [docs/architecture/d1-constraints.md](./docs/architecture/d1-constraints.md) for the
 free-tier limits that shape the design — chiefly no interactive transactions, and 50 D1 queries per
 Worker invocation, which is why offline sync flushes in ordered chunks.
 
@@ -54,10 +54,11 @@ Worker invocation, which is why offline sync flushes in ordered chunks.
 ## Documentation
 
 - [REQUIREMENTS.md](./REQUIREMENTS.md) — the product contract: what gets built, phase by phase, with
-  success criteria. This document wins on *what* the product does.
-- [ARCHITECTURE.md](./ARCHITECTURE.md) — the fixed decisions: stack, D1 constraints, tenancy seams, API
-  contract, offline sync, production readiness, the Cloudflare deploy, and the code comment convention.
-  This document decides *how* it is built.
+  success criteria. This document wins on _what_ the product does.
+- [ARCHITECTURE.md](./ARCHITECTURE.md) — an index of the fixed decisions, which live one-per-area in
+  `docs/architecture/`: stack, D1 constraints, tenancy seams and the API contract, offline sync,
+  production readiness, the Cloudflare deploy, and the code comment convention. These decide _how_ it
+  is built. Read only the file you need.
 - [CLAUDE.md](./CLAUDE.md) — the build rules: team roles, defect workflow, file formats.
 - `.claude/agents/` — the four worker subagents. The orchestrator is the main Claude Code session.
 
@@ -125,4 +126,4 @@ Deploying is one Worker, one D1 database and one static-assets binding. Secrets 
     wrangler deploy
 
 The exact steps, the Google OAuth client setup, the redirect URI to register, and the restore
-procedure are in [ARCHITECTURE.md](./ARCHITECTURE.md) under "Deploying to Cloudflare".
+procedure are in [docs/architecture/deployment.md](./docs/architecture/deployment.md).

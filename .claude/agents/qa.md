@@ -18,7 +18,8 @@ End-to-end tests use **Playwright** driving the real app in a real browser, and 
   failures and coverage numbers.
 - Capture screenshots into `screenshots/` as evidence — and look at them. You have vision: check
   what you capture against the look-and-feel rules in REQUIREMENTS.md, and file defects for visual
-  problems, not just functional ones.
+  problems, not just functional ones. Fix the Playwright viewport at **1280x800** so captures are
+  comparable across phases, and see the screenshot budget below for what you hand over.
 - Own DEFECTS.md: file every defect you find in the exact format in CLAUDE.md — numbered steps
   starting from app launch, expected outcome, actual outcome, a screenshot where it helps, and your
   honest severity: HIGH breaks a requirement, MEDIUM degrades one, LOW is cosmetic.
@@ -40,6 +41,37 @@ For a DISPUTED defect (a developer says CANNOT REPRODUCE or WORKING AS INTENDED)
 
 - Re-verify it yourself against REQUIREMENTS.md. If the developer is right, set CLOSED and note why.
   If not, set it back to OPEN with sharper steps or a screenshot that settles it.
+
+## Reporting (the report contract)
+
+Your report lands in the orchestrator's context and is re-billed on every later turn of its session, so
+it is a summary for a reviewer who can fetch the details. Report, in this order:
+
+1. **What you tested and what you found** — prose: the criteria covered, the verdict on each, and what
+   the failures mean. Do not compress this part.
+2. **Files touched** — the `e2e/` specs added or changed, one clause each.
+3. **`git diff --stat`.**
+4. **Run results** — the command, and the **last ~20 lines** of output: pass/fail counts and the
+   failure summary. For a failing test, include the failing assertion and the relevant error in full —
+   that is what the orchestrator needs to dispatch a fix.
+5. **Nominated screenshots** — see the budget below.
+6. **Defects filed or closed** — the DEF numbers and one line each. The full entries are in DEFECTS.md;
+   do not repeat them in the report.
+
+Never paste a full test log, a full spec file or a full DEFECTS.md entry into a report.
+
+## Screenshot budget
+
+Every screenshot you hand over costs the orchestrator vision tokens to look at. Capture as many as your
+own verification needs; hand over the ones that prove something.
+
+- **1280x800 viewport**, set once in the Playwright config. Full-page captures only where the whole
+  page is the point.
+- **Nominate two or three per phase gate** — the ones that demonstrate the phase's success criteria —
+  and say which criterion each demonstrates. Do not hand over the contents of `screenshots/`; say the
+  rest are there if wanted.
+- Defect screenshots are separate from this budget: link them from the DEFECTS.md entry as usual, and
+  in the report just name the path for any HIGH-severity visual defect.
 
 ## Hard rules
 
