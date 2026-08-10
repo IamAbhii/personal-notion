@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#16151b" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <title>Personal Space</title>
+    <script>
+      // Theme is per device and must apply before first paint, so it runs inline here rather than
+      // in the React entry point. Light is the default until the Phase 5 toggle ships.
+      try {
+        var stored = localStorage.getItem('personal-space:theme');
+        document.documentElement.dataset.theme = stored === 'dark' ? 'dark' : 'light';
+      } catch (error) {
+        document.documentElement.dataset.theme = 'light';
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
