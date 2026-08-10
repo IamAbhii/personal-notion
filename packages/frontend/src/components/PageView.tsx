@@ -58,7 +58,9 @@ export function PageView({
       </div>
 
       <main className="page">
-        <header className="page__header">
+        {/* data-page-id here lets a test assert which page the main area is showing without
+            parsing the URL. Same convention as the sidebar rows. */}
+        <header className="page__header" data-page-id={page.id}>
           <div className="page__icon-wrap">
             <button
               type="button"

@@ -65,8 +65,13 @@ export function Sidebar({
           role="treeitem"
           aria-expanded={children.length ? !isCollapsed : undefined}
         >
+          {/* data-page-id is the end-to-end selector hook: it names one entity unambiguously where
+              visible text can repeat across rows. It sits on the row container so the title control
+              and the row actions are all inside the matched element.
+              Future: blocks and database rows carry the same shape - data-block-id, data-row-id. */}
           <div
             className={`row${isCurrent ? ' row--current' : ''}`}
+            data-page-id={page.id}
             style={{ paddingLeft: `${8 + depth * 16}px` }}
           >
             {children.length > 0 ? (
