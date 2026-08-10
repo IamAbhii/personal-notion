@@ -44,6 +44,18 @@ describe('sort keys', () => {
     expect(existing.every((sortKey) => sortKey < key)).toBe(true);
   });
 
+  it('never repeats a key already reserved by a create in flight (DEF-007)', () => {
+    // Ten clicks land before the first result is applied, so the page list never changes between
+    // them; only the reservations keep the keys apart.
+    const reserved: string[] = [];
+    for (let index = 0; index < 10; index += 1) {
+      reserved.push(sortKeyForNewChild(fixturePages, null, reserved));
+    }
+
+    expect(new Set(reserved).size).toBe(10);
+    expect(reserved).toEqual([...reserved].sort());
+  });
+
   it('places a key strictly between two neighbours', () => {
     const between = sortKeyBetween('a1', 'a2');
 

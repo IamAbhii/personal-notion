@@ -85,7 +85,7 @@ describe('InlineTitleInput', () => {
     expect(props.onCancel).toHaveBeenCalledTimes(1);
   });
 
-  it('does not commit an empty title', async () => {
+  it('refuses a blank title visibly instead of discarding the edit silently (DEF-010)', async () => {
     const user = userEvent.setup();
     const props = renderInput();
 
@@ -94,6 +94,42 @@ describe('InlineTitleInput', () => {
     await user.type(input, '   {Enter}');
 
     expect(props.onCommit).not.toHaveBeenCalled();
+    // The edit stays open with the reason on screen: closing silently is indistinguishable from a
+    // lost write, which is the defect.
+    expect(props.onCancel).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent('A page needs a name');
+    expect(input).toHaveValue('Reading list');
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+  });
+
+  it('clears the refusal once the user types again', async () => {
+    const user = userEvent.setup();
+    renderInput();
+
+    const input = screen.getByLabelText('New name for Reading list');
+    await user.clear(input);
+    await user.type(input, '{Enter}');
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+
+    await user.type(input, 'x');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('closes a blank edit on blur, which puts the old title back on screen', async () => {
+    const user = userEvent.setup();
+    const props = renderInput();
+
+    const input = screen.getByLabelText('New name for Reading list');
+    await user.clear(input);
+    await user.click(screen.getByRole('button', { name: 'Elsewhere' }));
+
+    expect(props.onCommit).not.toHaveBeenCalled();
     expect(props.onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('caps the title at the 500 characters the server accepts', () => {
+    renderInput();
+
+    expect(screen.getByLabelText('New name for Reading list')).toHaveAttribute('maxlength', '500');
   });
 });

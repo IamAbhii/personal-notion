@@ -35,8 +35,30 @@ describe('Sidebar tree', () => {
     // Lisbon sits two levels deep, so its row is indented further than its grandparent's.
     const lisbon = screen.getByRole('button', { name: 'Lisbon' }).closest('.row');
     const journal = screen.getByRole('button', { name: 'Journal' }).closest('.row');
-    expect(lisbon?.getAttribute('style')).toContain('40px');
+    expect(lisbon?.getAttribute('style')).toContain('36px');
     expect(journal?.getAttribute('style')).toContain('8px');
+  });
+
+  it('caps the indent of a very deep chain so the row keeps its title and icon (DEF-009)', () => {
+    // 24 levels: a per-level indent with no cap leaves a row of this depth with no room for text.
+    const deep = Array.from({ length: 24 }, (_unused, index) =>
+      makePage({
+        id: `p-${index}`,
+        title: `Level ${index}`,
+        parentId: index ? `p-${index - 1}` : null,
+      }),
+    );
+    renderSidebar({ pages: deep, currentPageId: 'p-23' });
+
+    const deepest = screen.getByRole('button', { name: 'Level 23' }).closest('.row');
+    const capped = screen.getByRole('button', { name: 'Level 10' }).closest('.row');
+
+    expect(deepest?.getAttribute('style')).toBe(capped?.getAttribute('style'));
+    const indent = Number(
+      /padding-left:\s*(\d+)px/.exec(deepest?.getAttribute('style') ?? '')?.[1],
+    );
+    // The sidebar tree is 271px wide, so the indent has to leave the title most of it.
+    expect(indent).toBeLessThan(140);
   });
 
   it('renders siblings in sortKey order', () => {

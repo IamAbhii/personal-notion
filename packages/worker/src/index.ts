@@ -1,6 +1,7 @@
 // The Worker entry point: one Hono app serving the API and, through the static-assets binding, the
 // built PWA, so the whole product is one origin.
 import { Hono } from 'hono';
+import { HTTPException } from 'hono/http-exception';
 import { requireAccess } from './auth/middleware';
 import { configErrors, type Env } from './env';
 import { meRoutes } from './routes/me';
@@ -46,6 +47,23 @@ app.all('/api/*', (c) => c.json({ error: 'not_found', message: 'No such endpoint
 app.all('*', async (c) => {
   if (!c.env.ASSETS) return c.text('Not found', 404);
   return c.env.ASSETS.fetch(c.req.raw);
+});
+
+// One handler for every unexpected throw, so no route can answer with Hono's default plain-text
+// "Internal Server Error": clients parse JSON, and a bare 500 tells them (and the log) nothing. The
+// message is deliberately generic - the detail goes to the log, not to the caller.
+app.onError((err, c) => {
+  if (err instanceof HTTPException) return err.getResponse();
+  console.error(
+    'Unhandled error',
+    JSON.stringify({
+      method: c.req.method,
+      path: new URL(c.req.url).pathname,
+      message: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+    }),
+  );
+  return c.json({ error: 'internal_error', message: 'Something went wrong on the server.' }, 500);
 });
 
 export default app satisfies ExportedHandler<Env>;

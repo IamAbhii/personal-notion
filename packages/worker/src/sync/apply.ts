@@ -1,20 +1,20 @@
 // Applies a batch of ops in client_seq order as a single D1 batch: either the whole chunk lands or
 // none of it does, which is what lets the client retry a chunk safely.
-import { generateKeyBetween } from 'fractional-indexing';
 import type { Db } from '../db/client';
 import { runBatch, type Statement } from '../db/batch';
 import { appliedOps } from '../db/schema';
+import { isValidSortKey, nextKeyAfter } from '../lib/sortKey';
 import { findAppliedOps, recordAppliedOpStatement, type AppliedOpRecord } from '../repo/appliedOps';
 import type { Ctx } from '../repo/context';
 import {
   buildPageRow,
-  deletePagesStatement,
+  deletePagesStatements,
   insertPageStatement,
   listPageStates,
   updatePageStatement,
   type PagePatch,
 } from '../repo/pages';
-import type { Op, OpResult, VersionMismatch } from './ops';
+import { payloadRejection, type Op, type OpResult, type VersionMismatch } from './ops';
 
 // applied_ops binds 10 parameters per row, and D1 allows 100 per query, so the outcome log is
 // written as multi-row inserts of at most 10 rows. Without this a 25-op chunk would need 25 extra
@@ -54,11 +54,21 @@ export async function applyOps(db: Db, ctx: Ctx, ops: Op[]): Promise<SyncOutcome
   const now = Date.now();
   const dataStatements: Statement[] = [];
   const records: AppliedOpRecord[] = [];
-  const resultsByOpId = new Map<string, OpResult>();
+  // Results are keyed by op object, not by opId, because one batch may legally contain the same
+  // opId twice and each occurrence needs its own line in the response.
+  const resultByOp = new Map<Op, OpResult>();
+  const firstResultByOpId = new Map<string, OpResult>();
   const versionMismatches: VersionMismatch[] = [];
 
+  // Stores an op's outcome, and remembers the first outcome seen for each opId so a duplicate of it
+  // later in the same batch can report a replay instead of applying again.
+  const record = (op: Op, result: OpResult) => {
+    resultByOp.set(op, result);
+    if (!firstResultByOpId.has(op.opId)) firstResultByOpId.set(op.opId, result);
+  };
+
   const reject = (op: Op, reason: string) => {
-    resultsByOpId.set(op.opId, {
+    record(op, {
       opId: op.opId,
       status: 'rejected',
       reason,
@@ -78,7 +88,7 @@ export async function applyOps(db: Db, ctx: Ctx, ops: Op[]): Promise<SyncOutcome
 
   // version is null for a delete: the row is gone, so there is no version to report.
   const accept = (op: Op, version: number | null) => {
-    resultsByOpId.set(op.opId, {
+    record(op, {
       opId: op.opId,
       status: 'applied',
       entityId: op.entityId,
@@ -101,13 +111,30 @@ export async function applyOps(db: Db, ctx: Ctx, ops: Op[]): Promise<SyncOutcome
     // retry after a mobile timeout safe.
     const previous = alreadyApplied.get(op.opId);
     if (previous) {
-      resultsByOpId.set(op.opId, {
+      record(op, {
         opId: op.opId,
         status: 'replayed',
         entityId: previous.entityId,
         ...(previous.resultVersion !== null ? { version: previous.resultVersion } : {}),
         ...(previous.reason !== null ? { reason: previous.reason } : {}),
       });
+      continue;
+    }
+
+    // The same opId twice inside one batch is the same idempotency case as a cross-request retry:
+    // the first occurrence is applied and the rest report its outcome. Applying both would violate
+    // the applied_ops primary key and take the whole batch down with it.
+    const earlier = firstResultByOpId.get(op.opId);
+    if (earlier) {
+      resultByOp.set(op, { ...earlier, status: 'replayed' });
+      continue;
+    }
+
+    // Field limits and sort-key validity are checked here rather than in the zod schema, so one bad
+    // field costs the client that op and not the whole batch.
+    const badPayload = payloadRejection(op);
+    if (badPayload) {
+      reject(op, badPayload);
       continue;
     }
 
@@ -186,7 +213,7 @@ export async function applyOps(db: Db, ctx: Ctx, ops: Op[]): Promise<SyncOutcome
       continue;
     }
     const ids = subtreeIds(state, op.entityId);
-    dataStatements.push(deletePagesStatement(db, ctx, ids));
+    dataStatements.push(...deletePagesStatements(db, ctx, ids));
     for (const id of ids) state.delete(id);
     accept(op, null);
   }
@@ -202,8 +229,7 @@ export async function applyOps(db: Db, ctx: Ctx, ops: Op[]): Promise<SyncOutcome
 
   return {
     results: ops.map(
-      (op) =>
-        resultsByOpId.get(op.opId) ?? { opId: op.opId, status: 'rejected', reason: 'unknown' },
+      (op) => resultByOp.get(op) ?? { opId: op.opId, status: 'rejected', reason: 'unknown' },
     ),
     versionMismatches,
   };
@@ -237,9 +263,13 @@ function nextSiblingKey(state: Map<string, PageState>, parentId: string | null):
   let last: string | null = null;
   for (const page of state.values()) {
     if (page.parentId !== parentId) continue;
+    // Sibling keys that are not valid fractional indexes are ignored: a poisoned row written before
+    // sortKey was validated must not be able to block every later create under that parent
+    // (DEF-003). Such a key also sorts arbitrarily, so it is no use as an upper bound.
+    if (!isValidSortKey(page.sortKey)) continue;
     if (last === null || page.sortKey > last) last = page.sortKey;
   }
-  return generateKeyBetween(last, null);
+  return nextKeyAfter(last);
 }
 
 // The page plus every descendant, from projected state, so a delete cascades over children created

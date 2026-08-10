@@ -19,7 +19,7 @@ import { childrenOf } from './lib/pageTree';
 const rootRoute = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   component: Outlet,
   pendingComponent: AppLoading,
-  errorComponent: ({ error }) => <AppError message={error.message} />,
+  errorComponent: ({ error }) => <AppError error={error} />,
 });
 
 /** `/` resolves the user's workspace from /api/me and redirects into it. */

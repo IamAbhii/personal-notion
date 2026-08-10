@@ -374,11 +374,15 @@ button {
   padding: 30px 56px 96px;
 }
 
+/* One line, always. A chain of any depth is collapsed in the markup and the leftovers are clipped
+   here, so the trail can never wrap and push itself out of the fixed-height top bar. */
 .breadcrumb {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 4px;
+  min-width: 0;
+  overflow: hidden;
   font-size: 12.5px;
   color: var(--text-muted);
   min-height: 22px;
@@ -388,6 +392,29 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  min-width: 0;
+}
+
+/* The last crumb is the current page, so it keeps the most room when space runs short. */
+.breadcrumb__item:last-child {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.breadcrumb__gap {
+  padding: 0 2px;
+  color: var(--text-muted);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.breadcrumb__label {
+  display: inline-block;
+  max-width: 22ch;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
 }
 
 .breadcrumb__sep {
@@ -398,6 +425,7 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
   border: 0;
   background: transparent;
   padding: 3px 6px;
@@ -456,21 +484,29 @@ button {
     0 0 0 3px rgba(236, 173, 10, 0.25);
 }
 
+/* A title has no length limit worth relying on, so it wraps - including mid-word for a title with no
+   spaces in it, which would otherwise run one unbroken line far past the column. */
 .page__title {
   margin: 18px 0 0;
   font-size: 42px;
   font-weight: 750;
   letter-spacing: -0.025em;
   line-height: 1.1;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .page__title-button {
+  display: block;
+  max-width: 100%;
   border: 0;
   background: transparent;
   padding: 0;
   font: inherit;
   letter-spacing: inherit;
   text-align: left;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   cursor: text;
 }
 
@@ -688,6 +724,107 @@ button {
   background: var(--surface);
   color: var(--text-muted);
   font-size: 13px;
+}
+
+/* ---------- write notices ---------- */
+
+/* Bottom right of the shell, above the page but clear of the sidebar actions. Notices stay until
+   dismissed: a dropped write is something the user has to read. */
+.notices {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(420px, calc(100vw - 40px));
+}
+
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+}
+
+.notice--warning {
+  background: #3a2410;
+  color: var(--amber-soft);
+}
+
+.notice--info {
+  background: #12293a;
+  color: var(--blue-soft);
+}
+
+.notice__message {
+  margin: 0;
+  flex: 1;
+  /* A rejection reason can carry a page title, so nothing here may widen the card. */
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.notice__dismiss {
+  flex: none;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.12);
+  color: inherit;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.notice__dismiss:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+/* ---------- inline rename ---------- */
+
+/* The wrapper exists only to hang the refusal hint below the input without moving the row. */
+.inline-edit {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
+.page__header .inline-edit {
+  display: block;
+}
+
+/* Anchored to the right edge of the input and allowed to wrap: a deeply indented row leaves little
+   room to its right, and the sidebar clips anything that overflows it. */
+.inline-edit__hint {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 10;
+  width: max-content;
+  max-width: 150px;
+  padding: 4px 9px;
+  border-radius: 7px;
+  background: var(--danger);
+  color: #fff;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.page__header .inline-edit__hint {
+  right: auto;
+  left: 0;
+  max-width: 320px;
 }
 
 /* ---------- full-window status screens ---------- */

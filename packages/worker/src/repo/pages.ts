@@ -2,11 +2,11 @@
 // SQL themselves. Functions come in two flavours: awaited helpers for a single write, and
 // *Statement builders that the sync applier collects into one db.batch().
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
-import { generateKeyBetween } from 'fractional-indexing';
 import type { Db } from '../db/client';
 import { runBatch, type Statement } from '../db/batch';
 import { pages, type PageRow } from '../db/schema';
 import { newId } from '../lib/ids';
+import { nextKeyAfter } from '../lib/sortKey';
 import type { Ctx } from './context';
 
 export type PageInput = {
@@ -107,11 +107,26 @@ export function updatePageStatement(db: Db, ctx: Ctx, id: string, patch: PagePat
     .where(and(eq(pages.workspaceId, ctx.workspaceId), eq(pages.id, id)));
 }
 
-// Delete statement for a set of page ids in this workspace (the page plus its descendants).
-export function deletePagesStatement(db: Db, ctx: Ctx, ids: string[]): Statement {
-  return db
-    .delete(pages)
-    .where(and(eq(pages.workspaceId, ctx.workspaceId), inArray(pages.id, ids)));
+// D1 allows 100 bound parameters per query, and a delete binds the workspace id plus one per page
+// id, so an id list is cut into chunks of this size.
+const DELETE_IDS_PER_STATEMENT = 90;
+
+// Delete statements for a set of page ids in this workspace (a page plus its descendants), chunked
+// to stay inside D1's bound-parameter ceiling. The cascade is expressed here rather than as an
+// ON DELETE CASCADE foreign key because SQLite runs that cascade as a trigger and D1 caps trigger
+// recursion at nine levels, while pages nest to any depth (see migration 0002).
+// Future: a subtree of more than a few thousand pages would need more statements than D1's
+// 50-queries-per-invocation budget allows; the change then is one DELETE whose id list comes from a
+// recursive CTE subquery, which binds two parameters whatever the subtree's size.
+export function deletePagesStatements(db: Db, ctx: Ctx, ids: string[]): Statement[] {
+  const statements: Statement[] = [];
+  for (let i = 0; i < ids.length; i += DELETE_IDS_PER_STATEMENT) {
+    const chunk = ids.slice(i, i + DELETE_IDS_PER_STATEMENT);
+    statements.push(
+      db.delete(pages).where(and(eq(pages.workspaceId, ctx.workspaceId), inArray(pages.id, chunk))),
+    );
+  }
+  return statements;
 }
 
 // The page plus every descendant, deepest last. Deleting a page removes its whole subtree, so the
@@ -132,9 +147,10 @@ export async function descendantIds(db: Db, ctx: Ctx, id: string): Promise<strin
 
 // Creates a page, appending it after its siblings when no sort_key is supplied.
 export async function createPage(db: Db, ctx: Ctx, input: PageInput = {}): Promise<PageRow> {
+  // nextKeyAfter rather than generateKeyBetween: a sibling row whose sort_key is not a valid
+  // fractional index must not be able to stop a page being created (DEF-003).
   const sortKey =
-    input.sortKey ??
-    generateKeyBetween(await lastSiblingSortKey(db, ctx, input.parentId ?? null), null);
+    input.sortKey ?? nextKeyAfter(await lastSiblingSortKey(db, ctx, input.parentId ?? null));
   const row = buildPageRow(ctx, input, sortKey, Date.now());
   await runBatch(db, [insertPageStatement(db, row)]);
   return row;
@@ -158,7 +174,7 @@ export async function updatePage(
 export async function deletePage(db: Db, ctx: Ctx, id: string): Promise<string[]> {
   const ids = await descendantIds(db, ctx, id);
   if (ids.length === 0) return [];
-  await runBatch(db, [deletePagesStatement(db, ctx, ids)]);
+  await runBatch(db, deletePagesStatements(db, ctx, ids));
   return ids;
 }
 

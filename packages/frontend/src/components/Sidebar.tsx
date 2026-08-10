@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { buildPageTree, descendantIds, type PageNode } from '../lib/pageTree';
+import { rowIndent } from '../lib/treeLayout';
 import { ConfirmDialog } from './ConfirmDialog';
 import { InlineTitleInput } from './InlineTitleInput';
 import { ChevronIcon, PencilIcon, PlusIcon, TrashIcon } from './icons';
@@ -72,7 +73,9 @@ export function Sidebar({
           <div
             className={`row${isCurrent ? ' row--current' : ''}`}
             data-page-id={page.id}
-            style={{ paddingLeft: `${8 + depth * 16}px` }}
+            // Indentation is capped past a few levels, so a row nested 20 deep still shows its icon
+            // and title rather than being indented out of the panel.
+            style={{ paddingLeft: `${rowIndent(depth)}px` }}
           >
             {children.length > 0 ? (
               <button
