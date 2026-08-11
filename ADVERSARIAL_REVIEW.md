@@ -267,3 +267,306 @@ you - and it is the same gesture that works for every other string, so nothing d
 "nothing happened" case from a lost write.
 
 Disposition: ACCEPTED -> DEF-010
+
+## ADV-011: The first character typed after Enter lands in the block you just left
+
+- Session: phase-2 gate
+- Suggested severity: HIGH
+
+What I did: typed continuously with Enter between lines, at ordinary human speed (100 ms between
+keystrokes - about 120 characters a minute), on an empty page:
+
+1. Launch the app at http://localhost:8787 (fresh reset).
+2. Click "Add a top-level page" in the sidebar, then click "This page is empty" to create the first
+   block.
+3. Type `First line typed at normal speed`, press Enter, type `Second line`, press Enter, type
+   `Third line` - never pausing between the Enter and the next character.
+
+Expected: three blocks reading `First line typed at normal speed`, `Second line`, `Third line`.
+
+Actual: the text is cut and re-glued across the block boundary. The page reads
+`First line typed at normal speedS` / `econd lineT` / `hird line`, and that is what is stored on the
+server (confirmed in the snapshot, and after a reload). Every line loses its first character to the
+line above.
+
+The cause is visible from the browser: `Enter` posts a `block.create` and awaits the op **and** the
+snapshot refetch before the new block exists to focus, so `document.activeElement` is still the old
+textarea for a while after Enter. I measured that window on this machine at **62 ms** - so anything
+faster than roughly 16 characters a second is mis-routed, and at 100 ms per keystroke exactly one
+character per line goes to the wrong block, deterministically, on every line. Against a real
+deployment (a Cloudflare round trip rather than localhost) the window is larger and several
+characters per line would be lost.
+
+At 5 ms per keystroke - a paste-like burst or a fast repeat - it degrades much further: typing
+`one two three four five six seven eight` with Enter between the words produced blocks reading
+`onetwothre`, `e`, `efourfiv`, `seven`, `(empty)`, `(empty)`, `six`, `eight`, `(empty)`.
+
+This directly undermines Phase 2 criterion 3 ("type into a block, refresh, and the content is
+unchanged"): the content is not what was typed, and it is the saved copy that is wrong, not just the
+screen.
+
+Screenshot: screenshots/adv-011.png
+
+Disposition: ACCEPTED -> DEF-011. The most serious finding of the pass and the one that blocks the phase gate.
+The screenshot is post-reload, so this is stored text, not a rendering artefact: the character after
+Enter is committed to the wrong block. Enter is the most-used gesture in the editor, so this corrupts
+data in ordinary use and breaks Phase 2 criterion 3. Note that 24 end-to-end and 189 unit tests all
+pass over it, because synthetic typing is faster than a human and never hits the race.
+
+## ADV-012: Text typed while the slash menu is open is never saved, but stays on screen until a reload throws it away
+
+- Session: phase-2 gate
+- Suggested severity: MEDIUM
+
+What I did:
+
+1. Launch the app, click "Add a top-level page", click "This page is empty".
+2. In the new empty block type `/my important note` - the slash menu opens on the `/` and stays open
+   because the text still begins with a slash. It shows "No block type matches that."
+3. Click anywhere outside the block (I clicked the page header) so the textarea blurs.
+4. Read the block on screen, then reload the page.
+
+Expected: either the typed text is kept (it is ordinary text - the user clearly abandoned the
+command) or it visibly disappears the moment the menu closes. Not both.
+
+Actual: after the blur the block still shows `/my important note` on screen, but the server has `""`
+for that block - the snapshot confirms it. Nothing on screen says the text is unsaved, and there is
+no save indicator anywhere. After a reload the block is empty and the sentence is gone.
+
+The mechanism is that a keystroke while the menu is open goes through the non-dirtying `reset` path
+rather than `edit`, so the blur handler's `flush()` has nothing marked dirty to write. Pressing
+Escape instead of clicking away does save the text, so the two ways of dismissing the menu disagree.
+
+Screenshot: screenshots/adv-012.png (the text on screen; the server holds an empty string at that
+moment)
+
+Disposition: ACCEPTED -> DEF-012. Data loss, and the worst kind: the text stays on screen, so the user has every
+reason to believe it was saved until a reload discards it.
+
+## ADV-013: Keystrokes inside the 500 ms autosave window are lost on a reload, with no flush on unload
+
+- Session: phase-2 gate
+- Suggested severity: MEDIUM
+
+What I did:
+
+1. Launch the app on Home.
+2. Click into the first block, press End, type `LOSTTEXT`.
+3. Press reload (Cmd+R) immediately - within the 500 ms debounce, before typing settles.
+
+Expected: the pending edit is written before the page goes away, as it is on blur and on unmount.
+There is no save button anywhere in the product, so the debounce window is the only thing standing
+between the user and a lost sentence.
+
+Actual: after the reload the block reads `Start here` - `LOSTTEXT` is gone, from the screen and from
+the server. Typing the same text and waiting ~900 ms before reloading persists it, which confirms the
+window rather than anything else is the cause. Navigating away in the app (clicking another page in
+the sidebar) inside the same window **does** save, so it is specifically unload that has no flush:
+there is no `beforeunload`/`pagehide` handler, so a reload, a tab close or a navigation away from the
+app drops whatever has not settled.
+
+Reported even though the window is short, because a lost half-sentence on reload is invisible to the
+user and Phase 2 criterion 3 is about exactly this gesture.
+
+Disposition: ACCEPTED -> DEF-013. The debounce is a deliberate design choice and stays; what is missing is a
+flush at the unload boundary. Fixed by flushing on pagehide and on visibilitychange, not by
+shortening the debounce, which would narrow the window rather than close it.
+
+## ADV-014: Pasting more than 10000 characters silently discards the excess with no feedback
+
+- Session: phase-2 gate
+- Suggested severity: LOW
+
+What I did:
+
+1. Launch the app, click "Add a top-level page", click "This page is empty".
+2. Paste a 63000-character wall of text (`"The quick brown fox jumps over the lazy dog. "` repeated
+   1400 times) into the block.
+
+Expected: some indication that the block cannot hold that much - a notice, or a refusal - since the
+limit is a product decision the user cannot see.
+
+Actual: the block silently ends up with exactly the first 10000 characters, mid-sentence, and the
+server stores that. No notice appears, nothing is logged, and there is no visual cue that 53000
+characters were dropped. The block is not split into several blocks either. A user pasting a long
+document from elsewhere would not know they had lost most of it until they read to the end.
+
+Screenshot: screenshots/adv-014.png
+
+Disposition: ACCEPTED -> DEF-014. Same code path as DEF-015 and fixed in the same change: clamping is defensible,
+clamping silently is not.
+
+## ADV-015: A paste whose 10000-character cut falls inside an emoji corrupts the text and stores 10002 characters, over the server's own limit
+
+- Session: phase-2 gate
+- Suggested severity: MEDIUM
+
+What I did:
+
+1. Launch the app, click "Add a top-level page", click "This page is empty".
+2. Paste a string of 9999 ordinary characters followed by one emoji (U+1F600) and some trailing text.
+   Any paste whose character 10000 lands in the middle of a surrogate pair reproduces it.
+3. Read the end of the block, then reload and read it again.
+
+Expected: either the emoji survives whole or the text is cut cleanly before it, and the stored text
+is at most the documented 10000 characters.
+
+Actual: the client's `slice(0, 10000)` cuts the emoji in half. The op is posted with a 10000-character
+text whose last unit is a lone high surrogate (I confirmed this on the wire: the request body carries
+`... 78 78 78 d83d`), the server accepts it, and what comes back and is stored is **10002 characters
+ending in three U+FFFD replacement characters** - visible mojibake in the block, surviving a reload.
+Two consequences: text the user pasted is corrupted rather than truncated, and the stored value is two
+characters longer than the maximum the server documents and enforces (10000), so the cap is escapable
+through the ordinary paste path.
+
+Screenshot: screenshots/adv-015.png (the end of the block after a reload - the three replacement
+characters)
+
+Disposition: ACCEPTED -> DEF-015. Accepted over its mild-looking symptom because it stores 10002 characters, past
+the server's own cap - the clamp is not merely ugly, it is wrong. It must count code points so a
+surrogate pair is never cut in half, while still satisfying the server's UTF-16 length check.
+
+## ADV-016: Concurrent block.create ops with no sortKey mint duplicate sort keys
+
+- Session: phase-2 gate
+- Suggested severity: MEDIUM
+
+What I did: through the API only, since the sync endpoint is a public surface and the browser is not
+its only client.
+
+1. `POST /api/workspaces/<ws>/sync` with `page.create` for a fresh page.
+2. Ten separate concurrent requests (ten threads), each one `block.create` for that page with
+   `{pageId, type:"paragraph", text:"b<i>"}` and **no** `sortKey`, so the server computes the key with
+   `nextBlockKey`.
+
+Expected: ten distinct fractional keys, as ten sequential requests produce.
+
+Actual: two distinct keys across ten blocks - `a0` once and `a1` **nine times**. Each concurrent
+request read the same projected state and appended after the same last key. This is the block-path
+twin of Phase 1's DEF-007 (rapid page creates minting duplicate sibling keys); the browser happens to
+be protected because `useBlockMutations` reserves keys client-side, so this is reachable through the
+API, a second device, or any retry that overlaps.
+
+To be fair to the editor: I checked what the UI does when a page already holds duplicate keys (three
+blocks all `a1`, created deliberately by API) and it copes - the order is stable across reloads and a
+drag re-keys the moved row correctly. So the damage is confined to the ordering being arbitrary until
+someone drags, not to a broken page.
+
+Disposition: ACCEPTED -> DEF-016. The block-path twin of DEF-007, and this time on the server, where the client's
+in-flight reservation cannot help: concurrent requests each compute an append key from the same
+snapshot of state. Not to be fixed by serialising writes. Make duplicate keys harmless with a
+deterministic (sort_key, id) tiebreak, so the order is total even when two keys collide.
+
+## ADV-017: A block being dragged is translucent with no background, so its text collides with the text it passes over
+
+- Session: phase-2 gate
+- Suggested severity: LOW
+
+What I did:
+
+1. Launch the app on Home.
+2. Press the drag handle of the first block ("Start here", a heading) and move the pointer down over
+   the bullet list without releasing.
+
+Expected: the block being moved reads as a distinct object lifted off the page - an opaque row, a
+shadow, or a drag overlay - so both it and the row underneath stay readable.
+
+Actual: the dragged block is drawn at 65% opacity with no background (`.block--dragging` sets only
+`z-index` and `opacity`), directly on top of the row it is passing, so "Start here" and "Journal for
+the weekly review and the yearly intentions" overlap into unreadable text. The reorder itself works;
+this is only how it looks mid-drag, and it looks broken rather than deliberate.
+
+Screenshot: screenshots/adv-017.png
+
+Disposition: ACCEPTED -> DEF-017. A small CSS fix on a gesture that is a headline feature of this phase.
+
+## ADV-018: With a slash query that matches nothing, Enter is swallowed indefinitely
+
+- Session: phase-2 gate
+- Suggested severity: LOW
+
+What I did:
+
+1. Launch the app, click "Add a top-level page", click "This page is empty".
+2. In the empty block type `/nomatch`. The menu stays open and says "No block type matches that."
+3. Press Enter. Press Enter again.
+
+Expected: Enter does something - inserts the paragraph below as it does everywhere else, or closes
+the menu and treats the text as content.
+
+Actual: nothing happens, on either press. The block count stays at 1, the text stays `/nomatch`, and
+the menu stays open. The only ways out are Escape, clicking away, or deleting characters until the
+query matches something. Pressing the app's most-used key twice with no effect and no explanation is
+a dead control, even though the menu does tell you there is no match.
+
+Screenshot: screenshots/adv-018.png
+
+Disposition: ACCEPTED -> DEF-018. Enter with no highlighted option should close the menu and leave the text
+alone, not be swallowed.
+
+## ADV-019: Drag-and-drop screen-reader announcements read raw block UUIDs
+
+- Session: phase-2 gate
+- Suggested severity: LOW
+
+What I did: focused a block's drag handle by keyboard and pressed Space to pick the block up, then
+read the live region.
+
+Expected: an announcement naming the block in human terms, as the handle's own accessible name does
+("Move the heading 2 block").
+
+Actual: the live region announces
+`Draggable item f2660a3d-12f3-4948-b69c-a7f898d6f5ba was moved over droppable area f2660a3d-12f3-4948-b69c-a7f898d6f5ba.`
+- dnd-kit's default announcements, unconfigured, reading two identical UUIDs. The keyboard reorder
+itself works correctly (Space, ArrowDown, ArrowDown, Space moved the block two positions and the
+order matched on the server), so this is only what a screen reader hears while doing it.
+
+Disposition: ACCEPTED -> DEF-019. Announce the block's own text and type, which the component already has to
+hand.
+
+## ADV-020: Reaching the page body by keyboard takes 118 Tab stops through the sidebar
+
+- Session: phase-2 gate
+- Suggested severity: LOW
+
+What I did: loaded the app with the seeded workspace and pressed Tab repeatedly from the top of the
+document, counting stops until focus first landed on any control inside the page body.
+
+Expected: a keyboard user can reach the editor in a few stops - a skip link, or the body early in the
+tab order.
+
+Actual: **118** Tab presses. Every sidebar row contributes five stops (collapse, the page link,
+rename, add-inside, delete), the seed has 25 pages, and there is no skip link and no landmark
+shortcut. Within the editor the order is then sensible (handle, delete, textarea per block) and the
+focus ring is clearly visible, so this is about getting in, not about moving around once you are
+there. It is arguably a Phase 1 shell issue, but Phase 2 is what put the thing worth reaching at the
+far end of it.
+
+Disposition: ACCEPTED -> DEF-020. Fixed with a skip link to the page body. Deliberately not by removing the
+gutter controls from the tab order: the drag handle must stay focusable or the keyboard drag path -
+the one the end-to-end suite depends on - stops working.
+
+## ADV-021: A block containing many blank lines grows to 51000 pixels, and the page with it
+
+- Session: phase-2 gate
+- Suggested severity: LOW
+
+What I did: created a page by API with a paragraph block whose text is 2000 newline characters (the
+kind of thing a paste from a text file produces), plus a 400-line code block, then opened the page in
+the browser.
+
+Expected: not sure - but something that keeps the page navigable, for example a maximum height on the
+textarea with its own scrollbar.
+
+Actual: the auto-grow textarea renders that one block **51159 px** tall and the page body 60661 px,
+so the two ordinary paragraphs on either side of it are a full screen-height of scrolling apart and
+the window scrollbar becomes a hairline. Nothing errors and nothing is lost, and an auto-growing
+textarea arguably has to do this, so I record it as surprising rather than clearly wrong: there is no
+cap anywhere between one line and 2000.
+
+Screenshot: screenshots/adv-021.png
+
+Disposition: REJECTED - working as intended. The block genuinely contains 2000 blank lines, and rendering the
+content a user actually typed is correct. Nothing in REQUIREMENTS.md caps a block's height, and
+capping it would put a nested scroll region inside an editable block, which is a worse experience
+than a long block. Recorded as surprising rather than broken, which is how it was filed.
