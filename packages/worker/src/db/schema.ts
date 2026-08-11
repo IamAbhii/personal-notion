@@ -75,3 +75,27 @@ export const pages = sqliteTable(
 );
 
 export type PageRow = typeof pages.$inferSelect;
+
+// Mirrors migrations/0003_blocks.sql. checked is stored as 0/1 because SQLite has no boolean type;
+// the snapshot converts it to a boolean on the wire.
+export const blocks = sqliteTable(
+  'blocks',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id').notNull(),
+    pageId: text('page_id').notNull(),
+    type: text('type').notNull(),
+    text: text('text').notNull().default(''),
+    checked: integer('checked').notNull().default(0),
+    props: text('props'),
+    sortKey: text('sort_key').notNull(),
+    version: integer('version').notNull().default(1),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (table) => [
+    index('blocks_workspace_page_sort_idx').on(table.workspaceId, table.pageId, table.sortKey),
+  ],
+);
+
+export type BlockRow = typeof blocks.$inferSelect;

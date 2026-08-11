@@ -137,6 +137,8 @@ describe('GET /api/workspaces/:workspaceId/snapshot', () => {
           updatedAt: page.updatedAt,
         },
       ],
+      // The blocks key is always present, empty for a page with no content yet.
+      blocks: [],
     });
 
     const cached = await apiFetch(`/api/workspaces/${owner.workspaceId}/snapshot`, {
