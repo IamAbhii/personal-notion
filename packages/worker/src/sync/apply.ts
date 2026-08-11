@@ -3,7 +3,7 @@
 import type { Db } from '../db/client';
 import { runBatch, type Statement } from '../db/batch';
 import { appliedOps } from '../db/schema';
-import { isValidSortKey, nextKeyAfter } from '../lib/sortKey';
+import { lastInOrder, nextKeyAfter, type Ordered } from '../lib/sortKey';
 import { findAppliedOps, recordAppliedOpStatement, type AppliedOpRecord } from '../repo/appliedOps';
 import {
   buildBlockRow,
@@ -374,31 +374,33 @@ function recordAppliedOpsStatement(db: Db, ctx: Ctx, chunk: AppliedOpRecord[]): 
 }
 
 // The next fractional sort_key after the last child of parentId, computed from projected state so a
-// chunk that creates several siblings orders them correctly without re-reading the database.
+// chunk that creates several siblings orders them correctly without re-reading the database. "Last"
+// is decided by lastInOrder, the same (sort_key, id) order the reads use, so the key returned is a
+// genuine upper bound on the siblings even when two of them share a key (DEF-016).
 function nextSiblingKey(state: Map<string, PageState>, parentId: string | null): string {
-  let last: string | null = null;
-  for (const page of state.values()) {
-    if (page.parentId !== parentId) continue;
-    // Sibling keys that are not valid fractional indexes are ignored: a poisoned row written before
-    // sortKey was validated must not be able to block every later create under that parent
-    // (DEF-003). Such a key also sorts arbitrarily, so it is no use as an upper bound.
-    if (!isValidSortKey(page.sortKey)) continue;
-    if (last === null || page.sortKey > last) last = page.sortKey;
-  }
-  return nextKeyAfter(last);
+  const siblings = ordered(state, (page) => page.parentId === parentId);
+  return nextKeyAfter(lastInOrder(siblings)?.sortKey ?? null);
 }
 
 // The next fractional sort_key after the last block of pageId, computed from projected state so a
 // chunk that appends several blocks to one page orders them correctly without re-reading the database.
-// Invalid stored keys are skipped for the same reason as in nextSiblingKey (DEF-003).
+// Same (sort_key, id) notion of "last" as nextSiblingKey.
 function nextBlockKey(state: Map<string, BlockState>, pageId: string): string {
-  let last: string | null = null;
-  for (const block of state.values()) {
-    if (block.pageId !== pageId) continue;
-    if (!isValidSortKey(block.sortKey)) continue;
-    if (last === null || block.sortKey > last) last = block.sortKey;
+  const onPage = ordered(state, (block) => block.pageId === pageId);
+  return nextKeyAfter(lastInOrder(onPage)?.sortKey ?? null);
+}
+
+// The matching entries of a projected state map as Ordered rows, pairing each row's sort_key with the
+// id the map is keyed by so the tiebreak has something to compare.
+function ordered<T extends { sortKey: string }>(
+  state: Map<string, T>,
+  matches: (row: T) => boolean,
+): Ordered[] {
+  const rows: Ordered[] = [];
+  for (const [id, row] of state) {
+    if (matches(row)) rows.push({ id, sortKey: row.sortKey });
   }
-  return nextKeyAfter(last);
+  return rows;
 }
 
 // The page plus every descendant, from projected state, so a delete cascades over children created

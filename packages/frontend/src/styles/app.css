@@ -43,6 +43,27 @@ button {
   background: var(--canvas);
 }
 
+/* Off screen until focused, then a visible chip over the sidebar: the standard skip-link pattern, so
+   it costs a sighted mouse user nothing and saves a keyboard user the whole page tree. */
+.skip-link {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 100;
+  padding: 9px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--amber);
+  color: #1a1920;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  transform: translateY(-200%);
+}
+
+.skip-link:focus-visible {
+  transform: translateY(0);
+}
+
 /* ---------- sidebar ---------- */
 
 .sidebar {
@@ -894,9 +915,15 @@ button {
   align-items: start;
 }
 
+/* A translucent row with no background let the dragged text collide with the text it passed over, so
+   the row being moved gets an opaque themed surface, a border and a lift shadow instead. Both themes
+   are covered because every value is a theme variable. */
 .block--dragging {
   z-index: 10;
-  opacity: 0.65;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-pop);
 }
 
 .block__gutter {

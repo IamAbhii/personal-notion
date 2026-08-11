@@ -29,6 +29,16 @@ describe('buildPageTree', () => {
     expect(buildPageTree(pages).map((node) => node.page.title)).toEqual(['A', 'B', 'C']);
   });
 
+  it('breaks a duplicate sibling sortKey on the id, as the server does', () => {
+    const pages = [
+      makePage({ id: 'p-c', title: 'C', sortKey: 'a1' }),
+      makePage({ id: 'p-a', title: 'A', sortKey: 'a1' }),
+    ];
+
+    expect(buildPageTree(pages).map((node) => node.page.title)).toEqual(['A', 'C']);
+    expect(childrenOf(pages, null).map((page) => page.title)).toEqual(['A', 'C']);
+  });
+
   it('treats a page whose parent is missing as a root', () => {
     const pages = [makePage({ id: 'orphan', title: 'Orphan', parentId: 'gone' })];
 

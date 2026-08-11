@@ -1,4 +1,5 @@
 import { generateKeyBetween } from 'fractional-indexing';
+import { bySortKeyThenId } from './ordering';
 import type { BlockRecord, BlockType } from '../api/types';
 
 // Pure block helpers over the flat block list the snapshot returns: ordering, fractional keys,
@@ -8,6 +9,34 @@ import type { BlockRecord, BlockType } from '../api/types';
 /** The server's limits, enforced here too so a rejected op is not how the user finds out. */
 export const MAX_BLOCK_TEXT_LENGTH = 10000;
 export const MAX_BLOCK_PROPS_LENGTH = 1000;
+
+/** What clamping a block's text to the limit produced, and whether anything was dropped. */
+export interface ClampedBlockText {
+  text: string;
+  /** True when characters were dropped, so the caller can tell the user rather than lose them silently. */
+  truncated: boolean;
+}
+
+/**
+ * Clamps a block's text to the server's limit on a code point boundary. A plain
+ * `slice(0, MAX_BLOCK_TEXT_LENGTH)` can cut between the two UTF-16 units of an emoji, which stores a
+ * lone surrogate that comes back as replacement characters and is longer than the limit it was cut
+ * to. So whole code points are accumulated while their combined UTF-16 length still fits, which
+ * satisfies both counts: the server measures UTF-16 units, the user sees characters.
+ */
+export function clampBlockText(next: string): ClampedBlockText {
+  if (next.length <= MAX_BLOCK_TEXT_LENGTH) return { text: next, truncated: false };
+  // Iterating the string yields code points, so a surrogate pair is one step and never split.
+  const points = Array.from(next);
+  let units = 0;
+  let count = 0;
+  for (const point of points) {
+    if (units + point.length > MAX_BLOCK_TEXT_LENGTH) break;
+    units += point.length;
+    count += 1;
+  }
+  return { text: points.slice(0, count).join(''), truncated: true };
+}
 
 /** The default language a code block starts in, until a later phase lets the user pick one. */
 export const DEFAULT_CODE_LANGUAGE = 'plain text';
@@ -80,11 +109,13 @@ export function filterBlockTypes(query: string): BlockTypeOption[] {
   );
 }
 
-/** The blocks of one page, in `sortKey` order. The snapshot carries the whole workspace flat. */
+/**
+ * The blocks of one page, in `(sortKey, id)` order - the same order the server returns them in, so
+ * two blocks that share a key never swap places between a local write and the next snapshot. The
+ * snapshot carries the whole workspace flat.
+ */
 export function blocksForPage(blocks: BlockRecord[], pageId: string): BlockRecord[] {
-  return blocks
-    .filter((block) => block.pageId === pageId)
-    .sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0));
+  return blocks.filter((block) => block.pageId === pageId).sort(bySortKeyThenId);
 }
 
 /**

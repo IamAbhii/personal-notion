@@ -1,7 +1,7 @@
 import { useRef } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../api/queries';
-import { submitOps } from '../sync/ops';
+import { isLeaving, submitOnUnload, submitOps } from '../sync/ops';
 import { buildBlockCreateOp, buildBlockDeleteOp, buildBlockUpdateOp } from '../sync/blockOps';
 import {
   blocksForPage,
@@ -22,8 +22,11 @@ export interface CreateBlockArgs {
 }
 
 export interface BlockMutations {
-  /** The new block's id, or null when the write failed - in which case the user has been told. */
-  createBlock: (args: CreateBlockArgs) => Promise<string | null>;
+  /**
+   * The new block's id, returned synchronously: the block is in the cached snapshot before this
+   * returns, so the caller can focus it in the same event rather than after a round trip.
+   */
+  createBlock: (args: CreateBlockArgs) => string;
   updateBlock: (block: BlockRecord, changes: BlockUpdatePayload) => Promise<void>;
   deleteBlock: (block: BlockRecord) => Promise<void>;
 }
@@ -74,59 +77,47 @@ export function useBlockMutations(
     return sortKey;
   };
 
+  // Only the network half of a create: the id, the key and the optimistic patch are already done by
+  // the time this runs, because the caller needs the id before any await.
   const create = useMutation({
-    mutationFn: async (args: CreateBlockArgs) => {
-      // The id is minted here, not by the server, so the editor can focus the block immediately.
-      const blockId = crypto.randomUUID();
-      const sortKey = reserveSortKey(args.pageId, args.afterBlockId ?? null);
+    mutationFn: async (args: CreateBlockArgs & { blockId: string; sortKey: string }) => {
       try {
-        patchBlocks((current) => [
-          ...current,
-          {
-            id: blockId,
-            pageId: args.pageId,
-            type: args.type,
-            text: args.text ?? '',
-            checked: false,
-            props: null,
-            sortKey,
-            version: 1,
-            updatedAt: Date.now(),
-          },
-        ]);
         const op = buildBlockCreateOp({
           workspaceId,
-          blockId,
+          blockId: args.blockId,
           pageId: args.pageId,
           type: args.type,
           text: args.text ?? '',
-          sortKey,
+          sortKey: args.sortKey,
         });
         await submitOps(workspaceId, [op]);
         // The reservation is held until the refetched snapshot carries the key, or a later create
         // computing from a stale snapshot would pick the same one again.
         await invalidate();
-        return blockId;
       } finally {
-        reservedKeys.current.get(args.pageId)?.delete(sortKey);
+        reservedKeys.current.get(args.pageId)?.delete(args.sortKey);
       }
     },
   });
 
+  /** Applies an update to the cached snapshot and returns the op that carries it to the server. */
+  const stageUpdate = (block: BlockRecord, changes: BlockUpdatePayload) => {
+    patchBlocks((current) =>
+      current.map((candidate) =>
+        candidate.id === block.id ? { ...candidate, ...changes } : candidate,
+      ),
+    );
+    return buildBlockUpdateOp({
+      workspaceId,
+      blockId: block.id,
+      baseVersion: block.version,
+      changes,
+    });
+  };
+
   const update = useMutation({
     mutationFn: async (args: { block: BlockRecord; changes: BlockUpdatePayload }) => {
-      patchBlocks((current) =>
-        current.map((block) =>
-          block.id === args.block.id ? { ...block, ...args.changes } : block,
-        ),
-      );
-      const op = buildBlockUpdateOp({
-        workspaceId,
-        blockId: args.block.id,
-        baseVersion: args.block.version,
-        changes: args.changes,
-      });
-      await submitOps(workspaceId, [op]);
+      await submitOps(workspaceId, [stageUpdate(args.block, args.changes)]);
     },
     onSuccess: invalidate,
   });
@@ -159,15 +150,43 @@ export function useBlockMutations(
   };
 
   return {
-    createBlock: async (args) => {
-      try {
-        return await create.mutateAsync(args);
-      } catch (error) {
-        await handleFailure(`Adding a ${blockTypeLabel(args.type).toLowerCase()} block`, error);
-        return null;
-      }
+    // The id is minted here, not by the server, and the optimistic patch runs before the network,
+    // so the new block exists in the snapshot when this returns and the caret can move to it in the
+    // same keystroke. Awaiting the op first left focus in the block the user had just left, and the
+    // next character was committed to it.
+    createBlock: (args) => {
+      const blockId = crypto.randomUUID();
+      const sortKey = reserveSortKey(args.pageId, args.afterBlockId ?? null);
+      patchBlocks((current) => [
+        ...current,
+        {
+          id: blockId,
+          pageId: args.pageId,
+          type: args.type,
+          text: args.text ?? '',
+          checked: false,
+          props: null,
+          sortKey,
+          version: 1,
+          updatedAt: Date.now(),
+        },
+      ]);
+      void create
+        .mutateAsync({ ...args, blockId, sortKey })
+        .catch((error: unknown) =>
+          handleFailure(`Adding a ${blockTypeLabel(args.type).toLowerCase()} block`, error),
+        );
+      return blockId;
     },
     updateBlock: async (block, changes) => {
+      // The page is going away, so this is an autosave flush racing the unload. Going through the
+      // mutation would lose it: its fetch starts a microtask later, by which time the navigation has
+      // been committed and the request is discarded. `submitOnUnload` writes the op down and starts
+      // the request here and now. Nothing is invalidated - there is no page left to render a result.
+      if (isLeaving()) {
+        submitOnUnload(workspaceId, [stageUpdate(block, changes)]);
+        return;
+      }
       try {
         await update.mutateAsync({ block, changes });
       } catch (error) {

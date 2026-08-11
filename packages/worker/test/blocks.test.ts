@@ -20,7 +20,7 @@ type SyncResponse = {
 };
 
 type SnapshotResponse = {
-  pages: { id: string }[];
+  pages: { id: string; sortKey: string }[];
   blocks: {
     id: string;
     pageId: string;
@@ -440,6 +440,98 @@ describe('page.delete cascading to blocks', () => {
     ]);
     expect(body.results.map((result) => result.status)).toEqual(['applied', 'applied', 'applied']);
     expect(await listBlocks(owner.db, owner.ctx)).toHaveLength(0);
+  });
+});
+
+// DEF-016: concurrent appends compute their key from the state they read, so two of them can mint the
+// same sort_key. The contract is not that this never happens - preventing it would mean serialising
+// every write - but that a duplicate key leaves the order total, stable and the same for every reader,
+// because (sort_key, id) is what everything orders by.
+describe('duplicate sort keys are harmless', () => {
+  it('orders concurrent appends with no sortKey totally and identically on every read', async () => {
+    const owner = await createAccount();
+    const page = await createPage(owner.db, owner.ctx, { title: 'Ten at once' });
+    const ids = Array.from({ length: 10 }, () => crypto.randomUUID());
+
+    // Ten separate requests in flight together, each one op: the reproduction from the defect. Several
+    // of them read the same projected state and so compute the same append key.
+    const responses = await Promise.all(
+      ids.map((id) =>
+        sync(owner, [
+          makeOp(owner.workspaceId, 'block.create', id, { pageId: page.id, type: 'paragraph' }),
+        ]),
+      ),
+    );
+    expect(responses.every((response) => response.status === 200)).toBe(true);
+
+    const stored = await listBlocks(owner.db, owner.ctx);
+    expect(stored).toHaveLength(10);
+    // The order the database returns is exactly the (sort_key, id) order, so it is total: no two rows
+    // compare equal, whatever the keys turned out to be.
+    const expected = [...stored].sort((a, b) =>
+      a.sortKey === b.sortKey ? (a.id < b.id ? -1 : 1) : a.sortKey < b.sortKey ? -1 : 1,
+    );
+    expect(stored.map((block) => block.id)).toEqual(expected.map((block) => block.id));
+
+    // And it is stable: three further reads, through the repository and through the API, agree.
+    const order = stored.map((block) => block.id);
+    expect((await listBlocks(owner.db, owner.ctx)).map((block) => block.id)).toEqual(order);
+    expect((await snapshot(owner)).body.blocks.map((block) => block.id)).toEqual(order);
+    expect((await snapshot(owner)).body.blocks.map((block) => block.id)).toEqual(order);
+  });
+
+  it('keeps appending after a page that already holds duplicate keys', async () => {
+    const owner = await createAccount();
+    const page = await createPage(owner.db, owner.ctx, { title: 'Collided' });
+    const ids = Array.from({ length: 3 }, () => crypto.randomUUID()).sort();
+
+    // The collision, made deterministic: three blocks sharing one key, as the race leaves behind. They
+    // are inserted in descending id order, so insertion order and (sort_key, id) order disagree and the
+    // assertion below can only pass if the tiebreak is really being applied.
+    await syncBody(
+      owner,
+      [...ids].reverse().map((id) =>
+        makeOp(owner.workspaceId, 'block.create', id, {
+          pageId: page.id,
+          type: 'paragraph',
+          sortKey: 'a1',
+        }),
+      ),
+    );
+    // Equal keys, so the id decides, ascending.
+    expect((await listBlocks(owner.db, owner.ctx)).map((block) => block.id)).toEqual(ids);
+
+    // The next append must clear all three rather than colliding with them again, which is why
+    // nextBlockKey breaks the tie the same way the read does.
+    const appended = crypto.randomUUID();
+    await syncBody(owner, [
+      makeOp(owner.workspaceId, 'block.create', appended, { pageId: page.id, type: 'paragraph' }),
+    ]);
+    const after = await listBlocks(owner.db, owner.ctx);
+    expect(after.map((block) => block.id)).toEqual([...ids, appended]);
+    expect(after[3]!.sortKey > 'a1').toBe(true);
+  });
+
+  it('orders concurrent page creates with no sortKey the same way', async () => {
+    const owner = await createAccount();
+    const ids = Array.from({ length: 6 }, () => crypto.randomUUID());
+
+    // The page path has the identical hole: the client's in-flight reservation (DEF-007) does nothing
+    // for two tabs or two devices posting at once, and the fix is the same tiebreak.
+    const responses = await Promise.all(
+      ids.map((id) => sync(owner, [makeOp(owner.workspaceId, 'page.create', id, { title: id })])),
+    );
+    expect(responses.every((response) => response.status === 200)).toBe(true);
+
+    const pages = (await snapshot(owner)).body.pages;
+    expect(pages).toHaveLength(6);
+    const expected = [...pages].sort((a, b) =>
+      a.sortKey === b.sortKey ? (a.id < b.id ? -1 : 1) : a.sortKey < b.sortKey ? -1 : 1,
+    );
+    expect(pages.map((page) => page.id)).toEqual(expected.map((page) => page.id));
+    // Stable across reads, whether or not the six keys collided.
+    const second = (await snapshot(owner)).body.pages.map((page) => page.id);
+    expect(second).toEqual(pages.map((page) => page.id));
   });
 });
 

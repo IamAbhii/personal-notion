@@ -66,3 +66,33 @@ is **last write wins by server arrival order**. The design carries what a future
 - The op log is append-only and ordered, which is the substrate any future CRDT or
   operational-transform layer needs. Choosing whole-document replacement now would foreclose that.
 - Every place these assumptions bite must carry a `// Future:` comment (see [Code comments](./comments.md)).
+
+## The unload boundary, and why an op stash exists before Phase 6 (fixed, Phase 2)
+
+Phase 2's autosave debounces text edits into one op per settled edit and flushes on blur. DEF-013 was
+the gap that leaves: keystrokes inside the debounce window were lost when the tab reloaded. Closing it
+turned out to need three separate discoveries, all of which will bite any later feature that tries to
+write at unload, so they are recorded here rather than rediscovered.
+
+- **`visibilitychange` is not a reliable unload signal in Chromium.** `pagehide` fires while
+  `document.visibilityState` is still `visible`, so a handler that checks visibility never sees the
+  unload at all. An explicit "am I leaving" flag, installed before anything mounts, is what works.
+- **A flush must start its request in the caller's own synchronous step.** Going through the mutation
+  layer starts the `fetch` a microtask later — after the navigation is committed — and the browser
+  discards it. `keepalive` on the request is necessary but not sufficient.
+- **A service worker voids all of the above.** When a service worker controls the page, Chromium drops
+  a request routed through it once its client is gone. Proved by running the same steps with service
+  workers blocked (the edit lands) and allowed (the edit is lost). Since this app is a PWA, no
+  unload-time network write can be relied on at all.
+
+So the flush **writes unsent ops to `localStorage` synchronously and replays them on first render
+after the reload**, which is safe because the server recognises a replayed `opId` and returns the
+original outcome. This is deliberately a step into Phase 6's territory, taken early because DEF-013
+cannot otherwise be closed in a service-worker PWA, and it is deliberately the smallest possible
+version: a synchronous stash and a replay, no queue, no flush loop, no ordering guarantees beyond the
+`clientSeq` the ops already carry.
+
+**Phase 6 replaces the stash rather than building on it.** The durable IndexedDB queue is the real
+answer and subsumes this: append locally, apply optimistically, flush in chunks in `clientSeq` order.
+The stash's job until then is to make the unload boundary lossless. Its call site carries a
+`// Future:` comment naming the replacement.

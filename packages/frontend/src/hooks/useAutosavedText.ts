@@ -59,6 +59,23 @@ export function useAutosavedText(
   // Navigating away unmounts the editor, so the pending debounce is written here rather than lost.
   useEffect(() => flush, [flush]);
 
+  // Leaving the page does not unmount anything, so a reload, a closed tab or a backgrounded app
+  // inside the debounce window would drop the edit. `pagehide` covers reload, navigation and the
+  // back/forward cache; `visibilitychange` covers mobile, where an app switch is often all the
+  // warning there is. The debounce itself stays as designed - this closes its window rather than
+  // shortening it. The write rides on fetch keepalive so it survives the document going away.
+  useEffect(() => {
+    const flushIfHidden = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', flushIfHidden);
+    return () => {
+      window.removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', flushIfHidden);
+    };
+  }, [flush]);
+
   const edit = useCallback(
     (next: string) => {
       valueRef.current = next;
