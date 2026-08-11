@@ -1,3 +1,218 @@
+## DEF-020: Reaching the page body by keyboard takes 118 Tab stops through the sidebar
+
+- Status: OPEN
+- Severity: LOW
+- Found by: adversary (ADV-020)
+- Phase: 2
+
+Steps to reproduce:
+
+1. Launch the app at http://localhost:8787.
+2. Press Tab repeatedly from the top of the document.
+3. Count Tab presses until focus lands on a control inside the page body (textarea or equivalent).
+
+Expected: A keyboard user can reach the editor in a few presses — a skip link exists, or the body appears early in the tab order.
+Actual: 118 Tab presses required. Every sidebar row contributes five stops (collapse, page link, rename, add-inside, delete), the seed has 25 pages (125 stops total), and there is no skip link. Within the editor the order is sensible (handle, delete, textarea per block), so this is about getting into the page body, not moving around once there.
+Screenshot: screenshots/adv-020.png
+
+History:
+
+- qa: opened, referencing adversary's steps and screenshot
+
+## DEF-019: Drag-and-drop screen-reader announcements read raw block UUIDs
+
+- Status: OPEN
+- Severity: LOW
+- Found by: adversary (ADV-019)
+- Phase: 2
+
+Steps to reproduce:
+
+1. Launch the app at http://localhost:8787.
+2. Focus a block's drag handle by keyboard.
+3. Press Space to pick the block up.
+4. Read the live region announcement from the screen reader.
+
+Expected: An announcement naming the block in human terms, as the handle's own accessible name does (e.g., "Move the heading 2 block").
+Actual: The live region announces dnd-kit's default announcements unconfigured, reading raw UUIDs: "Draggable item f2660a3d-12f3-4948-b69c-a7f898d6f5ba was moved over droppable area f2660a3d-12f3-4948-b69c-a7f898d6f5ba." The keyboard reorder itself works correctly (Space, ArrowDown, ArrowDown, Space moved the block two positions and the order matched on the server), so this is only what a screen reader hears.
+Screenshot: screenshots/adv-019.png
+
+History:
+
+- qa: opened, referencing adversary's steps and screenshot
+
+## DEF-018: Enter swallowed when slash query matches nothing
+
+- Status: OPEN
+- Severity: LOW
+- Found by: adversary (ADV-018)
+- Phase: 2
+
+Steps to reproduce:
+
+1. Launch the app at http://localhost:8787.
+2. Click "Add a top-level page" in the sidebar, then click "This page is empty".
+3. In the empty block, type `/nomatch`.
+4. The menu stays open and says "No block type matches that."
+5. Press Enter (and again if needed).
+
+Expected: Enter does something — inserts a paragraph below as it does elsewhere, or closes the menu and treats the text as content.
+Actual: Nothing happens on either press. The block count stays at 1, the text stays `/nomatch`, and the menu stays open. The only ways out are Escape, clicking away, or deleting characters until the query matches something.
+Screenshot: screenshots/adv-018.png
+
+History:
+
+- qa: opened, referencing adversary's steps and screenshot
+
+## DEF-017: A block being dragged is translucent with no background
+
+- Status: OPEN
+- Severity: LOW
+- Found by: adversary (ADV-017)
+- Phase: 2
+
+Steps to reproduce:
+
+1. Launch the app at http://localhost:8787.
+2. Press the drag handle of the first block and move the pointer down over other blocks without releasing.
+
+Expected: The block being moved reads as a distinct object lifted off the page — an opaque row, a shadow, or a drag overlay — so both it and the row underneath stay readable.
+Actual: The dragged block is drawn at 65% opacity with no background (only `z-index` and `opacity` set), directly on top of the row it is passing over. Text overlaps and becomes unreadable. The reorder itself works; this is only how it looks mid-drag.
+Screenshot: screenshots/adv-017.png
+
+History:
+
+- qa: opened, referencing adversary's steps and screenshot
+
+## DEF-016: Concurrent block.create mints duplicate sort keys
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-016)
+- Phase: 2
+
+Steps to reproduce:
+
+1. Create a page via API: `POST /api/workspaces/<ws>/sync` with `page.create` payload.
+2. Make ten separate concurrent `block.create` requests to that page, each with no `sortKey` (so the server computes one with `nextBlockKey`).
+
+Expected: Ten distinct fractional keys, as ten sequential requests produce.
+Actual: Two distinct keys across ten blocks — `a0` once and `a1` nine times. Each concurrent request read the same projected state and appended after the same last key. The browser is protected by client-side key reservation, but this is reachable through the API, a second device, or any retry that overlaps. When a page already holds duplicate keys (three blocks all `a1`, created deliberately), the UI copes — order is stable across reloads and a drag re-keys the moved row — so the damage is confined to arbitrary ordering until someone drags.
+
+History:
+
+- qa: opened, referencing adversary's steps
+
+## DEF-015: A paste whose 10000-character cut falls inside an emoji corrupts the text and stores 10002 characters
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-015)
+- Phase: 2
+
+Steps to reproduce:
+
+1. Launch the app at http://localhost:8787.
+2. Click "Add a top-level page" in the sidebar, then click "This page is empty".
+3. Paste a string of 9999 ordinary characters followed by one emoji (U+1F600) and some trailing text.
+4. Read the end of the block, then reload and read it again.
+
+Expected: Either the emoji survives whole or the text is cut cleanly before it, and the stored text is at most the documented 10000 characters.
+Actual: The client's `slice(0, 10000)` cuts the emoji in half. The op is posted with a 10000-character text whose last unit is a lone high surrogate, the server accepts it, and what comes back and is stored is 10002 characters ending in three U+FFFD replacement characters — visible mojibake, surviving a reload. Text the user pasted is corrupted rather than truncated, and the stored value exceeds the maximum the server enforces.
+Screenshot: screenshots/adv-015.png
+
+History:
+
+- qa: opened, referencing adversary's steps and screenshot
+
+## DEF-014: Pasting more than 10000 characters silently discards the excess with no feedback
+
+- Status: OPEN
+- Severity: LOW
+- Found by: adversary (ADV-014)
+- Phase: 2
+
+Steps to reproduce:
+
+1. Launch the app at http://localhost:8787.
+2. Click "Add a top-level page" in the sidebar, then click "This page is empty".
+3. Paste a 63000-character wall of text (e.g., "The quick brown fox jumps over the lazy dog. " repeated 1400 times).
+
+Expected: Some indication that the block cannot hold that much — a notice, a refusal, or a toast — since the limit is a product decision the user cannot see.
+Actual: The block silently ends up with exactly the first 10000 characters, mid-sentence, and the server stores that. No notice appears, nothing is logged, and there is no visual cue that 53000 characters were dropped. A user pasting a long document would not know they had lost most of it until they read to the end.
+Screenshot: screenshots/adv-014.png
+
+History:
+
+- qa: opened, referencing adversary's steps and screenshot
+
+## DEF-013: Keystrokes inside the 500 ms autosave window are lost on a reload, with no flush on unload
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-013)
+- Phase: 2
+
+Steps to reproduce:
+
+1. Launch the app at http://localhost:8787, navigate to Home.
+2. Click into the first block, press End, type `LOSTTEXT`.
+3. Press reload (Cmd+R) immediately — within the 500 ms debounce, before typing settles.
+
+Expected: The pending edit is written before the page goes away, as it is on blur and on unmount. There is no save button anywhere in the product, so the debounce window is the only thing standing between the user and a lost sentence.
+Actual: After the reload the block reads `Start here` — `LOSTTEXT` is gone from both the screen and the server. Typing the same text and waiting 900 ms before reloading persists it, confirming the window. Navigating away in the app (clicking another page) inside the same window does save, so it is specifically unload that has no flush — there is no `beforeunload`/`pagehide` handler.
+Screenshot: screenshots/adv-013.png
+
+History:
+
+- qa: opened, referencing adversary's steps and screenshot
+
+## DEF-012: Text typed while the slash menu is open is never saved, but stays on screen until a reload throws it away
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-012)
+- Phase: 2
+
+Steps to reproduce:
+
+1. Launch the app at http://localhost:8787.
+2. Click "Add a top-level page" in the sidebar, then click "This page is empty".
+3. In the new empty block, type `/my important note` — the slash menu opens and stays open because the text still begins with a slash, showing "No block type matches that."
+4. Click anywhere outside the block (e.g., the page header) so the textarea blurs.
+5. Read the block on screen, then reload the page.
+
+Expected: Either the typed text is kept (it is ordinary text — the user clearly abandoned the command) or it visibly disappears the moment the menu closes. Not both.
+Actual: After the blur the block still shows `/my important note` on screen, but the server has an empty string. Nothing on screen says the text is unsaved, and there is no save indicator anywhere. After a reload the block is empty and the text is gone. A keystroke while the menu is open goes through the non-dirtying `reset` path rather than `edit`, so the blur handler's `flush()` has nothing marked dirty to write. Pressing Escape instead of clicking away does save the text, so the two ways of dismissing the menu disagree.
+Screenshot: screenshots/adv-012.png
+
+History:
+
+- qa: opened, referencing adversary's steps and screenshot
+
+## DEF-011: The first character typed after Enter lands in the block you just left
+
+- Status: OPEN
+- Severity: HIGH
+- Found by: adversary (ADV-011)
+- Phase: 2
+
+Steps to reproduce:
+
+1. Launch the app at http://localhost:8787 (fresh reset).
+2. Click "Add a top-level page" in the sidebar, then click "This page is empty" to create the first block.
+3. Type `First line typed at normal speed` at ordinary human speed (approximately 100 ms between keystrokes — about 120 characters a minute).
+4. Press Enter.
+5. Type `Second line` at normal speed, never pausing between the Enter and the next character.
+
+Expected: Two blocks reading `First line typed at normal speed` and `Second line`.
+Actual: The text is cut and re-glued across the block boundary. The page reads `First line typed at normal speedS` / `econd line`. The first character of "Second line" is in the first block. This is stored on the server (confirmed in the snapshot after a reload). Every line loses its first character to the line above. The cause is visible from the browser: Enter posts a `block.create` and awaits the op and snapshot refetch before the new block exists to focus, so `document.activeElement` is still the old textarea for about 62 ms after Enter. Anything faster than roughly 16 characters a second is mis-routed. At 100 ms per keystroke exactly one character per line goes to the wrong block, deterministically.
+Screenshot: screenshots/adv-011.png
+
+History:
+
+- qa: opened, referencing adversary's steps and screenshot
+
 ## DEF-001: Sidebar inline rename operation does not commit new page title
 
 - Status: CLOSED
