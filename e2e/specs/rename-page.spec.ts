@@ -1,4 +1,9 @@
 import { test, expect } from '@playwright/test';
+import { resetWorkspace } from '../fixtures/reset-workspace';
+
+test.beforeEach(async ({ page }) => {
+  await resetWorkspace(page);
+});
 
 test('rename a page from sidebar and verify name updates in both sidebar and page header', async ({
   page,

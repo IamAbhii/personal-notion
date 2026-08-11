@@ -183,6 +183,32 @@ Once both are in place, use it:
   orchestrator, which is the main session, is the one that uses the LSP: for reviewing a diff's blast
   radius and confirming a change reached every call site, without reading whole files to do it.
 
+## Lessons carried forward
+
+Written after each phase gate. Read this before planning a phase; it is where the build's own mistakes
+are recorded so they are not repeated.
+
+**From Phase 1:**
+
+- **A stalled build is almost always a foreground command, not a product bug.** Phase 1 lost hours to
+  three: Playwright's `html` reporter opening a blocking report server on failure, an orphaned
+  `wrangler` process holding port 8787 so every later run waited out a 120s timeout, and a webServer
+  command that was an `npm run a && b && c` chain, so killing npm left the real server alive. Before
+  investigating a hang as a defect, check for a process still holding the port.
+- **Verify that cleanup code actually cleans.** Phase 1's end-to-end database reset ran with the wrong
+  working directory and silently deleted nothing for the entire phase, leaving the suite dependent on
+  run order. A cleanup step that is never asserted is worse than none, because it hides the problem.
+- **Batch the defect round trips.** Triage every adversary finding first, then dispatch **one** fix
+  batch per developer, not one dispatch per finding. Nine findings became nine round trips' worth of
+  latency when they should have been one task each side.
+- **File the ledger entries before dispatching the batch.** Phase 1 accepted nine findings as
+  `DEF-002` through `DEF-010` and dispatched the fixes without qa ever filing them, so
+  `ADVERSARIAL_REVIEW.md` now points at defects that do not exist in `DEFECTS.md`. Have qa reproduce
+  and file all accepted findings in one pass, then dispatch. Batching is the speed win; skipping the
+  ledger is not.
+- **Do not ask for the full suite after every fix.** Targeted spec during the fix loop, full suite once
+  when the phase's evidence is assembled.
+
 ## Git and pull requests
 
 Every task ships as its own pull request. The build does not pause for review.
@@ -219,6 +245,31 @@ Every task ships as its own pull request. The build does not pause for review.
   means nothing is committed that has not been judged against the phase's criteria.
 - **Rebase rather than merge** when an upstream branch changes, so the stack stays linear and each
   PR keeps a clean, readable diff.
+
+### PR titles state the review order
+
+A stacked PR is meaningless out of order — PR 3 read before PR 2 looks broken. So the title carries
+the position, and the operator can review top to bottom without reconstructing the chain from base
+branches.
+
+**Format:** `Phase-N PR-M: what it does`
+
+- `N` is the REQUIREMENTS.md phase number.
+- `M` counts **within that phase, from 1**, in the order the PRs must be read. It is **not** the
+  GitHub PR number, which also counts the tooling PR and anything from earlier phases. Phase 1's
+  fourth PR is `Phase-1 PR-4` even though GitHub calls it #5.
+- Renumbering is never needed: `M` is assigned when the PR is opened and does not change if a later
+  PR is added.
+
+Examples:
+
+    Phase-1 PR-1: the Worker, pages storage and the op write path
+    Phase-1 PR-2: the app shell, the sidebar page tree and page create/rename/delete
+    Phase-1 PR-3: the Playwright end-to-end suite for pages and the sidebar
+    Phase-2 PR-1: the block editor and the eleven block types
+
+The description then opens by naming its base branch and what it must be read after, so the chain is
+recoverable from the PR alone.
 
 ### What every PR description must contain
 

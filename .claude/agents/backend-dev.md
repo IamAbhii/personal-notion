@@ -51,6 +51,25 @@ Never paste a full file, a full diff or a full test log. Never paste source code
 wrote — it is in git, and the orchestrator reads it there if the summary warrants it. If a specific
 hunk is essential to judging the work, quote that hunk and say why.
 
+## Never hang, and keep the environment portable (learned in Phase 1)
+
+You have no keyboard, so any command that waits for a human stalls the whole build.
+
+- **`wrangler dev` and any watcher must be backgrounded**, with output to a log file, and the port
+  polled until it answers. Never start a server in the foreground and never leave one running when you
+  report done — an orphaned process holding 8787 blocked the Phase 1 end-to-end runs for hours.
+- **Always `vitest run`**, never bare `vitest`, which watches forever.
+- **Give every Bash call an explicit timeout.**
+- **Never hardcode a machine-specific path.** Phase 1 shipped
+  `PATH="$HOME/.nvm/versions/node/v22.14.0/bin:$PATH"` in a script, which is wrong on any other
+  machine and inside the devcontainer. Rely on the environment's Node; if a version matters, use
+  `.nvmrc` and say so in the README.
+- **A script that cleans state must be verified, not assumed.** Phase 1's database reset ran with the
+  wrong working directory and silently deleted nothing all phase. After writing cleanup, assert the
+  state is actually gone.
+- **Scripts run from an unknown working directory.** Resolve paths relative to the script or the repo
+  root, never relative to wherever the caller happened to be.
+
 ## Defect tasks
 
 When assigned a defect (a DEF entry from DEFECTS.md):

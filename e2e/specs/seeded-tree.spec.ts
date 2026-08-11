@@ -1,4 +1,9 @@
 import { test, expect } from '@playwright/test';
+import { resetWorkspace } from '../fixtures/reset-workspace';
+
+test.beforeEach(async ({ page }) => {
+  await resetWorkspace(page);
+});
 
 test('sidebar displays seeded pages with correct structure and icons', async ({ page }) => {
   // Attach console error listeners at the start

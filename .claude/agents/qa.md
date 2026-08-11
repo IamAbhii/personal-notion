@@ -73,6 +73,67 @@ own verification needs; hand over the ones that prove something.
 - Defect screenshots are separate from this budget: link them from the DEFECTS.md entry as usual, and
   in the report just name the path for any HIGH-severity visual defect.
 
+## Never hang (learned the hard way in Phase 1)
+
+You have no keyboard. A command that waits for a human waits forever, and the whole build stops with
+it. Phase 1 lost hours to this. These are not suggestions.
+
+- **The HTML reporter must never open.** Playwright's `html` reporter defaults to
+  `open: 'on-failure'`: it starts a report server on port 9323 and blocks. Configure
+  `reporter: [['list'], ['html', { open: 'never' }]]`. A bare `reporter: 'html'` is a defect.
+- **Never run a command that serves or watches in the foreground.** No `playwright show-report`,
+  no `wrangler tail`, no bare `vitest` (always `vitest run`), no `npm run dev` in the foreground.
+  If you must start a server yourself, background it, redirect output to a log file, and poll the
+  port until it answers.
+- **Give every Bash call an explicit timeout**, and prefer a timeout shorter than the harness default
+  so you find out quickly rather than slowly.
+- **Only servers get backgrounded. Run everything that terminates in the foreground.** A test run,
+  a build, a typecheck and a migration all end by themselves: run them in the foreground with a
+  timeout and read the output directly. Backgrounding them and then polling for completion is how
+  you invent a deadlock. This rule exists because the instruction above was over-applied once: a
+  Playwright run was backgrounded and then waited on with a hand-written loop that never exited.
+- **Never write a wait loop around `ps aux | grep <literal>`.** `ps` lists the grep process itself,
+  whose command line contains the literal you are searching for, so the match never goes away and
+  the loop spins forever. If you genuinely must wait on a process, use `pgrep -f` (which excludes
+  itself) or the bracket trick `grep "[n]pm ..."` — but first ask whether you should be waiting at
+  all, per the rule above.
+- **Never poll a file for another agent's progress**, and never `sleep` to pass time. If you are
+  waiting, you have already made a mistake.
+- **Free the port before you start.** Phase 1's start script leaked an orphaned `wrangler` process
+  holding 8787, and every later run then waited out the full 120s webServer timeout. Before starting
+  the app, kill whatever holds the port; after a run, confirm it was released.
+- **The webServer command must be the server itself, not a chain.** `exec npm start` where `start`
+  is `build && migrate && serve` means Playwright kills npm while `wrangler` survives as an orphan.
+  Point `webServer.command` at the single long-lived process, and do building and migrating in a
+  separate step beforehand.
+
+## Keep the suite fast
+
+The end-to-end suite runs dozens of times across a phase. Every second in setup is paid every time.
+
+- **Do not rebuild the app for each run.** Build and migrate once, then let `webServer` only serve.
+  Set `reuseExistingServer: !process.env.CI` so repeated local runs attach to the running app instead
+  of rebuilding and restarting it.
+- **Reset state properly, and verify the reset actually works.** Phase 1's script deleted
+  `.wrangler/state/v3/d1` relative to `e2e/`, while the real database is at
+  `packages/worker/.wrangler` — so it silently reset nothing for the whole phase. After writing any
+  cleanup step, prove it ran: assert the state is gone, do not assume.
+- **Write order-independent specs.** Each spec seeds or resets what it needs and asserts only on what
+  it created. A filename prefixed to force ordering, like `0-seeded-tree.spec.ts`, is a sign the
+  suite depends on shared state — fix the state, not the filename. Order-independent specs can then
+  run in parallel.
+- **Run the narrow thing first.** When retesting one defect, run that spec (`--grep`), not the whole
+  suite. Run the full suite once when the orchestrator asks for the phase's evidence.
+- **Screenshots cost the orchestrator vision tokens.** Capture what you need, but nominate only the
+  two or three that demonstrate a criterion.
+
+## Batch your ledger writes
+
+When the orchestrator accepts several adversary findings at once, reproduce them and file them in
+**one pass with one edit** to DEFECTS.md, then report the whole list. Do not round-trip once per
+finding. The same applies to retesting a batch of fixes: retest them all, then write the statuses
+together.
+
 ## Hard rules
 
 - You write only `e2e/`, `screenshots/`, and `DEFECTS.md`. Never edit product source code or unit
