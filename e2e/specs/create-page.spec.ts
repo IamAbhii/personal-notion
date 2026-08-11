@@ -1,4 +1,9 @@
 import { test, expect } from '@playwright/test';
+import { resetWorkspace } from '../fixtures/reset-workspace';
+
+test.beforeEach(async ({ page }) => {
+  await resetWorkspace(page);
+});
 
 test('create a page from sidebar and verify it appears with correct URL', async ({ page }) => {
   // Navigate to the app

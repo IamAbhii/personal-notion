@@ -1,4 +1,9 @@
 import { test, expect } from '@playwright/test';
+import { resetWorkspace } from '../fixtures/reset-workspace';
+
+test.beforeEach(async ({ page }) => {
+  await resetWorkspace(page);
+});
 
 test('changes persist after browser reload', async ({ page }) => {
   // Attach console error listeners at the start, before any navigation

@@ -44,19 +44,31 @@ function buildRows(ctx: Ctx, now: number): PageRow[] {
   return rows;
 }
 
+// The insert statements that populate a workspace from the template, plus how many pages they
+// create. Exposed as statements rather than only as a write so a caller that has other work to do
+// atomically - the test reset, which clears the workspace first - can put it all in one batch.
+// Future: later phases seed blocks and databases too; add their statements here so a seeded
+// workspace is never half-populated.
+export function buildSeedStatements(
+  db: Db,
+  ctx: Ctx,
+  now: number,
+): { statements: Statement[]; pageCount: number } {
+  const rows = buildRows(ctx, now);
+  const statements: Statement[] = [];
+  for (let i = 0; i < rows.length; i += ROWS_PER_INSERT) {
+    statements.push(db.insert(pages).values(rows.slice(i, i + ROWS_PER_INSERT)));
+  }
+  return { statements, pageCount: rows.length };
+}
+
 // Populates a workspace from the template. Idempotent per workspace: a workspace that already has
 // content is left alone, because ids are minted per call so there is nothing to match rows against.
 // Returns the number of pages created.
 export async function seedWorkspace(db: Db, ctx: Ctx): Promise<number> {
   if ((await countPages(db, ctx)) > 0) return 0;
 
-  const rows = buildRows(ctx, Date.now());
-  const statements: Statement[] = [];
-  for (let i = 0; i < rows.length; i += ROWS_PER_INSERT) {
-    statements.push(db.insert(pages).values(rows.slice(i, i + ROWS_PER_INSERT)));
-  }
-  // Future: later phases seed blocks and databases too; add their statements to this same batch so
-  // a seeded workspace is never half-populated.
+  const { statements, pageCount } = buildSeedStatements(db, ctx, Date.now());
   await runBatch(db, statements);
-  return rows.length;
+  return pageCount;
 }

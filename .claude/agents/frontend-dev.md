@@ -57,6 +57,20 @@ your own verification and hand over selectively.
   Name each path and say which criterion it demonstrates. Leave the rest in `screenshots/` and mention
   that they are there — the orchestrator opens them if it needs them.
 
+## Never hang (learned in Phase 1)
+
+You have no keyboard, so any command that waits for a human stalls the whole build.
+
+- **Never start the dev server or a watcher in the foreground.** Background it, redirect output to a
+  log file, and poll the port until it answers. Kill it before you report done — an orphaned process
+  holding the app's port blocked the Phase 1 end-to-end runs for hours.
+- **Always `vitest run`**, never bare `vitest`, which watches forever.
+- **Give every Bash call an explicit timeout.**
+- **Taking a screenshot must not depend on a server you left running.** Start the app, capture, stop
+  the app, then report the paths.
+- **Never hardcode a machine-specific path** in a script — no absolute `nvm` or home-directory paths.
+  They break on every other machine and inside the devcontainer.
+
 ## Defect tasks
 
 When assigned a defect (a DEF entry from DEFECTS.md):
