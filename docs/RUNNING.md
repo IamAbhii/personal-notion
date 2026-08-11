@@ -15,16 +15,16 @@ persist between calls — put it in the same command as the work.
 
 The trap: `@cloudflare/vitest-pool-workers` needs **Node >= 20.12** (it imports `styleText` from
 `node:util`). This machine's default `node` is **20.11.1**, on which the worker test suite fails while
-*loading its config* — an error that looks nothing like a version problem. In the devcontainer the
+_loading its config_ — an error that looks nothing like a version problem. In the devcontainer the
 image supplies Node 24 and no nvm is involved.
 
 ## Ports
 
-| Port | What | Notes |
-|---|---|---|
-| **8787** | `wrangler dev` — the Worker, serving the API **and** the built PWA on one origin | This is the app. `baseURL` for the e2e suite. |
-| **5173** | Vite dev server, frontend only | Only used by `npm run dev`. Not what the e2e suite drives. |
-| **9323** | Playwright HTML report | **Must never open.** It blocks forever; see below. |
+| Port     | What                                                                             | Notes                                                      |
+| -------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| **8787** | `wrangler dev` — the Worker, serving the API **and** the built PWA on one origin | This is the app. `baseURL` for the e2e suite.              |
+| **5173** | Vite dev server, frontend only                                                   | Only used by `npm run dev`. Not what the e2e suite drives. |
+| **9323** | Playwright HTML report                                                           | **Must never open.** It blocks forever; see below.         |
 
 Two things must not run at once: `npm run dev` and the e2e suite both want 8787.
 
@@ -44,17 +44,17 @@ never `ps -eo command` filtered loosely on `node`: it dumps kilobytes of VS Code
 
 All from the repo root. It is an npm workspace (`packages/frontend`, `packages/worker`).
 
-| Command | Does |
-|---|---|
-| `npm install` | Install everything |
-| `npm start` | Build frontend, apply local migrations, serve on **8787**. This is the app. |
-| `npm run dev` | Worker on 8787 **and** Vite on 5173, concurrently. Development only. |
-| `npm run test` | Worker unit tests, then frontend unit tests |
-| `npm run test:worker` / `npm run test:frontend` | One side only (`vitest run`) |
-| `npm run test:e2e` | Playwright, config at `e2e/playwright.config.ts` |
-| `npm run migrate:local` | Apply D1 migrations to the local database |
-| `npm run typecheck` / `lint` / `format:check` | The three pre-commit gates |
-| `npm run lint:fix` / `format` | Mechanical fixes |
+| Command                                         | Does                                                                        |
+| ----------------------------------------------- | --------------------------------------------------------------------------- |
+| `npm install`                                   | Install everything                                                          |
+| `npm start`                                     | Build frontend, apply local migrations, serve on **8787**. This is the app. |
+| `npm run dev`                                   | Worker on 8787 **and** Vite on 5173, concurrently. Development only.        |
+| `npm run test`                                  | Worker unit tests, then frontend unit tests                                 |
+| `npm run test:worker` / `npm run test:frontend` | One side only (`vitest run`)                                                |
+| `npm run test:e2e`                              | Playwright, config at `e2e/playwright.config.ts`                            |
+| `npm run migrate:local`                         | Apply D1 migrations to the local database                                   |
+| `npm run typecheck` / `lint` / `format:check`   | The three pre-commit gates                                                  |
+| `npm run lint:fix` / `format`                   | Mechanical fixes                                                            |
 
 **Always `vitest run`, never bare `vitest`** — the bare form watches forever.
 
