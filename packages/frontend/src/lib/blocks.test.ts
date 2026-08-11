@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   BLOCK_TYPE_OPTIONS,
+  MAX_BLOCK_TEXT_LENGTH,
   blockTypeLabel,
+  clampBlockText,
   blocksForPage,
   filterBlockTypes,
   numberedListNumber,
@@ -71,6 +73,23 @@ describe('blocksForPage', () => {
     ];
 
     expect(blocksForPage(blocks, 'p-1').map((block) => block.id)).toEqual(['b-a', 'b-b']);
+  });
+
+  it('breaks a duplicate sortKey on the id, as the server does, whatever order it arrived in', () => {
+    // Two concurrent appends can mint the same key, so this is a real state, not a hypothetical.
+    const blocks = [
+      makeBlock({ id: 'b-c', pageId: 'p-1', sortKey: 'a1' }),
+      makeBlock({ id: 'b-a', pageId: 'p-1', sortKey: 'a1' }),
+      makeBlock({ id: 'b-b', pageId: 'p-1', sortKey: 'a1' }),
+    ];
+
+    expect(blocksForPage(blocks, 'p-1').map((block) => block.id)).toEqual(['b-a', 'b-b', 'b-c']);
+    // And the reverse arrival order produces the same page, rather than the order it arrived in.
+    expect(blocksForPage([...blocks].reverse(), 'p-1').map((block) => block.id)).toEqual([
+      'b-a',
+      'b-b',
+      'b-c',
+    ]);
   });
 });
 
@@ -153,5 +172,43 @@ describe('parseBlockProps', () => {
     expect(parseBlockProps(null)).toEqual({});
     expect(parseBlockProps('not json')).toEqual({});
     expect(parseBlockProps('"a string"')).toEqual({});
+  });
+});
+
+describe('clampBlockText', () => {
+  it('leaves text within the limit exactly as it is', () => {
+    expect(clampBlockText('short')).toEqual({ text: 'short', truncated: false });
+    // Exactly at the limit is not truncation: nothing was dropped, so nothing is said.
+    const exact = 'a'.repeat(MAX_BLOCK_TEXT_LENGTH);
+    expect(clampBlockText(exact)).toEqual({ text: exact, truncated: false });
+  });
+
+  it('reports that it dropped the end, so the user can be told', () => {
+    const result = clampBlockText('a'.repeat(MAX_BLOCK_TEXT_LENGTH + 1));
+    expect(result.truncated).toBe(true);
+    expect(result.text).toHaveLength(MAX_BLOCK_TEXT_LENGTH);
+  });
+
+  it('never cuts an emoji in half, and stays inside the limit the server counts', () => {
+    // The 10000th UTF-16 unit falls between the emoji's two surrogates. A plain slice stored a lone
+    // high surrogate, which came back as replacement characters and was longer than the limit.
+    const pasted = `${'a'.repeat(MAX_BLOCK_TEXT_LENGTH - 1)}\u{1F600} trailing text`;
+    const result = clampBlockText(pasted);
+
+    expect(result.truncated).toBe(true);
+    // The server counts UTF-16 units; the cut satisfies that count.
+    expect(result.text.length).toBeLessThanOrEqual(MAX_BLOCK_TEXT_LENGTH);
+    expect(result.text).toBe('a'.repeat(MAX_BLOCK_TEXT_LENGTH - 1));
+    // No half of a surrogate pair survives anywhere in the result.
+    expect([...result.text].every((point) => point.codePointAt(0)! < 0xd800)).toBe(true);
+  });
+
+  it('keeps an emoji whole when the whole pair fits', () => {
+    const pasted = `${'a'.repeat(MAX_BLOCK_TEXT_LENGTH - 2)}\u{1F600}\u{1F600}`;
+    const result = clampBlockText(pasted);
+
+    expect(result.text).toBe(`${'a'.repeat(MAX_BLOCK_TEXT_LENGTH - 2)}\u{1F600}`);
+    expect(result.text.length).toBe(MAX_BLOCK_TEXT_LENGTH);
+    expect(result.truncated).toBe(true);
   });
 });

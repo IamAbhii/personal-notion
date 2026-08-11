@@ -26,8 +26,11 @@ export type BlockPatch = {
   sortKey?: string;
 };
 
-// Every block in the workspace, in sort_key order, for the snapshot. One flat read: the client groups
-// by page_id, which costs nothing there and saves a query per page here.
+// Every block in the workspace, in (sort_key, id) order, for the snapshot. One flat read: the client
+// groups by page_id, which costs nothing there and saves a query per page here.
+// The id is part of the ORDER BY, not decoration: two concurrent appends can mint the same sort_key
+// (DEF-016), and without a tiebreak SQLite would return those rows in an arbitrary order that could
+// differ between reads. id is a stable uuid, so every read and every client agrees.
 // Future: if a workspace outgrows one response, read blocks per page on demand and keep only the open
 // page's blocks in the snapshot.
 export function listBlocks(db: Db, ctx: Ctx): Promise<BlockRow[]> {
@@ -35,7 +38,7 @@ export function listBlocks(db: Db, ctx: Ctx): Promise<BlockRow[]> {
     .select()
     .from(blocks)
     .where(eq(blocks.workspaceId, ctx.workspaceId))
-    .orderBy(blocks.sortKey);
+    .orderBy(blocks.sortKey, blocks.id);
 }
 
 // The skeleton the sync applier needs to decide every block op in memory: existence, version

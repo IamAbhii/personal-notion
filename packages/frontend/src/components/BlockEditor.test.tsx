@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { describe, expect, it } from 'vitest';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BlockEditor } from './BlockEditor';
 import { blocksForPage, sortKeyAfterIndex } from '../lib/blocks';
@@ -9,15 +9,19 @@ import type { BlockRecord, BlockType, BlockUpdatePayload } from '../api/types';
 
 // The editor is driven through a harness that applies the writes to local state, the way the
 // optimistic snapshot patch in useBlockMutations does, so focus moves and re-renders are exercised.
+// The create is synchronous here because it is synchronous in useBlockMutations: the id is minted
+// and the snapshot patched before any network call, which is what lets the caret move inside the
+// keystroke that asked for the block.
 
 interface Recorded {
   created: { type: BlockType; afterBlockId: string | null }[];
   updates: { id: string; changes: BlockUpdatePayload }[];
   deleted: string[];
+  notices: string[];
 }
 
 function renderEditor(initial: BlockRecord[]): Recorded {
-  const recorded: Recorded = { created: [], updates: [], deleted: [] };
+  const recorded: Recorded = { created: [], updates: [], deleted: [], notices: [] };
 
   function Harness() {
     const [blocks, setBlocks] = useState(initial);
@@ -25,7 +29,8 @@ function renderEditor(initial: BlockRecord[]): Recorded {
     return (
       <BlockEditor
         blocks={blocks}
-        onCreateBlock={async (args) => {
+        onNotice={(message) => recorded.notices.push(message)}
+        onCreateBlock={(args) => {
           recorded.created.push(args);
           const id = `b-new-${recorded.created.length}`;
           setBlocks((current) => {
@@ -384,7 +389,7 @@ describe('the slash menu', () => {
     expect(selected()).toBe('callout');
   });
 
-  it('converts the block with Enter, in one update on the type, and clears the query', async () => {
+  it('converts the block with Enter, in one update, and clears the query it saved', async () => {
     const user = userEvent.setup();
     const recorded = renderEditor([
       makeBlock({ id: 'b-1', pageId: 'p-1', sortKey: 'a0', text: '' }),
@@ -393,7 +398,9 @@ describe('the slash menu', () => {
     await user.click(editorFor('b-1'));
     await user.keyboard('/quote{Enter}');
 
-    expect(recorded.updates).toEqual([{ id: 'b-1', changes: { type: 'quote' } }]);
+    // The query text is autosaved while it is typed, so the conversion clears it on the server too,
+    // in the same op that changes the type.
+    expect(recorded.updates).toEqual([{ id: 'b-1', changes: { type: 'quote', text: '' } }]);
     expect(screen.queryByTestId('slash-menu')).toBeNull();
     expect(document.querySelector('[data-block-id="b-1"]')).toHaveAttribute(
       'data-block-type',
@@ -419,7 +426,7 @@ describe('the slash menu', () => {
     expect(editorFor('b-1')).toHaveValue('Remember this');
     await waitFor(() =>
       expect(recorded.updates).toEqual([
-        { id: 'b-1', changes: { type: 'callout' } },
+        { id: 'b-1', changes: { type: 'callout', text: '' } },
         { id: 'b-1', changes: { text: 'Remember this' } },
       ]),
     );
@@ -438,7 +445,7 @@ describe('the slash menu', () => {
       .find((item) => item.getAttribute('data-block-type') === 'todo');
     await user.click(todo as HTMLElement);
 
-    expect(recorded.updates).toEqual([{ id: 'b-1', changes: { type: 'todo' } }]);
+    expect(recorded.updates).toEqual([{ id: 'b-1', changes: { type: 'todo', text: '' } }]);
     expect(screen.getByRole('checkbox')).toBeInTheDocument();
   });
 
@@ -468,6 +475,142 @@ describe('the slash menu', () => {
 
     expect(screen.queryByTestId('slash-menu')).toBeNull();
     expect(editorFor('b-1')).toHaveValue('/');
+  });
+});
+
+describe('typing across a block boundary (DEF-011)', () => {
+  it('moves the caret to the new block inside the Enter keystroke itself', () => {
+    const recorded = renderEditor([paragraph]);
+    const first = editorFor('b-1');
+    act(() => {
+      first.focus();
+      first.setSelectionRange(first.value.length, first.value.length);
+    });
+
+    // No await, no waitFor and no timer: by the time the keydown has been handled the caret must
+    // already be in the new block. Anything asynchronous here - awaiting the op, or a passive
+    // effect - is a window in which the next character lands in the block the user just left.
+    fireEvent.keyDown(first, { key: 'Enter' });
+
+    expect(recorded.created).toEqual([{ type: 'paragraph', afterBlockId: 'b-1' }]);
+    expect(document.activeElement).toBe(editorFor('b-new-1'));
+  });
+
+  it('keeps each line whole when typed at a human pace of 100ms per keystroke', async () => {
+    // The default synthetic typing is far faster than a person and never hit the race that lost the
+    // first character of every line, so this test types at the speed the defect was found at.
+    const user = userEvent.setup({ delay: 100 });
+    const recorded = renderEditor([
+      makeBlock({ id: 'b-1', pageId: 'p-1', sortKey: 'a0', text: '' }),
+    ]);
+
+    await user.click(editorFor('b-1'));
+    await user.keyboard('Alpha{Enter}Beta');
+
+    expect(editorFor('b-1')).toHaveValue('Alpha');
+    expect(editorFor('b-new-1')).toHaveValue('Beta');
+    // And the writes match the screen: no character crossed the boundary on the way to the server.
+    await waitFor(() =>
+      expect(recorded.updates).toEqual([
+        { id: 'b-1', changes: { text: 'Alpha' } },
+        { id: 'b-new-1', changes: { text: 'Beta' } },
+      ]),
+    );
+  }, 15000);
+});
+
+describe('text typed while the slash menu is open (DEF-012)', () => {
+  it('is autosaved like any other text, so clicking away keeps it', async () => {
+    const user = userEvent.setup();
+    const recorded = renderEditor([
+      makeBlock({ id: 'b-1', pageId: 'p-1', sortKey: 'a0', text: '' }),
+    ]);
+
+    await user.click(editorFor('b-1'));
+    await user.keyboard('/my important note');
+    // The menu is still open, because the text still begins with a slash.
+    expect(screen.getByTestId('slash-menu')).toBeInTheDocument();
+
+    // Blurring is the case that used to lose it: the keystrokes never marked the block dirty, so the
+    // flush had nothing to write while the text stayed on screen.
+    await user.tab();
+
+    expect(recorded.updates).toEqual([{ id: 'b-1', changes: { text: '/my important note' } }]);
+    expect(editorFor('b-1')).toHaveValue('/my important note');
+  });
+
+  it('is written even if the debounce has not settled when the page goes away (DEF-013)', async () => {
+    const user = userEvent.setup();
+    const recorded = renderEditor([paragraph]);
+
+    await user.type(editorFor('b-1'), 'LOSTTEXT');
+    // Inside the 500ms window there is nothing written yet; a reload here used to drop the edit.
+    expect(recorded.updates).toEqual([]);
+
+    act(() => {
+      window.dispatchEvent(new Event('pagehide'));
+    });
+
+    expect(recorded.updates).toEqual([{ id: 'b-1', changes: { text: 'First blockLOSTTEXT' } }]);
+  });
+
+  it('is written when the tab is backgrounded, which is all the warning a phone gives (DEF-013)', async () => {
+    const user = userEvent.setup();
+    const recorded = renderEditor([paragraph]);
+
+    await user.type(editorFor('b-1'), '!');
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    expect(recorded.updates).toEqual([{ id: 'b-1', changes: { text: 'First block!' } }]);
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+  });
+});
+
+describe('Enter with a slash query that matches nothing (DEF-018)', () => {
+  it('closes the menu and leaves the text alone rather than swallowing the key', async () => {
+    const user = userEvent.setup();
+    const recorded = renderEditor([
+      makeBlock({ id: 'b-1', pageId: 'p-1', sortKey: 'a0', text: '' }),
+    ]);
+
+    await user.click(editorFor('b-1'));
+    await user.keyboard('/nomatch');
+    expect(screen.getByTestId('slash-menu')).toHaveTextContent('No block type matches that.');
+
+    await user.keyboard('{Enter}');
+
+    expect(screen.queryByTestId('slash-menu')).toBeNull();
+    expect(editorFor('b-1')).toHaveValue('/nomatch');
+    // Enter here is a dismissal, not an insertion, and it converts nothing.
+    expect(recorded.created).toEqual([]);
+    await waitFor(() =>
+      expect(recorded.updates).toEqual([{ id: 'b-1', changes: { text: '/nomatch' } }]),
+    );
+  });
+});
+
+describe('a paste longer than the block limit (DEF-014, DEF-015)', () => {
+  it('cuts on a whole character and says that the end was dropped', async () => {
+    const user = userEvent.setup();
+    const recorded = renderEditor([
+      makeBlock({ id: 'b-1', pageId: 'p-1', sortKey: 'a0', text: '' }),
+    ]);
+
+    // 9999 plain characters, then an emoji whose two UTF-16 units straddle the 10000th.
+    const pasted = `${'a'.repeat(9999)}\u{1F600} and more text after it`;
+    await user.click(editorFor('b-1'));
+    await user.paste(pasted);
+
+    const stored = editorFor('b-1').value;
+    // Cut before the emoji rather than through it: no lone surrogate, and inside the server's limit.
+    expect(stored).toBe('a'.repeat(9999));
+    expect(stored.length).toBeLessThanOrEqual(10000);
+    expect(stored).not.toContain('�');
+    expect(recorded.notices).toHaveLength(1);
+    expect(recorded.notices[0]).toContain('10,000 characters');
   });
 });
 

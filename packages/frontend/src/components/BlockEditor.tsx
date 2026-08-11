@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import {
   DndContext,
   KeyboardSensor,
@@ -16,15 +16,18 @@ import {
 } from '@dnd-kit/sortable';
 import { BlockRow } from './BlockRow';
 import { numberedListNumber, sortKeyForMove } from '../lib/blocks';
+import { buildDragAnnouncements } from '../lib/dragAnnouncements';
 import type { BlockRecord, BlockType, BlockUpdatePayload } from '../api/types';
 
 export interface BlockEditorProps {
   /** The blocks of this page, already in sortKey order. */
   blocks: BlockRecord[];
-  /** Resolves to the new block's id, or null when the write failed. */
-  onCreateBlock: (args: { type: BlockType; afterBlockId: string | null }) => Promise<string | null>;
+  /** The new block's id, returned synchronously so the caret can move to it in the same event. */
+  onCreateBlock: (args: { type: BlockType; afterBlockId: string | null }) => string;
   onUpdateBlock: (block: BlockRecord, changes: BlockUpdatePayload) => void;
   onDeleteBlock: (block: BlockRecord) => void;
+  /** Says something to the user - used when a paste is clamped to the block text limit. */
+  onNotice: (message: string) => void;
 }
 
 /** Which block should take the caret once it exists in the list, and at which end of its text. */
@@ -43,6 +46,7 @@ export function BlockEditor({
   onCreateBlock,
   onUpdateBlock,
   onDeleteBlock,
+  onNotice,
 }: BlockEditorProps) {
   // The textarea of every rendered block, so focus can move to a block this component did not draw.
   const editors = useRef<Map<string, HTMLTextAreaElement>>(new Map());
@@ -59,9 +63,10 @@ export function BlockEditor({
     else editors.current.delete(blockId);
   };
 
-  // A created block is focused only once it has been rendered, which is a tick or a refetch after
-  // the op, so the request is held until its textarea is registered.
-  useEffect(() => {
+  // The caret moves in a layout effect, not a passive one: a passive effect can be deferred past the
+  // next keystroke, and then the character the user typed after Enter lands in the block they left.
+  // A layout effect runs in the same synchronous commit as the keydown that created the block.
+  useLayoutEffect(() => {
     if (!focusRequest) return;
     const element = editors.current.get(focusRequest.blockId);
     if (!element) return;
@@ -71,10 +76,11 @@ export function BlockEditor({
     setFocusRequest(null);
   }, [blocks, focusRequest]);
 
-  const addBlock = async (afterBlockId: string | null) => {
-    const blockId = await onCreateBlock({ type: 'paragraph', afterBlockId });
-    // Null means the write failed and the user has been told; there is no block to focus.
-    if (blockId) setFocusRequest({ blockId, caret: 'start' });
+  const addBlock = (afterBlockId: string | null) => {
+    // The id comes back synchronously and the block is already in the snapshot, so this render and
+    // the focus below happen before the browser can deliver another keystroke.
+    const blockId = onCreateBlock({ type: 'paragraph', afterBlockId });
+    setFocusRequest({ blockId, caret: 'start' });
   };
 
   const deleteEmptyBlock = (index: number) => {
@@ -97,6 +103,9 @@ export function BlockEditor({
     onUpdateBlock(moved, { sortKey: sortKeyForMove(blocks, fromIndex, toIndex) });
   };
 
+  // dnd-kit's defaults read raw UUIDs to a screen reader; these name the block and its position.
+  const announcements = buildDragAnnouncements(blocks);
+
   return (
     <section className="block-editor" data-testid="block-editor" aria-label="Page body">
       <DndContext
@@ -104,6 +113,7 @@ export function BlockEditor({
         collisionDetection={closestCenter}
         // A block stack only reorders vertically; sideways movement would just look broken.
         modifiers={[restrictToVerticalAxis]}
+        accessibility={{ announcements }}
         onDragEnd={handleDragEnd}
       >
         <SortableContext
@@ -117,18 +127,21 @@ export function BlockEditor({
               listNumber={numberedListNumber(blocks, index)}
               registerEditor={registerEditor}
               onChangeText={(text) => onUpdateBlock(block, { text })}
-              onChangeType={(type) => onUpdateBlock(block, { type })}
+              // One op carries both: the slash query the user typed was a command, never content,
+              // so the conversion clears the text the same write that changes the type.
+              onConvertType={(type) => onUpdateBlock(block, { type, text: '' })}
               onToggleChecked={(checked) => onUpdateBlock(block, { checked })}
-              onEnter={() => void addBlock(block.id)}
+              onEnter={() => addBlock(block.id)}
               onDeleteEmpty={() => deleteEmptyBlock(index)}
               onDelete={() => onDeleteBlock(block)}
+              onNotice={onNotice}
             />
           ))}
         </SortableContext>
       </DndContext>
 
       {blocks.length === 0 ? (
-        <button type="button" className="block-editor__empty" onClick={() => void addBlock(null)}>
+        <button type="button" className="block-editor__empty" onClick={() => addBlock(null)}>
           <span className="block-editor__empty-lead">This page is empty</span>
           <span className="block-editor__empty-note">
             Click here to start writing, then type &quot;/&quot; for headings, lists, to-dos,
@@ -141,7 +154,7 @@ export function BlockEditor({
           type="button"
           className="block-editor__tail"
           aria-label="Add a block at the end of the page"
-          onClick={() => void addBlock(blocks[blocks.length - 1]?.id ?? null)}
+          onClick={() => addBlock(blocks[blocks.length - 1]?.id ?? null)}
         />
       )}
     </section>

@@ -27,13 +27,18 @@ export async function apiGet<T>(path: string): Promise<T> {
   return (await response.json()) as T;
 }
 
-/** POSTs a JSON body to an API path and parses the JSON response. */
+/**
+ * POSTs a JSON body to an API path and parses the JSON response. `keepalive` lets a request that is
+ * already in flight when the page goes away finish instead of being cancelled with the document. A
+ * write that has not started yet at that point needs `beaconOps` instead - see sync/ops.ts.
+ */
 export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   const response = await fetch(path, {
     method: 'POST',
     credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(body),
+    keepalive: true,
   });
   if (!response.ok) throw await toApiError(response);
   return (await response.json()) as T;

@@ -8,6 +8,7 @@ import {
   DEFAULT_CODE_LANGUAGE,
   MAX_BLOCK_TEXT_LENGTH,
   blockTypeLabel,
+  clampBlockText,
   filterBlockTypes,
   parseBlockProps,
 } from '../lib/blocks';
@@ -20,7 +21,8 @@ export interface BlockRowProps {
   /** Its position in the unbroken run of numbered items, so an interrupted list restarts at 1. */
   listNumber: number;
   onChangeText: (text: string) => void;
-  onChangeType: (type: BlockType) => void;
+  /** Applies a slash-menu choice: the new type, and an empty text, since the query was a command. */
+  onConvertType: (type: BlockType) => void;
   onToggleChecked: (checked: boolean) => void;
   /** Enter: a new paragraph below this block, which the editor then focuses. */
   onEnter: () => void;
@@ -29,6 +31,8 @@ export interface BlockRowProps {
   onDelete: () => void;
   /** Hands the textarea to the editor, which owns focus moves between blocks. */
   registerEditor: (blockId: string, element: HTMLTextAreaElement | null) => void;
+  /** Says something to the user - used when a paste is clamped to the block text limit. */
+  onNotice: (message: string) => void;
 }
 
 /** What an empty block of each type invites the user to do. */
@@ -47,12 +51,13 @@ export function BlockRow({
   block,
   listNumber,
   onChangeText,
-  onChangeType,
+  onConvertType,
   onToggleChecked,
   onEnter,
   onDeleteEmpty,
   onDelete,
   registerEditor,
+  onNotice,
 }: BlockRowProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   // Set when the slash menu converted this block, so the caret returns to it after the remount.
@@ -95,13 +100,13 @@ export function BlockRow({
 
   const pick = (option: BlockTypeOption) => {
     closeSlashMenu();
-    // The query text was never saved, so clearing it locally is enough and the conversion stays a
-    // single block.update carrying only the type.
+    // The query text is autosaved as it is typed, so it may already be on the server; `reset` drops
+    // the local text and cancels the pending debounce, and the conversion op clears the stored text.
     reset('');
     // Focusing here would be lost: the new type wraps the textarea in a different element, so React
     // remounts it. The effect below puts the caret back once the converted block has rendered.
     refocusAfterConvert.current = true;
-    onChangeType(option.type);
+    onConvertType(option.type);
   };
 
   useEffect(() => {
@@ -114,13 +119,21 @@ export function BlockRow({
   }, [block.type]);
 
   const handleChange = (next: string) => {
-    const clamped = next.slice(0, MAX_BLOCK_TEXT_LENGTH);
+    const { text: clamped, truncated } = clampBlockText(next);
+    // Clamping is defensible; clamping silently is not, so a dropped paste is said out loud.
+    if (truncated) {
+      onNotice(
+        `A block holds at most ${MAX_BLOCK_TEXT_LENGTH.toLocaleString('en-GB')} characters, so the end of what you pasted was not kept. Split it across several blocks to keep all of it.`,
+      );
+    }
     if (slashQuery !== null) {
       // Still a command as long as it starts with the slash; deleting the slash makes it text again.
       if (clamped.startsWith('/')) {
         setSlashQuery(clamped.slice(1));
         setHighlightedIndex(0);
-        reset(clamped);
+        // Autosaved like any other text: the menu may never be used, and text the user can see must
+        // never be text the server has not got. A conversion clears it again in one op.
+        edit(clamped);
         return;
       }
       closeSlashMenu();
@@ -132,7 +145,7 @@ export function BlockRow({
     if (clamped === '/' && value === '' && block.type !== 'code') {
       setSlashQuery('');
       setHighlightedIndex(0);
-      reset(clamped);
+      edit(clamped);
       return;
     }
     edit(clamped);
@@ -150,7 +163,13 @@ export function BlockRow({
       if (event.key === 'Enter') {
         event.preventDefault();
         const option = options[highlightedIndex];
-        if (option) pick(option);
+        if (option) {
+          pick(option);
+          return;
+        }
+        // Nothing matches the query, so there is nothing to convert to. Enter dismisses the menu and
+        // leaves the text as content rather than being swallowed until the user finds Escape.
+        closeSlashMenu();
         return;
       }
       if (event.key === 'Escape') {

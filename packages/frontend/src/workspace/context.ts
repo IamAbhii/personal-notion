@@ -12,6 +12,8 @@ export interface WorkspaceContextValue {
   mutations: PageMutations;
   blockMutations: BlockMutations;
   selectPage: (pageId: string) => void;
+  /** Posts a message to the notice stack - anything the app has to tell the user about a write. */
+  notify: (message: string) => void;
   /** Creates a page and opens it, so every create in the app lands the user on the new page. */
   createAndOpenPage: (parentId: string | null) => void;
 }

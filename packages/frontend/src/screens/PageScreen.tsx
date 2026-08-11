@@ -8,7 +8,7 @@ import { blocksForPage } from '../lib/blocks';
 /** The route screen for one page: resolves the page and its blocks from the snapshot and renders them. */
 export function PageScreen() {
   const { pageId } = useParams({ from: '/w/$workspaceId/page/$pageId' });
-  const { pages, blocks, mutations, blockMutations, selectPage } = useWorkspace();
+  const { pages, blocks, mutations, blockMutations, selectPage, notify } = useWorkspace();
 
   const page = pages.find((candidate) => candidate.id === pageId);
   if (!page) {
@@ -41,6 +41,7 @@ export function PageScreen() {
         onCreateBlock={(args) => blockMutations.createBlock({ pageId: page.id, ...args })}
         onUpdateBlock={(block, changes) => void blockMutations.updateBlock(block, changes)}
         onDeleteBlock={(block) => void blockMutations.deleteBlock(block)}
+        onNotice={notify}
       />
     </PageView>
   );
