@@ -517,9 +517,10 @@ Expected: an announcement naming the block in human terms, as the handle's own a
 
 Actual: the live region announces
 `Draggable item f2660a3d-12f3-4948-b69c-a7f898d6f5ba was moved over droppable area f2660a3d-12f3-4948-b69c-a7f898d6f5ba.`
+
 - dnd-kit's default announcements, unconfigured, reading two identical UUIDs. The keyboard reorder
-itself works correctly (Space, ArrowDown, ArrowDown, Space moved the block two positions and the
-order matched on the server), so this is only what a screen reader hears while doing it.
+  itself works correctly (Space, ArrowDown, ArrowDown, Space moved the block two positions and the
+  order matched on the server), so this is only what a screen reader hears while doing it.
 
 Disposition: ACCEPTED -> DEF-019. Announce the block's own text and type, which the component already has to
 hand.
