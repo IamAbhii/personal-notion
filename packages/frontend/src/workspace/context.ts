@@ -1,12 +1,16 @@
 import { createContext, useContext } from 'react';
-import type { PageRecord } from '../api/types';
+import type { BlockRecord, PageRecord } from '../api/types';
 import type { PageMutations } from '../hooks/usePageMutations';
+import type { BlockMutations } from '../hooks/useBlockMutations';
 
 export interface WorkspaceContextValue {
   userId: string;
   workspaceId: string;
   pages: PageRecord[];
+  /** Every block in the workspace, flat; a page filters to its own with `blocksForPage`. */
+  blocks: BlockRecord[];
   mutations: PageMutations;
+  blockMutations: BlockMutations;
   selectPage: (pageId: string) => void;
   /** Creates a page and opens it, so every create in the app lands the user on the new page. */
   createAndOpenPage: (parentId: string | null) => void;

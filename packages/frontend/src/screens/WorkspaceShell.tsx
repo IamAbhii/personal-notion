@@ -2,6 +2,7 @@ import { Outlet, useNavigate, useParams } from '@tanstack/react-router';
 import { useSuspenseQuery } from '@tanstack/react-query';
 import { meQueryOptions, snapshotQueryOptions } from '../api/queries';
 import { usePageMutations } from '../hooks/usePageMutations';
+import { useBlockMutations } from '../hooks/useBlockMutations';
 import { useNotices } from '../hooks/useNotices';
 import { Sidebar } from '../components/Sidebar';
 import { NoticeStack } from '../components/NoticeStack';
@@ -21,10 +22,14 @@ export function WorkspaceShell() {
   const me = useSuspenseQuery(meQueryOptions()).data;
   const snapshot = useSuspenseQuery(snapshotQueryOptions(me.user.id, workspaceId)).data;
   const pages = snapshot.pages;
+  // Blocks arrive in the same snapshot; `?? []` keeps the shell rendering against a server that
+  // predates the blocks key rather than crashing on it.
+  const blocks = snapshot.blocks ?? [];
 
   const membership = me.memberships.find((entry) => entry.workspaceId === workspaceId);
   const { notices, notify, dismiss } = useNotices();
   const mutations = usePageMutations(me.user.id, workspaceId, pages, notify);
+  const blockMutations = useBlockMutations(me.user.id, workspaceId, blocks, notify);
 
   const selectPage = (pageId: string) =>
     void navigate({ to: '/w/$workspaceId/page/$pageId', params: { workspaceId, pageId } });
@@ -51,7 +56,9 @@ export function WorkspaceShell() {
         userId: me.user.id,
         workspaceId,
         pages,
+        blocks,
         mutations,
+        blockMutations,
         selectPage,
         createAndOpenPage: (parentId) => void createPage(parentId),
       }}

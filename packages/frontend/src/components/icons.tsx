@@ -41,6 +41,20 @@ export function PencilIcon() {
   );
 }
 
+/** Six dots, the conventional drag handle for a block. */
+export function DragHandleIcon() {
+  return (
+    <svg {...base} strokeWidth={0} fill="currentColor" className="icon">
+      <circle cx="6" cy="4" r="1.3" />
+      <circle cx="10" cy="4" r="1.3" />
+      <circle cx="6" cy="8" r="1.3" />
+      <circle cx="10" cy="8" r="1.3" />
+      <circle cx="6" cy="12" r="1.3" />
+      <circle cx="10" cy="12" r="1.3" />
+    </svg>
+  );
+}
+
 /** Trash, for delete. */
 export function TrashIcon() {
   return (

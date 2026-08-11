@@ -38,19 +38,56 @@ export interface PageRecord {
 }
 
 /**
+ * The eleven block types of Phase 2, exactly as the server stores them. Phase 2 has no inline
+ * formatting, so `text` everywhere below is plain text.
+ * Future: image, embed and database-view blocks join this list in later phases.
+ */
+export type BlockType =
+  | 'paragraph'
+  | 'heading1'
+  | 'heading2'
+  | 'heading3'
+  | 'bulletedList'
+  | 'numberedList'
+  | 'todo'
+  | 'quote'
+  | 'divider'
+  | 'code'
+  | 'callout';
+
+/**
+ * A block as the snapshot returns it. `sortKey` is a fractional index, so a reorder is one op on
+ * one row. `props` is a JSON string holding type-specific extras only - the code language, the
+ * callout emoji - and is null for the types that have none.
+ */
+export interface BlockRecord {
+  id: string;
+  pageId: string;
+  type: BlockType;
+  text: string;
+  checked: boolean;
+  props: string | null;
+  sortKey: string;
+  version: number;
+  updatedAt: number | string;
+}
+
+/**
  * GET /api/workspaces/:workspaceId/snapshot — the only read on cold start.
- * Future: later phases add sibling keys here for blocks, databases, properties, rows and views.
+ * Future: later phases add sibling keys here for databases, properties, rows and views.
  */
 export interface SnapshotResponse {
   workspaceId: string;
   pages: PageRecord[];
+  blocks: BlockRecord[];
 }
 
-/** The entity kinds ops can target. Future: 'block' | 'database' | 'row' | 'view' join this. */
-export type OpEntity = 'page';
+/** The entity kinds ops can target. Future: 'database' | 'row' | 'view' join this. */
+export type OpEntity = 'page' | 'block';
 
-/** The op types Phase 1 emits. Future: block, database and view op types are added here. */
-export type OpType = 'page.create' | 'page.update' | 'page.delete';
+/** The op types Phases 1 and 2 emit. Future: database and view op types are added here. */
+export type OpType =
+  'page.create' | 'page.update' | 'page.delete' | 'block.create' | 'block.update' | 'block.delete';
 
 /** Payload of a `page.create` op. The client mints the id, so no id is in the payload. */
 export interface PageCreatePayload {
@@ -71,7 +108,41 @@ export interface PageUpdatePayload {
 /** Payload of a `page.delete` op. Deletion is permanent and cascades to nested pages. */
 export type PageDeletePayload = Record<string, never>;
 
-export type OpPayload = PageCreatePayload | PageUpdatePayload | PageDeletePayload;
+/**
+ * Payload of a `block.create` op. The client mints the block id, so no id is in the payload.
+ * Omitting `sortKey` tells the server to append the block at the end of the page.
+ */
+export interface BlockCreatePayload {
+  pageId: string;
+  type: BlockType;
+  text?: string;
+  checked?: boolean;
+  props?: string | null;
+  sortKey?: string;
+}
+
+/**
+ * Payload of a `block.update` op: any subset of the mutable block fields. `pageId` is deliberately
+ * absent - the server rejects an op that tries to move a block between pages.
+ */
+export interface BlockUpdatePayload {
+  type?: BlockType;
+  text?: string;
+  checked?: boolean;
+  props?: string | null;
+  sortKey?: string;
+}
+
+/** Payload of a `block.delete` op. Deletion is permanent; there is no trash. */
+export type BlockDeletePayload = Record<string, never>;
+
+export type OpPayload =
+  | PageCreatePayload
+  | PageUpdatePayload
+  | PageDeletePayload
+  | BlockCreatePayload
+  | BlockUpdatePayload
+  | BlockDeletePayload;
 
 /**
  * An intent-based write. Every mutation in the app is one of these, minted client-side with a UUID

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import type { ReactNode } from 'react';
 import { EmojiPickerPopover } from './EmojiPickerPopover';
 import { InlineTitleInput } from './InlineTitleInput';
 import { collapseBreadcrumb } from '../lib/treeLayout';
@@ -12,11 +13,13 @@ export interface PageViewProps {
   onSelectPage: (pageId: string) => void;
   onRename: (title: string) => void;
   onChangeIcon: (icon: string) => void;
+  /** The page body - the block editor. Composed by the route screen, which owns the block writes. */
+  children?: ReactNode;
 }
 
 /**
- * The page area: breadcrumb, the icon and title header, and an empty-state body. The header is the
- * second place a page can be renamed and the only place its icon is chosen.
+ * The page area: breadcrumb, the icon and title header, and the body its caller supplies. The
+ * header is the second place a page can be renamed and the only place its icon is chosen.
  */
 export function PageView({
   page,
@@ -25,6 +28,7 @@ export function PageView({
   onSelectPage,
   onRename,
   onChangeIcon,
+  children,
 }: PageViewProps) {
   const [isEditingTitle, setEditingTitle] = useState(false);
   const [isPickingIcon, setPickingIcon] = useState(false);
@@ -132,20 +136,7 @@ export function PageView({
           </p>
         </header>
 
-        {/* Placeholder for the block editor, which is the next phase's task. Not blocks. */}
-        <section className="placeholder" aria-label="Page body">
-          <p className="placeholder__eyebrow">Editor placeholder</p>
-          <p className="placeholder__lead">This page has no content yet.</p>
-          <p className="placeholder__note">
-            The block editor - text, headings, lists, to-dos, images and drag-to-reorder - arrives
-            in the next phase. Until then the page area shows its icon and title only.
-          </p>
-          <div className="placeholder__lines" aria-hidden="true">
-            <span />
-            <span />
-            <span />
-          </div>
-        </section>
+        {children}
       </main>
     </>
   );
