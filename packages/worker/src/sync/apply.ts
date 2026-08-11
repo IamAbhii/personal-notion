@@ -5,6 +5,15 @@ import { runBatch, type Statement } from '../db/batch';
 import { appliedOps } from '../db/schema';
 import { isValidSortKey, nextKeyAfter } from '../lib/sortKey';
 import { findAppliedOps, recordAppliedOpStatement, type AppliedOpRecord } from '../repo/appliedOps';
+import {
+  buildBlockRow,
+  deleteBlocksForPagesStatements,
+  deleteBlocksStatements,
+  insertBlockStatement,
+  listBlockStates,
+  updateBlockStatement,
+  type BlockPatch,
+} from '../repo/blocks';
 import type { Ctx } from '../repo/context';
 import {
   buildPageRow,
@@ -14,7 +23,13 @@ import {
   updatePageStatement,
   type PagePatch,
 } from '../repo/pages';
-import { payloadRejection, type Op, type OpResult, type VersionMismatch } from './ops';
+import {
+  payloadRejection,
+  type BlockType,
+  type Op,
+  type OpResult,
+  type VersionMismatch,
+} from './ops';
 
 // applied_ops binds 10 parameters per row, and D1 allows 100 per query, so the outcome log is
 // written as multi-row inserts of at most 10 rows. Without this a 25-op chunk would need 25 extra
@@ -30,6 +45,9 @@ export type SyncOutcome = {
 // walk the tree for cascade deletes and detect a parent cycle.
 type PageState = { version: number; parentId: string | null; sortKey: string };
 
+// The same for blocks: existence, version, which page it sits on and where in that page.
+type BlockState = { version: number; pageId: string; sortKey: string };
+
 // Applies ops to a workspace and returns one result per op, in the order they were given.
 // Ops are re-ordered to client_seq before applying, because a later op may depend on an earlier one
 // (a child created under a page created in the same chunk).
@@ -41,13 +59,19 @@ export async function applyOps(db: Db, ctx: Ctx, ops: Op[]): Promise<SyncOutcome
     ordered.map((op) => op.opId),
   );
 
-  // One read of the workspace's page skeleton, then every decision is made in memory. Doing it
-  // per op would spend the whole D1 query budget on lookups.
-  const rows = await listPageStates(db, ctx);
+  // Two reads - the page skeleton and the block skeleton - and then every decision is made in
+  // memory. Doing it per op would spend the whole D1 query budget on lookups.
+  const [rows, blockRows] = await Promise.all([listPageStates(db, ctx), listBlockStates(db, ctx)]);
   const state = new Map<string, PageState>(
     rows.map((row) => [
       row.id,
       { version: row.version, parentId: row.parentId, sortKey: row.sortKey },
+    ]),
+  );
+  const blockState = new Map<string, BlockState>(
+    blockRows.map((row) => [
+      row.id,
+      { version: row.version, pageId: row.pageId, sortKey: row.sortKey },
     ]),
   );
 
@@ -207,6 +231,85 @@ export async function applyOps(db: Db, ctx: Ctx, ops: Op[]): Promise<SyncOutcome
       continue;
     }
 
+    if (op.type === 'block.create') {
+      if (blockState.has(op.entityId)) {
+        reject(op, 'block already exists');
+        continue;
+      }
+      // A block on a page that is gone would be invisible and undeletable, so it is dropped rather
+      // than resurrecting the page.
+      if (!state.has(op.payload.pageId)) {
+        reject(op, 'page no longer exists');
+        continue;
+      }
+      const sortKey = op.payload.sortKey ?? nextBlockKey(blockState, op.payload.pageId);
+      const row = buildBlockRow(
+        ctx,
+        {
+          id: op.entityId,
+          pageId: op.payload.pageId,
+          // Checked by payloadRejection above, so the cast narrows rather than assumes.
+          type: op.payload.type as BlockType,
+          text: op.payload.text,
+          checked: op.payload.checked,
+          props: op.payload.props,
+        },
+        sortKey,
+        now,
+      );
+      dataStatements.push(insertBlockStatement(db, row));
+      blockState.set(row.id, { version: row.version, pageId: row.pageId, sortKey });
+      accept(op, row.version);
+      continue;
+    }
+
+    if (op.type === 'block.update') {
+      const current = blockState.get(op.entityId);
+      if (!current) {
+        reject(op, 'block no longer exists');
+        continue;
+      }
+      // Built field by field rather than spread, because the payload also carries pageId, which
+      // payloadRejection has already refused and which must never reach the update statement.
+      const patch: BlockPatch = {
+        ...(op.payload.type !== undefined ? { type: op.payload.type } : {}),
+        ...(op.payload.text !== undefined ? { text: op.payload.text } : {}),
+        ...(op.payload.checked !== undefined ? { checked: op.payload.checked } : {}),
+        ...(op.payload.props !== undefined ? { props: op.payload.props } : {}),
+        ...(op.payload.sortKey !== undefined ? { sortKey: op.payload.sortKey } : {}),
+      };
+      // Future: reject on mismatch to enable optimistic concurrency. Today the policy is last write
+      // wins by server arrival order, and the mismatch is reported so the client can tell the user.
+      if (typeof op.baseVersion === 'number' && op.baseVersion !== current.version) {
+        versionMismatches.push({
+          opId: op.opId,
+          entityId: op.entityId,
+          baseVersion: op.baseVersion,
+          serverVersion: current.version,
+        });
+      }
+      dataStatements.push(updateBlockStatement(db, ctx, op.entityId, patch, now));
+      const nextVersion = current.version + 1;
+      blockState.set(op.entityId, {
+        version: nextVersion,
+        pageId: current.pageId,
+        sortKey: patch.sortKey ?? current.sortKey,
+      });
+      accept(op, nextVersion);
+      continue;
+    }
+
+    if (op.type === 'block.delete') {
+      if (!blockState.has(op.entityId)) {
+        reject(op, 'block no longer exists');
+        continue;
+      }
+      dataStatements.push(...deleteBlocksStatements(db, ctx, [op.entityId]));
+      blockState.delete(op.entityId);
+      accept(op, null);
+      continue;
+    }
+
     // page.delete
     if (!state.has(op.entityId)) {
       reject(op, 'page no longer exists');
@@ -214,6 +317,19 @@ export async function applyOps(db: Db, ctx: Ctx, ops: Op[]): Promise<SyncOutcome
     }
     const ids = subtreeIds(state, op.entityId);
     dataStatements.push(...deletePagesStatements(db, ctx, ids));
+    // The blocks of every deleted page go in the same batch: a page delete that left its blocks
+    // behind would leak rows nothing can ever reach. Only emitted when the subtree actually has
+    // blocks, so a delete of an empty page still costs one statement.
+    const deletedPageIds = new Set(ids);
+    const pagesWithBlocks = new Set<string>();
+    for (const [blockId, block] of blockState) {
+      if (!deletedPageIds.has(block.pageId)) continue;
+      pagesWithBlocks.add(block.pageId);
+      blockState.delete(blockId);
+    }
+    if (pagesWithBlocks.size > 0) {
+      dataStatements.push(...deleteBlocksForPagesStatements(db, ctx, [...pagesWithBlocks]));
+    }
     for (const id of ids) state.delete(id);
     accept(op, null);
   }
@@ -268,6 +384,19 @@ function nextSiblingKey(state: Map<string, PageState>, parentId: string | null):
     // (DEF-003). Such a key also sorts arbitrarily, so it is no use as an upper bound.
     if (!isValidSortKey(page.sortKey)) continue;
     if (last === null || page.sortKey > last) last = page.sortKey;
+  }
+  return nextKeyAfter(last);
+}
+
+// The next fractional sort_key after the last block of pageId, computed from projected state so a
+// chunk that appends several blocks to one page orders them correctly without re-reading the database.
+// Invalid stored keys are skipped for the same reason as in nextSiblingKey (DEF-003).
+function nextBlockKey(state: Map<string, BlockState>, pageId: string): string {
+  let last: string | null = null;
+  for (const block of state.values()) {
+    if (block.pageId !== pageId) continue;
+    if (!isValidSortKey(block.sortKey)) continue;
+    if (last === null || block.sortKey > last) last = block.sortKey;
   }
   return nextKeyAfter(last);
 }

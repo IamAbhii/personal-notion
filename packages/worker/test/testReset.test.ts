@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { DEV_OWNER } from '../src/auth/resolveAccess';
 import { appliedOps } from '../src/db/schema';
+import { listBlocks } from '../src/repo/blocks';
 import { createPage, listPages } from '../src/repo/pages';
 import { seedWorkspace } from '../src/seed/seedWorkspace';
 import { apiFetch, createAccount, makeOp, OWNER_EMAIL } from './helpers';
@@ -103,6 +104,41 @@ describe('POST /api/workspaces/:workspaceId/test/reset under the bypass', () => 
       .where(and(eq(appliedOps.workspaceId, owner.workspaceId), eq(appliedOps.opId, op.opId)));
     expect(replayed).toHaveLength(1);
     expect(replayed[0]?.status).toBe('applied');
+  });
+
+  it('wipes leftover blocks and puts the seeded blocks back', async () => {
+    const owner = await createAccount({ email: DEV_OWNER.email });
+    await seedWorkspace(owner.db, owner.ctx);
+    const seededBlocks = await listBlocks(owner.db, owner.ctx);
+    expect(seededBlocks.length).toBeGreaterThan(0);
+
+    // A block a previous spec would have left behind, on a page the template does not contain.
+    const extraPage = await createPage(owner.db, owner.ctx, { title: 'Left over' });
+    const strayId = crypto.randomUUID();
+    const sync = await apiFetch(`/api/workspaces/${owner.workspaceId}/sync`, {
+      method: 'POST',
+      body: JSON.stringify({
+        ops: [
+          makeOp(owner.workspaceId, 'block.create', strayId, {
+            pageId: extraPage.id,
+            type: 'paragraph',
+            text: 'Stray',
+          }),
+        ],
+      }),
+    });
+    expect(sync.status).toBe(200);
+
+    const response = await apiFetch(RESET_PATH(owner.workspaceId), { method: 'POST' });
+    expect(response.status).toBe(200);
+
+    const after = await listBlocks(owner.db, owner.ctx);
+    expect(after).toHaveLength(seededBlocks.length);
+    // Fresh rows, and no orphan blocks pointing at pages the reset deleted.
+    expect(after.some((block) => block.id === strayId)).toBe(false);
+    expect(after.some((block) => seededBlocks.some((old) => old.id === block.id))).toBe(false);
+    const pageIds = new Set((await listPages(owner.db, owner.ctx)).map((page) => page.id));
+    expect(after.every((block) => pageIds.has(block.pageId))).toBe(true);
   });
 
   it('resets only the workspace in the path', async () => {

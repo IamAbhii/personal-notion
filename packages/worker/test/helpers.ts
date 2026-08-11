@@ -61,19 +61,29 @@ export function apiFetch(
 
 let clientSeq = 0;
 
-// Builds a well-formed op with sensible defaults, so a test only states what it is testing.
+type OpType =
+  'page.create' | 'page.update' | 'page.delete' | 'block.create' | 'block.update' | 'block.delete';
+
+// Builds a well-formed op with sensible defaults, so a test only states what it is testing. The
+// envelope's entity is derived from the type, which is exactly what the server insists on; a test that
+// wants a mismatched entity overrides it.
 export function makeOp(
   workspaceId: string,
-  type: 'page.create' | 'page.update' | 'page.delete',
+  type: OpType,
   entityId: string,
   payload: Record<string, unknown> = {},
-  overrides: { opId?: string; baseVersion?: number | null; clientSeq?: number } = {},
+  overrides: {
+    opId?: string;
+    baseVersion?: number | null;
+    clientSeq?: number;
+    entity?: string;
+  } = {},
 ) {
   clientSeq += 1;
   return {
     opId: overrides.opId ?? crypto.randomUUID(),
     workspaceId,
-    entity: 'page' as const,
+    entity: overrides.entity ?? (type.startsWith('block.') ? 'block' : 'page'),
     entityId,
     type,
     payload,
