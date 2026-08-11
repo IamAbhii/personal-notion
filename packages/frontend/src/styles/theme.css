@@ -47,6 +47,15 @@
      title they overlap rather than blend with it. */
   --row-hover-solid: #211f27;
   --row-current-solid: #2d2512;
+
+  /* Editor surfaces: a code block and a callout are tinted panels, so each theme needs its own
+     opaque values rather than one alpha over an unknown background. */
+  --code-surface: #f1efe9;
+  --code-border: #e0dbd2;
+  --code-text: #2a2733;
+  --callout-surface: #fdf4dd;
+  --callout-border: #ecd79a;
+  --marker: #8a8694;
 }
 
 [data-theme='dark'] {
@@ -64,4 +73,11 @@
   --panel-border: rgba(255, 255, 255, 0.07);
   --row-hover-solid: #17161d;
   --row-current-solid: #241d0f;
+
+  --code-surface: #121118;
+  --code-border: #2c2b37;
+  --code-text: #d9d7e2;
+  --callout-surface: #241c0b;
+  --callout-border: #4b3a10;
+  --marker: #8d8a99;
 }

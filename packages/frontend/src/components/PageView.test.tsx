@@ -16,7 +16,11 @@ function renderPageView() {
     onRename: vi.fn(),
     onChangeIcon: vi.fn(),
   };
-  render(<PageView {...props} />);
+  render(
+    <PageView {...props}>
+      <section aria-label="Page body">Block editor</section>
+    </PageView>,
+  );
   return props;
 }
 
@@ -39,10 +43,10 @@ describe('PageView', () => {
     expect(header).toHaveAttribute('data-page-id', 'p-lisbon');
   });
 
-  it('marks the block editor as a placeholder rather than rendering blocks', () => {
+  it('renders the page body it is given, which is the block editor', () => {
     renderPageView();
 
-    expect(screen.getByLabelText('Page body')).toHaveTextContent('Editor placeholder');
+    expect(screen.getByLabelText('Page body')).toHaveTextContent('Block editor');
   });
 
   it('renames the page from the header', async () => {
