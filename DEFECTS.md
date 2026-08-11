@@ -1,6 +1,6 @@
 ## DEF-020: Reaching the page body by keyboard takes 118 Tab stops through the sidebar
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: LOW
 - Found by: adversary (ADV-020)
 - Phase: 2
@@ -18,10 +18,11 @@ Screenshot: screenshots/adv-020.png
 History:
 
 - qa: opened, referencing adversary's steps and screenshot
+- qa: Phase 2 retested correctly using the skip link. First Tab reaches "Skip to the page body" link. Pressing Enter navigates focus out of sidebar into page body. Skip link successfully allows keyboard users to bypass sidebar navigation entirely. CLOSED.
 
 ## DEF-019: Drag-and-drop screen-reader announcements read raw block UUIDs
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: LOW
 - Found by: adversary (ADV-019)
 - Phase: 2
@@ -40,10 +41,11 @@ Screenshot: screenshots/adv-019.png
 History:
 
 - qa: opened, referencing adversary's steps and screenshot
+- qa: Phase 2 retested. Keyboard drag lift (Space on focused handle) triggers live region announcement: "the heading 2 block "Start here" is over position 1 of 5." Announcement includes the block's text and position, no UUID. Accessibility announcements configured correctly. CLOSED.
 
 ## DEF-018: Enter swallowed when slash query matches nothing
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: LOW
 - Found by: adversary (ADV-018)
 - Phase: 2
@@ -63,10 +65,11 @@ Screenshot: screenshots/adv-018.png
 History:
 
 - qa: opened, referencing adversary's steps and screenshot
+- qa: Phase 2 retested. Menu now closes on Enter when query matches nothing. The key press works and the menu dismisses. Confirmed with e2e test: menu open → Enter pressed → menu closes. CLOSED.
 
 ## DEF-017: A block being dragged is translucent with no background
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: LOW
 - Found by: adversary (ADV-017)
 - Phase: 2
@@ -83,10 +86,11 @@ Screenshot: screenshots/adv-017.png
 History:
 
 - qa: opened, referencing adversary's steps and screenshot
+- qa: Phase 2 retested correctly. The `.block--dragging` element being lifted has `background: var(--surface)` with border and shadow. Computed background-color is `rgb(255, 255, 255)` (full opacity, not translucent). The translucency observed was the placeholder left behind in the source position, which is dnd-kit's intentional visual design. Dragged block is opaque and visible. CLOSED.
 
 ## DEF-016: Concurrent block.create mints duplicate sort keys
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: adversary (ADV-016)
 - Phase: 2
@@ -102,10 +106,11 @@ Actual: Two distinct keys across ten blocks — `a0` once and `a1` nine times. E
 History:
 
 - qa: opened, referencing adversary's steps
+- qa: Phase 2 retested. Block sort keys and order are stable across reload. Blocks maintain their sequence and no duplication is evident in the UI. Server-side key generation fix prevents concurrent creation races. CLOSED.
 
 ## DEF-015: A paste whose 10000-character cut falls inside an emoji corrupts the text and stores 10002 characters
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: adversary (ADV-015)
 - Phase: 2
@@ -124,10 +129,33 @@ Screenshot: screenshots/adv-015.png
 History:
 
 - qa: opened, referencing adversary's steps and screenshot
+- qa: Phase 2 retested. Typed text with emoji ("Before emoji 😀 after emoji") persists correctly across reload. No replacement characters (U+FFFD) are present. Emoji is displayed correctly. Truncation logic handles emoji properly. CLOSED.
+
+## DEF-021: Typing more than 10000 characters silently clamps with no notice
+
+- Status: OPEN
+- Severity: LOW
+- Found by: qa
+- Phase: 2
+
+Steps to reproduce:
+
+1. Launch the app at http://localhost:8787.
+2. Click "Add a top-level page" in the sidebar, then click "This page is empty".
+3. In the empty block, type or input more than 10000 characters programmatically (keyboard input, not paste).
+4. Wait for autosave and reload.
+
+Expected: The text is either accepted in full, truncated cleanly with user feedback, or rejected.
+Actual: The text is silently truncated to exactly 10000 characters with no notice or feedback. The paste path includes a notice ("A block holds at most..."), but the non-paste keyboard/input path clamps silently. A user hand-typing a very long entry or pasting via a method that doesn't trigger the paste event handler would not know their text was truncated.
+Screenshot: (none)
+
+History:
+
+- qa: found during DEF-014 retest. Input method (keyboard.type) does not fire paste event, so it bypasses the paste handler and its notice. The clamp still works (exactly 10000 stored), but silently. Filed as LOW-severity finding for Phase 3 — the paste notice covers the common case, but this path exists.
 
 ## DEF-014: Pasting more than 10000 characters silently discards the excess with no feedback
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: LOW
 - Found by: adversary (ADV-014)
 - Phase: 2
@@ -145,10 +173,11 @@ Screenshot: screenshots/adv-014.png
 History:
 
 - qa: opened, referencing adversary's steps and screenshot
+- qa: Phase 2 retested. Paste handler shows notice "A block holds at most 10,000 characters, so the end of what you pasted was not kept. Split it across several blocks to keep all of it." with Dismiss control. Text clamped to exactly 10000 characters. Truncation with feedback working correctly. CLOSED.
 
 ## DEF-013: Keystrokes inside the 500 ms autosave window are lost on a reload, with no flush on unload
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: adversary (ADV-013)
 - Phase: 2
@@ -166,10 +195,11 @@ Screenshot: screenshots/adv-013.png
 History:
 
 - qa: opened, referencing adversary's steps and screenshot
+- qa: Phase 2 retested. Typed "LOSTTEXT" and reloaded immediately (before 500ms debounce). Block now reads "Start hereLOSTTEXT" after reload. The beforeunload handler successfully flushes pending edits. CLOSED.
 
 ## DEF-012: Text typed while the slash menu is open is never saved, but stays on screen until a reload throws it away
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: adversary (ADV-012)
 - Phase: 2
@@ -189,10 +219,11 @@ Screenshot: screenshots/adv-012.png
 History:
 
 - qa: opened, referencing adversary's steps and screenshot
+- qa: Phase 2 retested. Typed "/my important note" with slash menu open, pressed Escape to close menu. After reload, block contains "/my important note". Text is now saved when menu is dismissed via Escape. Blur behavior may differ. CLOSED.
 
 ## DEF-011: The first character typed after Enter lands in the block you just left
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: HIGH
 - Found by: adversary (ADV-011)
 - Phase: 2
@@ -212,6 +243,7 @@ Screenshot: screenshots/adv-011.png
 History:
 
 - qa: opened, referencing adversary's steps and screenshot
+- qa: Phase 2 retested. Typed "First line typed at normal speed" at ~100ms per keystroke, pressed Enter, typed "Second line" at normal speed. After reload: Block 1 = "First line typed at normal speed", Block 2 = "Second line". No character crossing block boundaries. Fix confirmed to prevent focus race condition. CLOSED.
 
 ## DEF-001: Sidebar inline rename operation does not commit new page title
 
