@@ -50,6 +50,25 @@ and gives the port back. This failure mode has cost the project hours across two
 **ten-minute wait on a `wrangler` that had already been orphaned for 57 minutes.** The correct reaction
 at 15 seconds is to interrupt, run `npm run kill-servers`, and start again.
 
+#### Telling "wedged" from "working" in one command
+
+A long test run and a hung one look identical from outside, so do not judge by elapsed time. Compare
+**elapsed against CPU time**:
+
+    ps -o pid,etime,time,command -p <pid>
+
+- `ELAPSED` climbing while `TIME` climbs too — it is working. Leave it alone.
+- `ELAPSED` climbing while `TIME` is **frozen** — it is blocked, and waiting will never help.
+
+That distinction diagnosed both incidents in Phase 2. In the second, Playwright sat at 0.61s of CPU
+across two and a half minutes with no child test workers, while a `workerd` held 8787 having used
+0.04s of CPU and answering nothing — a half-dead server with no worker behind the socket. Two other
+checks settle it in the same breath: `pgrep -P <playwright-pid>` (a real run has child workers) and
+
+    curl -s -o /dev/null -w "%{http_code}\n" --max-time 5 http://localhost:8787/api/me
+
+which returns `000` when the port is held but nothing is serving.
+
 #### Why the obvious attempts do not work
 
 Every one of these was tried and failed. Do not retry them.
@@ -67,12 +86,27 @@ Every one of these was tried and failed. Do not retry them.
   `npm run kill-servers` filters matches by executable and protects the caller and its ancestors.
 - **`setsid` does not exist on macOS.** Do not reach for it to detach a server.
 
-#### A stale server is worse than a hang
+#### A stale server used to be worse than a hang
 
-If a stale server holds 8787, the e2e suite may not hang at all — it can **silently run every spec
-against whatever build that old server is serving**, then pass or fail for reasons unrelated to your
-code. A green suite that proves nothing is the most expensive outcome on this page, because nothing
-looks wrong. The preflight in `e2e/start-server.sh` exists to make this impossible; do not disable it.
+Until Phase 2 the suite set `reuseExistingServer` outside CI, so a stale server on 8787 made it
+**silently run every spec against whatever build that old server was serving** — a green suite proving
+nothing about your code, which is the most expensive outcome on this page because nothing looks wrong.
+
+`e2e/playwright.config.ts` now sets `reuseExistingServer: false`, so that cannot happen. **Do not turn
+it back on.** The cost is a ~5 second cold start per run, which is worth it.
+
+What that means in practice, all three verified by experiment rather than assumed:
+
+| State of port 8787 when you run the suite                    | What happens                                                                                                               |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| Free                                                         | The suite starts its own server and runs. 34 specs, about 2.6 minutes.                                                     |
+| Held by a server that answers HTTP                           | Playwright refuses **in one second**: `http://localhost:8787 is already used`. Run `npm run kill-servers` and start again. |
+| Held by something that accepts connections but never answers | Playwright waits out `webServer.timeout` (45s) and fails. Slow, but bounded and readable.                                  |
+
+Note the second row: the preflight inside `start-server.sh` does **not** rescue you there, because
+Playwright checks the port _before_ it ever launches that script. The preflight's job is narrower —
+clearing process leftovers once the port itself is free. So `npm run kill-servers` before a run is
+still on you; the config only guarantees you can never get a false pass.
 
 #### Inspecting processes
 

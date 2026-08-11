@@ -27,10 +27,16 @@ export default defineConfig({
   ],
 
   webServer: {
-    command: 'bash ./start-server.sh',
+    command: `bash ${__dirname}/start-server.sh`,
     url: 'http://localhost:8787',
-    reuseExistingServer: !process.env.CI,
-    timeout: 120000,
-    cwd: __dirname,
+    // Always start the server; start-server.sh kills any stale ones as its first step.
+    // Reusing a stale server is a false-pass risk and is not worth the convenience of skipping
+    // the ~5 second cold start, especially since the preflight makes reuse moot anyway.
+    reuseExistingServer: false,
+    // Timeout is set generously at 45 seconds. A healthy Wrangler dev start serves in a few
+    // seconds, so 45s is enough to distinguish a slow start from a wedged one. Anything longer
+    // is likely an orphan; fail fast rather than waiting out 120s.
+    timeout: 45000,
+    cwd: `${__dirname}/..`,
   },
 });
