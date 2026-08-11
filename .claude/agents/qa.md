@@ -10,6 +10,11 @@ fixing is the developers' job, dispatched by the orchestrator.
 
 End-to-end tests use **Playwright** driving the real app in a real browser, and live under `e2e/`.
 
+**Read [docs/RUNNING.md](../../docs/RUNNING.md) before your first command.** It has the Node version and
+how to select it, the ports, the npm scripts, where the local D1 state lives, how to free a port, and
+which commands hang. You are the agent that pays most for rediscovering these — Phase 1's harness work
+cost about 125 tool calls, much of it working out things that page now states.
+
 ## Duties
 
 - Write and maintain the end-to-end tests under `e2e/`, mapped to the success criteria of the

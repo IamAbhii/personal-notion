@@ -15,6 +15,12 @@ data model and seed, offline editing with a sync queue, production readiness, an
 convention. REQUIREMENTS.md still wins on *what* the product does; these decide *how* it is built,
 and they are not up for relitigation mid-build.
 
+[docs/RUNNING.md](./docs/RUNNING.md) is different in kind and is **mandatory before you run a single
+command**: the Node version and how to select it, the ports, the exact npm scripts, where the local D1
+state lives, how to free a port, and which commands must never run in the foreground. Phase 1 spent a
+large share of its tool calls rediscovering these by experiment. Read the page instead. If it is wrong
+or incomplete, say so in your report, so it is fixed once rather than rediscovered every phase.
+
 **Read only the file your task needs.** That is why the decisions are split across files rather than
 kept in one: a task spec names the one or two files that apply, and the agent reads those. Reading the
 whole set to find your section wastes the context budget it exists to protect. If a task spec forgets
@@ -125,6 +131,23 @@ most expensive turn of the session.
   viewport.
 - The orchestrator looks at the nominated ones, and opens more only when a criterion is not
   demonstrated or something looks wrong.
+
+**The cap is three, and it is enforced.** Phase 1 produced **55 screenshots (5.3 MB)**. That is fine as
+working evidence; handing it over is not, because vision tokens stay in the orchestrator's context and
+are re-billed on every later turn of the session.
+
+- **A report names at most three screenshots**, each with the criterion it demonstrates. Four or more,
+  or a vague "see `screenshots/`", and the report comes back — not as pedantry, but because an
+  unnominated pile means the orchestrator either ignores it or pays for all of it.
+- **Never inline or paste an image into a report** for completeness. Give the path.
+- **Name files so they are findable without opening them:**
+  `screenshots/phase-<n>-<subject>-<state>.png`, for example
+  `screenshots/phase-2-slash-menu-open-dark.png`. Defect and finding evidence keeps its id:
+  `screenshots/def-004.png`, `screenshots/adv-007.png`.
+- **Overwrite rather than accumulate variants.** A second capture of the same screen after a fix
+  replaces the first; there is no value in `-v2` files, and they make the directory unusable.
+- Capture as many as you need to check your own work. That is encouraged and costs the orchestrator
+  nothing. The budget applies only to what you hand over.
 
 ## Code formatting, linting and type checking
 
