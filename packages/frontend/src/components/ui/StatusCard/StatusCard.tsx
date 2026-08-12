@@ -14,11 +14,13 @@ const variantClasses: Record<StatusCardVariant, string> = {
   sunken: 'border border-dashed border-border bg-surface-sunken',
 };
 
-/** Maps eyebrow intent to its accent color. */
+/** Maps eyebrow intent to its accessible accent color on the card surface.
+ *  The -fg token variants swap to darker shades in light theme where the vivid brand palette
+ *  fails WCAG AA 4.5:1 on white. In dark theme they resolve to the original vibrant values. */
 const eyebrowClasses: Record<StatusCardEyebrowIntent, string> = {
-  accent: 'text-amber',
-  error: 'text-danger',
-  info: 'text-blue',
+  accent: 'text-amber-fg',
+  error: 'text-danger-fg',
+  info: 'text-blue-fg',
 };
 
 export interface StatusCardProps {

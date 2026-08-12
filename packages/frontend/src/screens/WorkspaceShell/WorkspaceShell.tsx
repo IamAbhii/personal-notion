@@ -7,6 +7,7 @@ import { meQueryOptions, queryKeys, snapshotQueryOptions } from '../../api/queri
 import { flushStashedOps } from '../../sync/ops';
 import { usePageMutations } from '../../hooks/usePageMutations';
 import { useBlockMutations } from '../../hooks/useBlockMutations';
+import { useIsMobile } from '../../hooks/useIsMobile';
 import { notify } from '../../lib/notify';
 import { Sidebar } from '../../components/Sidebar/Sidebar';
 import { SkipLink } from '../../components/SkipLink';
@@ -66,6 +67,12 @@ export function WorkspaceShell() {
     openSidebar: s.openSidebar,
     closeSidebar: s.closeSidebar,
   }));
+
+  // At md+ the sidebar is a persistent grid column, always in the visual flow. On mobile it is
+  // an off-canvas drawer that must be inert when closed so the hidden elements are not reachable
+  // from the tab order. isMobile gates the inert prop so we do not accidentally inert the always-
+  // visible desktop sidebar.
+  const isMobile = useIsMobile();
 
   // Refs for mobile drawer focus management.
   const toggleRef = useRef<HTMLButtonElement>(null);
@@ -178,12 +185,17 @@ export function WorkspaceShell() {
             onClick={handleCloseSidebar}
           />
           {/* The drawer panel: slides in from the left on mobile, static at md+. The transition
-              only applies on mobile; md:transition-none removes it so the grid layout is instant. */}
+              only applies on mobile; md:transition-none removes it so the grid layout is instant.
+              inert is set when the drawer is closed on mobile so the off-canvas subtree is removed
+              from the tab order and pointer events — deriving it from isSidebarOpen keeps the
+              inert state in sync with the visual state. The isMobile gate prevents inert from
+              being set at md+ where the sidebar is a permanently visible grid column. */}
           <div
             className={cn(
               'pointer-events-auto absolute top-0 bottom-0 left-0 flex w-[292px] max-w-[85vw] transition-transform duration-200 motion-reduce:transition-none md:static md:w-auto md:max-w-none md:translate-x-0 md:transition-none',
               isSidebarOpen ? 'translate-x-0' : '-translate-x-full',
             )}
+            inert={(isMobile && !isSidebarOpen) || undefined}
           >
             <Sidebar
               workspaceName={membership?.name ?? 'Workspace'}

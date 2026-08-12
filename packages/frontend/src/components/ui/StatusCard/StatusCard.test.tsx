@@ -53,19 +53,24 @@ describe('StatusCard', () => {
     expect(card.className).toContain('border-dashed');
   });
 
-  it('applies the accent eyebrow color by default', () => {
+  it('applies the accent eyebrow color by default using the accessible fg token', () => {
+    // text-amber-fg resolves to a darker amber in light theme (4.5:1 on white) and the vibrant
+    // brand amber in dark theme. text-amber-fg not text-amber, because text-amber fails AA on
+    // the white surface of the card in light theme.
     render(<StatusCard eyebrow="Label" lead="y" />);
-    expect(screen.getByText('Label').className).toContain('text-amber');
+    expect(screen.getByText('Label').className).toContain('text-amber-fg');
   });
 
-  it('applies the error eyebrow color', () => {
+  it('applies the error eyebrow color using the accessible fg token', () => {
     render(<StatusCard eyebrowIntent="error" eyebrow="Oh no" lead="y" />);
-    expect(screen.getByText('Oh no').className).toContain('text-danger');
+    expect(screen.getByText('Oh no').className).toContain('text-danger-fg');
   });
 
-  it('applies the info eyebrow color', () => {
+  it('applies the info eyebrow color using the accessible fg token', () => {
+    // text-blue-fg resolves to a darker blue in light theme (4.5:1 on white) and the vibrant
+    // brand blue in dark theme.
     render(<StatusCard eyebrowIntent="info" eyebrow="Info" lead="y" />);
-    expect(screen.getByText('Info').className).toContain('text-blue');
+    expect(screen.getByText('Info').className).toContain('text-blue-fg');
   });
 
   it('merges the incoming className onto the card shell', () => {
