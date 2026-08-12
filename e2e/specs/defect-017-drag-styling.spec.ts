@@ -6,80 +6,65 @@ test.describe('DEF-017: Block being dragged has visible background', () => {
     await resetWorkspace(page);
   });
 
-  test('dragged block has full opacity background, not translucent placeholder', async ({
-    page,
-  }) => {
+  test('dragged block has data-dragging="true" and a solid background colour', async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
 
-    // Navigate to a page with blocks (Home/seeded page)
-    const firstPageLink = page.locator('[data-testid="sidebar-item"]').first();
-    if (await firstPageLink.isVisible()) {
-      await firstPageLink.click();
-      await page.waitForLoadState('networkidle');
-    }
-
-    // Get the first block
+    // The root URL navigates to the seeded Home page which already has blocks.
     const blockEditor = page.locator('[data-testid="block-editor"]');
+    await expect(blockEditor).toBeVisible();
+
     const firstBlock = blockEditor.locator('[data-block-type]').first();
     await expect(firstBlock).toBeVisible();
 
-    // Get the drag handle
+    // Hover the block so its drag handle is pointer-interactive, then grab the handle.
+    await firstBlock.hover();
     const dragHandle = firstBlock.locator('[data-testid="block-drag-handle"]').first();
     await expect(dragHandle).toBeVisible();
 
-    // Start dragging from the handle
     const handleBox = await dragHandle.boundingBox();
-    if (!handleBox) {
-      test.skip();
-      return;
-    }
+    expect(handleBox).not.toBeNull();
 
-    // Drag from the handle center
-    await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
+    // Press down on the handle, wait for dnd-kit to recognise the drag.
+    await page.mouse.move(
+      handleBox!.x + handleBox!.width / 2,
+      handleBox!.y + handleBox!.height / 2,
+    );
     await page.waitForTimeout(100);
     await page.mouse.down();
-    await page.waitForTimeout(200);
+    await page.waitForTimeout(300);
 
-    // Move pointer down to another block
+    // Move the pointer over the second block to trigger the active-drag state.
     const secondBlock = blockEditor.locator('[data-block-type]').nth(1);
-    if (await secondBlock.isVisible()) {
-      const bbox = await secondBlock.boundingBox();
-      if (bbox) {
-        await page.mouse.move(bbox.x + 50, bbox.y + 10);
-        await page.waitForTimeout(300);
+    await expect(secondBlock).toBeVisible();
+    const secondBox = await secondBlock.boundingBox();
+    expect(secondBox).not.toBeNull();
+    await page.mouse.move(secondBox!.x + 50, secondBox!.y + 10);
+    await page.waitForTimeout(400);
 
-        // Find the lifted block (.block--dragging)
-        const draggingBlock = page.locator('[data-block-type].block--dragging').first();
+    // The block row holding the drag styles must carry data-dragging="true".
+    // Assert unconditionally — if the element is absent the test fails, not silently passes.
+    const draggingBlock = page.locator('[data-block-type][data-dragging="true"]').first();
+    await expect(draggingBlock).toBeVisible();
 
-        if (await draggingBlock.isVisible()) {
-          // Check the computed background-color has full opacity (alpha 1)
-          const bgColor = await draggingBlock.evaluate((el) => {
-            const style = window.getComputedStyle(el);
-            return style.backgroundColor;
-          });
+    // The dragging block must have a solid (non-transparent) background colour.
+    const bgColor = await draggingBlock.evaluate((el) => {
+      return window.getComputedStyle(el).backgroundColor;
+    });
 
-          console.log(`Dragging block background: ${bgColor}`);
+    // A solid background renders as "rgb(R, G, B)" or "rgba(R, G, B, 1)".
+    // "rgba(0, 0, 0, 0)" / "transparent" would signal the DEF-017 regression.
+    expect(bgColor).not.toBe('');
+    expect(bgColor).not.toBe('transparent');
+    expect(bgColor).not.toBe('rgba(0, 0, 0, 0)');
 
-          // Should be a solid color like "rgb(X, Y, Z)" or "rgba(X, Y, Z, 1)", not transparent
-          expect(bgColor).toBeTruthy();
-          // Should not be transparent
-          expect(bgColor).not.toContain('rgba(');
-          // Or if it is rgba, alpha should be 1
-          if (bgColor.includes('rgba')) {
-            const alphaMatch = bgColor.match(/rgba\([^,]+,[^,]+,[^,]+,\s*([^)]+)\)/);
-            if (alphaMatch) {
-              const alpha = parseFloat(alphaMatch[1]);
-              expect(alpha).toBe(1);
-            }
-          }
-        }
-      }
+    if (bgColor.includes('rgba')) {
+      const alphaMatch = bgColor.match(/rgba\([^,]+,[^,]+,[^,]+,\s*([^)]+)\)/);
+      expect(alphaMatch).not.toBeNull();
+      const alpha = parseFloat(alphaMatch![1]);
+      expect(alpha).toBe(1);
     }
 
-    // Release
     await page.mouse.up();
-
-    expect(true).toBe(true);
   });
 });

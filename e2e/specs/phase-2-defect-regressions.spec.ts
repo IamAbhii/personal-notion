@@ -290,20 +290,15 @@ test.describe('Phase 2 Defect Regressions', () => {
     await page.keyboard.type('/nomatch');
     await page.waitForTimeout(300);
 
-    // Menu should be open showing "No block type matches that"
+    // The menu must be open showing "No block type matches that".
+    // A failure here means the slash menu didn't open — the fixture is broken, not the assertion.
     const noMatch = page.locator('text=No block type matches that');
-    const menuOpen = await noMatch.isVisible();
+    await expect(noMatch).toBeVisible();
 
-    if (menuOpen) {
-      // Press Enter - should close the menu
-      await page.keyboard.press('Enter');
-      await page.waitForTimeout(300);
+    // Press Enter — must close the menu.
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(300);
 
-      // Check if menu closed
-      const menuStillOpen = await noMatch.isVisible();
-
-      // At minimum, Enter should close the menu
-      expect(menuStillOpen).toBe(false);
-    }
+    await expect(noMatch).not.toBeVisible();
   });
 });

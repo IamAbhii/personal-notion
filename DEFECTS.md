@@ -1,3 +1,108 @@
+## DEF-025: Three further vacuous-guard patterns in cascade-delete and defect-regression specs
+
+- Status: CLOSED
+- Severity: MEDIUM
+- Found by: qa
+- Phase: 2
+
+Steps to reproduce:
+
+**Pattern A — cascade-delete-pages.spec.ts, "deleting a page with nested pages"**
+
+1. The test loops through seeded rows looking for a parent page that has an expand button and a child row with greater x-offset.
+2. If that search fails (e.g. all pages are collapsed, or the reset leaves no seeded children visible), `parentPageId` and `nestedPageId` are both `undefined`.
+3. The entire deletion body is inside `if (parentPageId && nestedPageId)` at line 57. With both undefined the test exits, prints no assertion, and passes.
+
+**Pattern B — cascade-delete-pages.spec.ts, nested `if (await deleteButton.isVisible())` at line 82**
+
+1. Even when the parent page is found, the delete button (`[data-testid="page-delete"]`) is inside the hover-reveal container that carries `pointer-events: none` until the row is hovered.
+2. Playwright's `isVisible()` returns `true` for elements that are in the DOM with non-zero dimensions even when `pointer-events: none` is set — but the row is not yet hovered, so the button may be intercepted by the title span. The guard makes the actual deletion optional: if `isVisible()` returns false, the test passes without deleting anything.
+
+**Pattern C — phase-2-defect-regressions.spec.ts, DEF-018 test, `if (menuOpen)` at line 297**
+
+1. The test types `/nomatch` to open the slash menu, then checks `const menuOpen = await noMatch.isVisible()`.
+2. The real assertion (`expect(menuStillOpen).toBe(false)`) is inside the `if (menuOpen)` block.
+3. If the slash menu fails to open (timing, focus loss), `menuOpen` is false, the assertion is never reached, and the test passes vacuously.
+
+Expected: Each test asserts unconditionally. A failure to find the prerequisite state (nested page, slash menu open) should fail the test, not silently skip it.
+Actual: All three tests can pass without executing their core assertions.
+
+History:
+
+- qa: found during vacuous-assertion sweep. Same root pattern as DEF-023's original `if (await draggingBlock.isVisible())` guard. Three separate occurrences in two specs.
+- qa: CLOSED. Pattern A (cascade-delete outer if-guard): rewrote to create its own parent+child fixture with `waitForFunction` waiting for URL change (not just pattern match — DEF-001 lesson), then asserts both page IDs exist unconditionally. Pattern B (deleteButton.isVisible guard): replaced with `parentRowFinal.hover()` then unconditional `deleteButton.click()`. Pattern C (DEF-018 if-menuOpen guard): replaced with `await expect(noMatch).toBeVisible()` unconditional assert before pressing Enter, then `await expect(noMatch).not.toBeVisible()`. All three break checks confirmed red; full suite 37/37 twice.
+
+## DEF-024: Numbered-list regression spec intermittently fails slash-menu timeout in serial suite
+
+- Status: CLOSED
+- Severity: LOW
+- Found by: qa
+- Phase: 2
+
+Steps to reproduce:
+
+1. Launch the app with `npm start`.
+2. Run the full e2e suite serially: `npx playwright test --config=e2e/playwright.config.ts --project=chromium --workers=1`.
+3. Observe test 36 of 37: `tailwind-migration-regressions.spec.ts` "numbered list blocks render 1, 2, 3 markers and restart at 1 after a paragraph".
+
+Expected: The slash menu appears within 3 seconds of typing '/' and the test passes.
+Actual: After 35 prior tests have run against the same server, the slash menu sometimes does not appear within the `convertViaSlash` helper's 3-second timeout, causing `expect(menu).toBeVisible({ timeout: 3000 })` to fail with "element(s) not found". The test passes in isolation. The root cause is a too-tight 3-second slash-menu timeout in the helper that cannot absorb end-of-suite server latency.
+
+History:
+
+- qa: found during full serial suite run. Test passes in isolation and in a standalone targeted run. Filed as LOW — no product regression, only a test timing margin.
+- qa: CLOSED. Removed `{ timeout: 3000 }` from `convertViaSlash`'s `toBeVisible` call; the helper now uses Playwright's configured default (5000ms). No other hand-rolled assertion timeouts in e2e/ helpers. Two consecutive full-suite runs: 37/37 both times, test 36 (the numbered-list test) passing both runs.
+
+## DEF-023: defect-017-drag-styling.spec.ts passes vacuously after `.block--dragging` class was deleted
+
+- Status: CLOSED
+- Severity: MEDIUM
+- Found by: qa
+- Phase: 2
+
+Steps to reproduce:
+
+1. Launch the app at http://localhost:8787.
+2. Run `npm run test:e2e -- --project=chromium e2e/specs/defect-017-drag-styling.spec.ts`.
+3. The test reports passing.
+4. Inspect the test: the real assertion is inside `if (await draggingBlock.isVisible())` where `draggingBlock = page.locator('[data-block-type].block--dragging')`.
+5. The Tailwind migration removed the `block--dragging` CSS class; the block dragging state is now expressed via Tailwind utilities (`z-10 rounded-sm border border-border bg-surface shadow-pop`) in `BlockRow.tsx` line 276, not via a named class.
+
+Expected: The test locates the dragging block and checks its background colour, confirming the fix for DEF-017 cannot regress.
+Actual: `draggingBlock.isVisible()` always returns false because `.block--dragging` no longer exists in the product. The conditional block is never entered; the test exits at `expect(true).toBe(true)` and passes regardless of whether the dragging background is present. The test is not verifying anything.
+
+History:
+
+- qa: found during Tailwind migration review. Vacuous pass: deleted CSS class means the guard condition is always false.
+- orchestrator, relaying frontend-dev: fix is in. `BlockRow.tsx` now carries `data-dragging="true" | "false"` on the block row element that holds the dragging styles, with two unit tests asserting both states. The spec should select `[data-block-type][data-dragging="true"]` instead of the deleted `.block--dragging` class, so it asserts on a data attribute the component owns rather than on a class the styling system owns. Product side is FIX-READY; the spec rewrite is qa's.
+- qa: spec rewritten. Selector changed to `[data-block-type][data-dragging="true"]`, guard removed, assertions now fire unconditionally. Verified: a deliberately-wrong expected value ("this-is-wrong") caused the test to fail with `Received: "rgb(255, 255, 255)"`, confirming the guard is gone and the spec is real. Passed full run. CLOSED.
+
+## DEF-022: Sidebar desktop action buttons have pointer-events-none by default, blocking Playwright clicks — 3 e2e tests failing
+
+- Status: CLOSED
+- Severity: HIGH
+- Found by: qa
+- Phase: 2
+
+Steps to reproduce:
+
+1. Launch the app at http://localhost:8787.
+2. Run `npm run test:e2e -- --project=chromium e2e/specs/rename-page.spec.ts`.
+3. The test fails with: `locator.click: Test timeout of 30000ms exceeded` — `<span class="min-w-0 truncate">` from `[data-testid="page-row-title"]` subtree intercepts pointer events.
+4. The same error occurs in `persistence.spec.ts` (line 57) and `delete-page.spec.ts` (line 60), which also click `[data-testid="page-rename"]` inside the sidebar row.
+
+Expected: Clicking the rename action button in the sidebar row completes successfully, allowing the rename flow to proceed.
+Actual: Playwright's hit-test at the rename button's position finds the page title button's `<span class="min-w-0 truncate">` instead of the rename button. The desktop actions container carries `md:pointer-events-none` by default (visible only on `group-hover`); because the container is `pointer-events: none`, Playwright's pre-click hit test routes through it to the title button's span below. The click never lands on the rename button. Three tests fail: `rename-page.spec.ts`, `persistence.spec.ts`, `delete-page.spec.ts`.
+
+This is a regression introduced by the Tailwind migration. Before the migration the action buttons did not have `pointer-events-none` on their container. The `<span class="min-w-0 truncate">` wrapper inside the title button was also introduced by the migration (previously the title text was rendered directly in the button element), making the title button's hit area extend over the exact location of the rename button.
+
+History:
+
+- qa: found during Tailwind migration verification. 3 of 34 e2e tests fail. Root cause: `pointer-events-none` on the desktop actions container (`md:pointer-events-none`) introduced in the Tailwind migration, combined with the new `<span class="min-w-0 truncate">` child in the title button that now covers the absolute-positioned action buttons.
+- orchestrator, relaying frontend-dev verbatim: "DEF-022 verdict: WORKING AS INTENDED. The Playwright test's root cause is clicking `[data-testid="page-rename"]` without first hovering the row. At `md+` the actions container has `pointer-events-none` until hovered; the title button occupies the same area with `pointer-events: auto`, so the click is intercepted. The fix for each failing spec is one added line - `await sidebarRow.hover()` - immediately before the rename/delete/add-child button click. No product code changes needed." Evidence given: `window.getComputedStyle(renameButton).pointerEvents` measured in a real browser is `none` before hover and `auto` after, a click after hovering succeeds immediately, keyboard reach works through `group-focus-within`, and at 390px the desktop rename button is correctly absent while the mobile dropdown trigger is present.
+- orchestrator: accepting the dispute on the product question. Refusing a click on a fully transparent control is correct behaviour, not a defect, and the reveal is reachable by both mouse hover and keyboard focus. One correction to the entry above for the record: the `md:pointer-events-none` reveal was introduced by the Tailwind adoption (PR-6), not by the two migration PRs that followed it; only the `<span class="min-w-0 truncate">` wrapper came from PR-8. The specs had not been run against PR-6 before now, which is why this surfaced here. qa to add the hover step to the three specs and close.
+- qa: added `await sidebarRow.hover()` (and equivalent row.hover() for every action button — rename, add-child, delete) before each action click in `rename-page.spec.ts`, `persistence.spec.ts`, and `delete-page.spec.ts`. All three now pass. Dispute accepted: correct product behaviour, wrong spec. CLOSED.
+
 ## DEF-020: Reaching the page body by keyboard takes 118 Tab stops through the sidebar
 
 - Status: CLOSED
