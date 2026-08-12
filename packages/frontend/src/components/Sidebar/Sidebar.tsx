@@ -156,15 +156,15 @@ export function Sidebar({
               <button
                 type="button"
                 className={cn(
-                  // min-w-0 + truncate keep the title within the row at any depth; the actions live
-                  // in normal flow on mobile so the title always has room to the left of them.
-                  'flex min-h-12 min-w-0 flex-1 cursor-pointer items-center overflow-hidden border-0 bg-transparent p-0 text-left text-sm font-medium text-ellipsis whitespace-nowrap',
+                  // min-w-0 keeps this flex item from overflowing; the title span holds the
+                  // truncation so text-overflow works on a block box, not a flex container.
+                  'flex min-h-12 min-w-0 flex-1 cursor-pointer items-center border-0 bg-transparent p-0 text-left text-sm font-medium',
                   isCurrent && 'font-[650]',
                 )}
                 data-testid="page-row-title"
                 onClick={() => handleSelectPage(page.id)}
               >
-                {page.title}
+                <span className="min-w-0 truncate">{page.title}</span>
               </button>
             )}
 
