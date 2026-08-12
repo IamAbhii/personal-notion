@@ -1,3 +1,196 @@
+## DEF-034: At 320x400 the slash menu sits flush against the right and bottom edges
+
+- Status: OPEN
+- Severity: LOW
+- Found by: adversary (ADV-030)
+- Phase: 2
+
+Steps to reproduce:
+
+1. Launch the app at http://localhost:8787.
+2. Navigate to any page that has blocks.
+3. Resize the viewport to 320x400 (or use a device with that approximate size).
+4. Create an empty block at the end of the page (press Enter at the end of the last block).
+5. Type `/` to open the slash menu.
+
+Expected: The menu keeps a small margin from the viewport edge on all sides, consistent with the `collisionPadding: 8` used by the Radix dropdown.
+Actual: The menu measures `left:24, right:320, top:84, bottom:400` — its right edge is exactly on the viewport right edge (rightMargin:0) and its bottom exactly on the viewport bottom (bottomMargin:0). The rounded corners and drop shadow are clipped on two sides and the list has no visual end. All items are still reachable by arrow keys; this is a cosmetic gap between the two popover families (the Radix dropdown pads collisions; the slash menu does not).
+
+History:
+
+- qa: opened. Reproduced: right:320, bottom:400, margins both 0 in a 320x400 viewport. Screenshot: screenshots/adv-030.png
+
+## DEF-033: Keyboard block drag loses most ArrowDown presses at auto-repeat speed
+
+- Status: OPEN
+- Severity: LOW
+- Found by: adversary (ADV-029)
+- Phase: 2
+
+Steps to reproduce:
+
+1. Launch the app at http://localhost:8787 and navigate to a page with multiple blocks.
+2. Focus the first block's drag handle by tabbing or clicking it.
+3. Press Space to pick up the block.
+4. Press ArrowDown 10 times with a 40ms interval between presses (approximately the macOS key auto-repeat rate — i.e. hold the key down).
+
+Expected: 10 presses move the block 10 positions.
+Actual: 10 presses at 40ms intervals registered only 4 of 10 (the block moved from position 1 to position 5 on a 5-block page, and stopped at the maximum). The adversary's test on a 50-block page measured 5 drops out of 20 presses at 40ms (position 1→16 instead of 1→21). A single deliberate press always lands; the loss only occurs at auto-repeat speed. No visual indication is given that any presses were dropped.
+
+History:
+
+- qa: opened. Reproduced: 10 ArrowDown presses at 40ms → position 5/5 max (block constrained by small page; 6 of 10 presses dropped). Screenshot: screenshots/adv-029.png (none filed by adversary).
+
+## DEF-032: StatusCard accent eyebrow labels fail contrast on the light surface
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-028)
+- Phase: 2
+
+Steps to reproduce:
+
+1. Launch the app at http://localhost:8787 in light theme (the default).
+2. Navigate to a non-existent page URL (e.g. `/w/<workspace-id>/page/00000000-0000-0000-0000-000000000000`).
+3. Observe the "NOT FOUND" StatusCard.
+4. Check the small uppercase eyebrow label above the main message.
+
+Expected: The eyebrow label meets WCAG AA 4.5:1 contrast on the white card surface.
+Actual: The "NOT FOUND" eyebrow uses `--blue #209dd7` = `rgb(32, 157, 215)`, which produces a contrast ratio of **3.06:1** against white — below the 4.5:1 minimum. The "PERSONAL SPACE" eyebrow on the loading and error cards uses `--amber #ecad0a` = `rgb(236, 173, 10)`, which produces **1.99:1** against white. Both fail WCAG AA for 12px uppercase text. In dark theme the same tokens produce 8.84:1 and above, so this is light-theme only. The lead line beneath each eyebrow is high-contrast; only the eyebrow label itself is affected. Root cause: brand tokens tuned for the dark panel surface, reused unchanged on the white card.
+
+History:
+
+- qa: opened. Measured: rgb(32,157,215) on white = 3.06:1; rgb(236,173,10) on white = 1.99:1. Screenshot: screenshots/adv-028.png
+
+## DEF-031: Block gutter controls are 22x24px and 2px apart at touch width
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-027)
+- Phase: 2
+
+Steps to reproduce:
+
+1. Launch the app at http://localhost:8787.
+2. Navigate to any page with multiple blocks.
+3. Set the viewport to 320px wide (or use a Pixel 5 device preset).
+4. Tap a block to focus it and reveal the gutter controls (drag handle and delete button).
+5. Measure the bounding boxes of both controls.
+
+Expected: Both controls are at least 48x48px (the project's own touch-target standard, met by sidebar rows and dropdown items) and the destructive delete control is not immediately adjacent to the most-used drag handle.
+Actual: Both the drag handle (`data-testid="block-drag-handle"`) and the delete button (`data-testid="block-delete"`) measure **22x24px** — well under the 48px minimum. The gap between them is **2px**. Delete sits to the right of the drag handle, where a right-handed thumb naturally lands. There is no confirmation dialog for block deletion. The controls only appear when the block is focused (no hover on touch).
+
+History:
+
+- qa: opened. Measured: drag handle 22x24px, delete button 22x24px, gap 2px. Screenshot: screenshots/adv-027.png
+
+## DEF-030: At 320px, sidebar rows nested ten deep show one character of their title
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-026)
+- Phase: 2
+
+Steps to reproduce:
+
+1. Launch the app at http://localhost:8787.
+2. Create a chain of 15 pages nested inside each other (each a child of the previous).
+3. Open the navigation drawer at 320px viewport width.
+4. Expand all rows to reveal the deep levels.
+5. Observe the title width for rows at level 10 and below.
+
+Expected: All rows keep enough width to distinguish one page from another, regardless of nesting depth — the indent stops growing before it consumes the title.
+Actual: The indent is 16px per level with a cap that kicks in at level 10 (every row from level 10 down starts at x≈182 in a 292px drawer). The remaining space — 292px drawer minus 182px indent minus 48px overflow trigger — leaves the title **17px** wide (adversary measurement; the Playwright tree-expansion automation could not force all levels visible). Every row from level 10 to level 15 renders as `L…`, making the six pages indistinguishable. Rows still navigate correctly; only visual identification fails.
+
+History:
+
+- qa: opened. Adversary measurement: title width 17px at levels 10+. Playwright automation could not force the tree expansion in the narrow viewport test, so the 17px figure is the adversary's own measurement from screenshots/adv-026.png. Screenshot: screenshots/adv-026.png
+
+## DEF-029: Emoji picker wider than a 320px viewport, right column unreachable
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-025)
+- Phase: 2
+
+Steps to reproduce:
+
+1. Launch the app at http://localhost:8787.
+2. Set the viewport to 320px wide.
+3. Navigate to any page.
+4. Click the page icon/emoji button in the page header to open the emoji picker.
+
+Expected: At 320px (the project's supported floor width) the picker fits inside the viewport, or the page scrolls so the clipped portion is reachable.
+Actual: The em-emoji-picker web component renders at approximately 340px (adversary measurement: x=8, right=348, width=340). The Radix popper wrapper is 304px wide (my measurement: x=8, right=312) — the picker overflows it by ~28px. `document.documentElement.scrollWidth` stays at 320 with no horizontal scroll, so the rightmost emoji column and the right side of the category nav row are permanently unreachable. The picker is otherwise functional for emojis that fall in the visible columns.
+
+History:
+
+- qa: opened. My measurement: Radix popper width=304px at x=8; em-emoji-picker extends beyond the wrapper (screenshot confirms category nav and last emoji column clipped at right edge). Adversary measurement: picker right edge at x=348 in 320px viewport, 28px overflow. Screenshot: screenshots/adv-025.png
+
+## DEF-028: Closed mobile drawer stays in the tab order; Enter on an invisible button creates a page
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-024)
+- Phase: 2
+
+Steps to reproduce:
+
+1. Launch the app at http://localhost:8787.
+2. Set the viewport to 320px wide (or any width below the `md` breakpoint where the sidebar is an off-canvas drawer).
+3. Confirm the drawer is closed (hamburger "Open navigation" button is visible).
+4. Press Tab from the top of the page and observe which elements receive focus.
+
+Expected: A closed off-canvas drawer is out of the tab order. After the skip link and the hamburger button, Tab moves directly into the page body.
+Actual: Tabs 1–2 correctly reach the skip link and the hamburger. Tab 3 onwards walks the entire page tree inside the closed drawer — "Add a top-level page" at x=−69, "Collapse Home" at x=−250, "Home" at x=−174, "Actions for Home" at x=−69, and so on for all seeded pages. The focus ring is drawn off-screen. The drawer wrapper also retains `pointer-events-auto` while closed. Pressing Enter on the invisible "Add a top-level page" button (Tab 3) creates a page, with no visible feedback except the page title changing to "Untitled". A keyboard user on a narrow viewport can operate the entire sidebar blind.
+
+History:
+
+- qa: opened. Confirmed: 4 off-canvas elements found at Tab 3–6 (x=−69, −250, −174, −69). Screenshot: screenshots/adv-024.png
+
+## DEF-027: Long code-block line is clipped with no scrollbar; tail is unreachable
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-022)
+- Phase: 2
+
+Steps to reproduce:
+
+1. Launch the app at http://localhost:8787 and navigate to any page.
+2. Add a code block (via the slash menu: type `/code` and select Code).
+3. In the code block, type a single unbroken line of approximately 200 or more characters.
+4. Try to reach the end of the line by pressing End, or try to scroll the block horizontally.
+
+Expected: The code block either wraps the line, or scrolls horizontally so the full content is readable. (Every other block type wraps with `overflow-wrap: break-word`.)
+Actual: The code textarea computes `white-space: pre` and `overflow: hidden` (both x and y). With ~200 characters typed, `scrollWidth` measures **1686px** against a `clientWidth` of **672px** — about 2.5× the visible area. `scrollLeft` stays at 0 after pressing End; horizontal mouse-wheel scroll has no effect. The content beyond the right edge is unviewable and unreachable by both keyboard and mouse. (The adversary measured 6043px scrollWidth with a ~700-character line, confirming the same root cause.) The code block is the one type whose content is explicitly not expected to wrap, making this the most likely place for long lines to appear.
+
+History:
+
+- qa: opened. Measured: scrollWidth 1686px, clientWidth 672px, overflow hidden (with ~200-char line). Screenshot: screenshots/adv-022.png
+
+## DEF-026: Light-theme sidebar row action menu is white-on-white — two of three items are invisible
+
+- Status: OPEN
+- Severity: HIGH
+- Found by: adversary (ADV-023)
+- Phase: 2
+
+Steps to reproduce:
+
+1. Launch the app at http://localhost:8787 in light theme (the default).
+2. Set the viewport to below the `md` breakpoint (e.g. 390px wide).
+3. Open the navigation drawer by tapping the hamburger button.
+4. Tap the overflow/actions button on any page row (the three-dot or ellipsis trigger).
+5. Read the three menu items.
+
+Expected: All three dropdown menu items — Rename, Add a page inside, Delete — are legible on the menu surface.
+Actual: The `DropdownMenu` panel renders with a white background (`rgb(255, 255, 255)`). "Rename" and "Add a page inside" use `text-panel-text` = `#eae8ee` = `rgb(234, 232, 238)`, which produces a contrast ratio of **1.22:1** on white — effectively invisible. "Delete" uses `text-danger-soft` = `#f08a84` = `rgb(240, 138, 132)`, which produces **2.42:1** — also below the 4.5:1 WCAG AA minimum. In dark theme the same items produce 14.48:1 and 7.27:1 respectively. The root cause is that the dropdown borrows dark-sidebar panel-text tokens and then renders on a white surface. Below the `md` breakpoint, this dropdown is the only route to rename, add-inside, or delete a page — the desktop icon buttons are hidden at that width. The dropdown is used in exactly one place (the sidebar row), but the token misuse is in the shared primitive.
+
+History:
+
+- qa: opened. Measured: menu bg rgb(255,255,255); "Rename" color rgb(234,232,238) = 1.22:1 on white; "Add a page inside" color rgb(234,232,238) = 1.22:1 on white; "Delete" color rgb(240,138,132) = 2.42:1 on white. Screenshot: screenshots/adv-023.png
+
 ## DEF-025: Three further vacuous-guard patterns in cascade-delete and defect-regression specs
 
 - Status: CLOSED
