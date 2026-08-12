@@ -55,10 +55,10 @@ test('rename a page from sidebar and verify name updates in both sidebar and pag
   await expect(newPageUntitledButton).toBeVisible();
 
   // Rename the page in the sidebar - use data-page-id to target the correct row (within sidebar only)
-  const sidebarRow = page.locator(`.sidebar [data-page-id="${pageId}"]`);
+  const sidebarRow = page.locator(`[data-testid="sidebar"] [data-page-id="${pageId}"]`);
   await expect(sidebarRow).toBeVisible();
-  // Target the rename action button (has title="Rename") not the title button (has class row__title)
-  const sidebarRenameButton = sidebarRow.locator('button.row__action').first();
+  // Target the rename action button via its stable data-testid
+  const sidebarRenameButton = sidebarRow.locator('[data-testid="page-rename"]').first();
   await expect(sidebarRenameButton).toBeVisible();
   await sidebarRenameButton.click();
 
@@ -79,25 +79,25 @@ test('rename a page from sidebar and verify name updates in both sidebar and pag
 
   // Verify the new name appears in the sidebar
   const pageInSidebar = page
-    .locator('.sidebar')
-    .locator('button.row__title')
+    .locator('[data-testid="sidebar"]')
+    .locator('[data-testid="page-row-title"]')
     .filter({ hasText: originalName });
   await expect(pageInSidebar).toBeVisible();
 
   // Verify the name appears in the page header
-  const pageHeader = page.locator('h1.page__title');
+  const pageHeader = page.locator('[data-testid="page-title"]');
   await expect(pageHeader).toContainText(originalName);
 
   // Now rename it again from the page header to verify the change propagates
   // Target the button within the page header specifically to avoid ambiguity with sidebar button
-  const pageHeaderSection = page.locator('.page__header');
+  const pageHeaderSection = page.locator('[data-testid="page-header"]');
   const pageHeaderRenameButton = pageHeaderSection.getByRole('button', {
     name: `Rename ${originalName}`,
   });
   await expect(pageHeaderRenameButton).toBeVisible();
   await pageHeaderRenameButton.click();
 
-  const headerSection = page.locator('.page__header');
+  const headerSection = page.locator('[data-testid="page-header"]');
   const headerRenameInput = headerSection.getByLabel(`New name for ${originalName}`);
   await expect(headerRenameInput).toBeVisible();
 
@@ -110,19 +110,19 @@ test('rename a page from sidebar and verify name updates in both sidebar and pag
 
   // Verify the new name appears in the sidebar
   const renamedPageInSidebar = page
-    .locator('.sidebar')
-    .locator('button.row__title')
+    .locator('[data-testid="sidebar"]')
+    .locator('[data-testid="page-row-title"]')
     .filter({ hasText: newName });
   await expect(renamedPageInSidebar).toBeVisible();
 
   // Verify the new name appears in the page header
-  const pageHeader2 = page.locator('h1.page__title');
+  const pageHeader2 = page.locator('[data-testid="page-title"]');
   await expect(pageHeader2).toContainText(newName);
 
   // Verify old name is gone from sidebar
   const oldPageInSidebar = page
-    .locator('.sidebar')
-    .locator('button.row__title')
+    .locator('[data-testid="sidebar"]')
+    .locator('[data-testid="page-row-title"]')
     .filter({ hasText: originalName });
   await expect(oldPageInSidebar).not.toBeVisible();
 

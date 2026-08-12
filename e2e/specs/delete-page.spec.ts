@@ -53,9 +53,9 @@ test('delete a page with children; verify confirmation dialog shows affected pag
   const parentPageId = parentPageIdMatch![1];
 
   // Rename the parent page
-  const parentSidebarRow = page.locator(`.sidebar [data-page-id="${parentPageId}"]`);
+  const parentSidebarRow = page.locator(`[data-testid="sidebar"] [data-page-id="${parentPageId}"]`);
   await expect(parentSidebarRow).toBeVisible();
-  const parentRenameButton = parentSidebarRow.locator('button.row__action').nth(0); // First action: rename
+  const parentRenameButton = parentSidebarRow.locator('[data-testid="page-rename"]'); // rename action
   await expect(parentRenameButton).toBeVisible();
   await parentRenameButton.click();
 
@@ -70,17 +70,18 @@ test('delete a page with children; verify confirmation dialog shows affected pag
 
   // Verify parent page is visible in sidebar
   const parentInSidebar = page
-    .locator('.sidebar')
-    .locator('button.row__title')
+    .locator('[data-testid="sidebar"]')
+    .locator('[data-testid="page-row-title"]')
     .filter({ hasText: parentName });
   await expect(parentInSidebar).toBeVisible();
 
   // Now create the first child by clicking the "Add a page inside" button
-  // This is the second action button (pencil is 0, plus is 1)
-  const parentRowRefreshed = page.locator(`.sidebar [data-page-id="${parentPageId}"]`);
+  const parentRowRefreshed = page.locator(
+    `[data-testid="sidebar"] [data-page-id="${parentPageId}"]`,
+  );
   await expect(parentRowRefreshed).toBeVisible();
 
-  const addChildButton1 = parentRowRefreshed.locator('button.row__action').nth(1); // Second action: add child
+  const addChildButton1 = parentRowRefreshed.locator('[data-testid="page-add-child"]');
   await expect(addChildButton1).toBeVisible();
   await addChildButton1.click();
 
@@ -94,9 +95,9 @@ test('delete a page with children; verify confirmation dialog shows affected pag
   const childPageId1 = child1PageIdMatch![1];
 
   // Rename the first child
-  const childSidebarRow1 = page.locator(`.sidebar [data-page-id="${childPageId1}"]`);
+  const childSidebarRow1 = page.locator(`[data-testid="sidebar"] [data-page-id="${childPageId1}"]`);
   await expect(childSidebarRow1).toBeVisible();
-  const childRenameButton1 = childSidebarRow1.locator('button.row__action').nth(0);
+  const childRenameButton1 = childSidebarRow1.locator('[data-testid="page-rename"]');
   await expect(childRenameButton1).toBeVisible();
   await childRenameButton1.click();
 
@@ -111,16 +112,18 @@ test('delete a page with children; verify confirmation dialog shows affected pag
 
   // Verify first child is in sidebar
   const childInSidebar1 = page
-    .locator('.sidebar')
-    .locator('button.row__title')
+    .locator('[data-testid="sidebar"]')
+    .locator('[data-testid="page-row-title"]')
     .filter({ hasText: childName1 });
   await expect(childInSidebar1).toBeVisible();
 
   // Create a second child by again clicking the parent's add-child button
-  const parentRowRefreshed2 = page.locator(`.sidebar [data-page-id="${parentPageId}"]`);
+  const parentRowRefreshed2 = page.locator(
+    `[data-testid="sidebar"] [data-page-id="${parentPageId}"]`,
+  );
   await expect(parentRowRefreshed2).toBeVisible();
 
-  const addChildButton2 = parentRowRefreshed2.locator('button.row__action').nth(1);
+  const addChildButton2 = parentRowRefreshed2.locator('[data-testid="page-add-child"]');
   await expect(addChildButton2).toBeVisible();
   await addChildButton2.click();
 
@@ -133,9 +136,9 @@ test('delete a page with children; verify confirmation dialog shows affected pag
   const childPageId2 = child2PageIdMatch![1];
 
   // Rename the second child
-  const child2SidebarRow = page.locator(`.sidebar [data-page-id="${childPageId2}"]`);
+  const child2SidebarRow = page.locator(`[data-testid="sidebar"] [data-page-id="${childPageId2}"]`);
   await expect(child2SidebarRow).toBeVisible();
-  const child2RenameButton = child2SidebarRow.locator('button.row__action').nth(0);
+  const child2RenameButton = child2SidebarRow.locator('[data-testid="page-rename"]');
   await expect(child2RenameButton).toBeVisible();
   await child2RenameButton.click();
 
@@ -150,17 +153,18 @@ test('delete a page with children; verify confirmation dialog shows affected pag
 
   // Verify both children are in sidebar
   const childInSidebar2 = page
-    .locator('.sidebar')
-    .locator('button.row__title')
+    .locator('[data-testid="sidebar"]')
+    .locator('[data-testid="page-row-title"]')
     .filter({ hasText: childName2 });
   await expect(childInSidebar2).toBeVisible();
 
-  // Now delete the parent page - find the delete button (trash icon button, third action)
-  const parentRowBeforeDelete = page.locator(`.sidebar [data-page-id="${parentPageId}"]`);
+  // Now delete the parent page - find the delete button via its stable data-testid
+  const parentRowBeforeDelete = page.locator(
+    `[data-testid="sidebar"] [data-page-id="${parentPageId}"]`,
+  );
   await expect(parentRowBeforeDelete).toBeVisible();
 
-  // Third action button is delete (pencil=0, plus=1, trash=2)
-  const deleteButtonParent = parentRowBeforeDelete.locator('button.row__action').nth(2);
+  const deleteButtonParent = parentRowBeforeDelete.locator('[data-testid="page-delete"]');
   await expect(deleteButtonParent).toBeVisible();
   await deleteButtonParent.click();
 
@@ -183,21 +187,21 @@ test('delete a page with children; verify confirmation dialog shows affected pag
 
   // Verify the parent page is no longer in the sidebar
   const parentNotInSidebar = page
-    .locator('.sidebar')
-    .locator('button.row__title')
+    .locator('[data-testid="sidebar"]')
+    .locator('[data-testid="page-row-title"]')
     .filter({ hasText: parentName });
   await expect(parentNotInSidebar).not.toBeVisible();
 
   // Verify the child pages are also no longer in the sidebar (cascade delete)
   const child1NotInSidebar = page
-    .locator('.sidebar')
-    .locator('button.row__title')
+    .locator('[data-testid="sidebar"]')
+    .locator('[data-testid="page-row-title"]')
     .filter({ hasText: childName1 });
   await expect(child1NotInSidebar).not.toBeVisible();
 
   const child2NotInSidebar = page
-    .locator('.sidebar')
-    .locator('button.row__title')
+    .locator('[data-testid="sidebar"]')
+    .locator('[data-testid="page-row-title"]')
     .filter({ hasText: childName2 });
   await expect(child2NotInSidebar).not.toBeVisible();
 
@@ -214,9 +218,9 @@ test('delete a page with children; verify confirmation dialog shows affected pag
   const testPageId = testPageIdMatch![1];
 
   // Rename it
-  const testSidebarRow = page.locator(`.sidebar [data-page-id="${testPageId}"]`);
+  const testSidebarRow = page.locator(`[data-testid="sidebar"] [data-page-id="${testPageId}"]`);
   await expect(testSidebarRow).toBeVisible();
-  const testRenameButton = testSidebarRow.locator('button.row__action').nth(0);
+  const testRenameButton = testSidebarRow.locator('[data-testid="page-rename"]');
   await expect(testRenameButton).toBeVisible();
   await testRenameButton.click();
 
@@ -231,14 +235,16 @@ test('delete a page with children; verify confirmation dialog shows affected pag
 
   // Verify it's in the sidebar
   const testPageInSidebar = page
-    .locator('.sidebar')
-    .locator('button.row__title')
+    .locator('[data-testid="sidebar"]')
+    .locator('[data-testid="page-row-title"]')
     .filter({ hasText: testPageName });
   await expect(testPageInSidebar).toBeVisible();
 
   // Try to delete it but cancel
-  const testSidebarRowBeforeDelete = page.locator(`.sidebar [data-page-id="${testPageId}"]`);
-  const testDeleteButton = testSidebarRowBeforeDelete.locator('button.row__action').nth(2);
+  const testSidebarRowBeforeDelete = page.locator(
+    `[data-testid="sidebar"] [data-page-id="${testPageId}"]`,
+  );
+  const testDeleteButton = testSidebarRowBeforeDelete.locator('[data-testid="page-delete"]');
   await expect(testDeleteButton).toBeVisible();
   await testDeleteButton.click();
 
@@ -256,8 +262,8 @@ test('delete a page with children; verify confirmation dialog shows affected pag
 
   // Verify the page is still in the sidebar (delete was cancelled)
   const testPageStillInSidebar = page
-    .locator('.sidebar')
-    .locator('button.row__title')
+    .locator('[data-testid="sidebar"]')
+    .locator('[data-testid="page-row-title"]')
     .filter({ hasText: testPageName });
   await expect(testPageStillInSidebar).toBeVisible();
 

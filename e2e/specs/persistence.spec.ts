@@ -49,10 +49,10 @@ test('changes persist after browser reload', async ({ page }) => {
   expect(pageId).not.toBe(pageIdBefore);
 
   // Rename the page to make it identifiable - use sidebar rename with data-page-id (within sidebar only)
-  const sidebarRow = page.locator(`.sidebar [data-page-id="${pageId}"]`);
+  const sidebarRow = page.locator(`[data-testid="sidebar"] [data-page-id="${pageId}"]`);
   await expect(sidebarRow).toBeVisible();
-  // Target the rename action button (has title="Rename") not the title button (has class row__title)
-  const sidebarRenameButton = sidebarRow.locator('button.row__action').first();
+  // Target the rename action button via its stable data-testid
+  const sidebarRenameButton = sidebarRow.locator('[data-testid="page-rename"]').first();
   await expect(sidebarRenameButton).toBeVisible();
   await sidebarRenameButton.click();
 
@@ -70,8 +70,8 @@ test('changes persist after browser reload', async ({ page }) => {
 
   // Verify page appears in sidebar
   const newPageInSidebar = page
-    .locator('.sidebar')
-    .locator('button.row__title')
+    .locator('[data-testid="sidebar"]')
+    .locator('[data-testid="page-row-title"]')
     .filter({ hasText: pageName });
   await expect(newPageInSidebar).toBeVisible();
 
@@ -81,8 +81,8 @@ test('changes persist after browser reload', async ({ page }) => {
 
   // Verify the page still appears in sidebar after reload
   const pageAfterReload = page
-    .locator('.sidebar')
-    .locator('button.row__title')
+    .locator('[data-testid="sidebar"]')
+    .locator('[data-testid="page-row-title"]')
     .filter({ hasText: pageName });
   await expect(pageAfterReload).toBeVisible();
 
@@ -94,7 +94,7 @@ test('changes persist after browser reload', async ({ page }) => {
   expect(urlAfterReload).toContain('/page/');
 
   // Verify the page header also shows the renamed title
-  const pageHeader = page.locator('h1.page__title');
+  const pageHeader = page.locator('[data-testid="page-title"]');
   await expect(pageHeader).toContainText(pageName);
 
   // Assert console is clean

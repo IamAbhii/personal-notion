@@ -12,7 +12,7 @@ test.describe('Cascade delete pages with nested pages and blocks', () => {
     await page.waitForLoadState('networkidle');
 
     // Look for a page with sub-pages in the sidebar (seeded pages should have this)
-    const sidebar = page.locator('.sidebar');
+    const sidebar = page.locator('[data-testid="sidebar"]');
 
     // Find a page that has nested pages
     let parentPageId;
@@ -26,7 +26,7 @@ test.describe('Cascade delete pages with nested pages and blocks', () => {
       const pageId = await row.getAttribute('data-page-id');
       if (pageId) {
         // Check if this row has an expand button
-        const expandButton = row.locator('[data-testid="page-expand"], .row__expand');
+        const expandButton = row.locator('[data-testid="page-expand"]');
         if ((await expandButton.count()) > 0 && (await expandButton.isVisible())) {
           parentPageId = pageId;
 
@@ -57,7 +57,7 @@ test.describe('Cascade delete pages with nested pages and blocks', () => {
     if (parentPageId && nestedPageId) {
       // Navigate to the nested page to see its blocks
       const nestedRow = sidebar.locator(`[data-page-id="${nestedPageId}"]`);
-      const nestedTitle = nestedRow.locator('button.row__title');
+      const nestedTitle = nestedRow.locator('[data-testid="page-row-title"]');
       await nestedTitle.click();
       await page.waitForLoadState('networkidle');
       await page.waitForTimeout(300);
@@ -72,7 +72,7 @@ test.describe('Cascade delete pages with nested pages and blocks', () => {
 
       // Navigate back to parent
       const parentRow = sidebar.locator(`[data-page-id="${parentPageId}"]`);
-      const parentTitle = parentRow.locator('button.row__title');
+      const parentTitle = parentRow.locator('[data-testid="page-row-title"]');
       await parentTitle.click();
       await page.waitForLoadState('networkidle');
       await page.waitForTimeout(300);
@@ -119,7 +119,7 @@ test.describe('Cascade delete pages with nested pages and blocks', () => {
     // which validates the cascade behavior internally
 
     // For now, just verify the page deletion flow by checking the sidebar updates
-    const sidebar = page.locator('.sidebar');
+    const sidebar = page.locator('[data-testid="sidebar"]');
     const initialPageCount = await sidebar.locator('[data-page-id]').count();
 
     // The initial sidebar should have pages
