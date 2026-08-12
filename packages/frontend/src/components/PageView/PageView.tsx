@@ -68,7 +68,7 @@ export function PageView({
               ) : (
                 <button
                   type="button"
-                  className="inline-flex min-w-0 cursor-pointer items-center gap-1.5 rounded-sm border-0 bg-transparent px-1.5 py-0.5 text-text-muted hover:bg-surface hover:text-blue aria-[current=page]:font-semibold aria-[current=page]:text-text"
+                  className="inline-flex min-w-0 cursor-pointer items-center gap-1.5 rounded-sm border-0 bg-transparent px-1.5 py-0.5 text-text-muted hover:bg-surface hover:text-blue-fg aria-[current=page]:font-semibold aria-[current=page]:text-text"
                   data-testid="breadcrumb-link"
                   aria-current={item.page.id === page.id ? 'page' : undefined}
                   title={item.page.title}

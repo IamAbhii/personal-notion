@@ -16,6 +16,7 @@ import {
 import { useAutosavedText } from '../hooks/useAutosavedText';
 import type { BlockRecord, BlockType } from '../api/types';
 import type { BlockTypeOption } from '../lib/blocks';
+import { DropdownMenu, DropdownMenuItem } from './ui/DropdownMenu/DropdownMenu';
 import styles from './BlockRow.module.css';
 
 export interface BlockRowProps {
@@ -66,6 +67,9 @@ const textareaTypeClasses: Record<BlockType, string> = {
   todo: '',
   quote: 'italic',
   // font-mono, whitespace-pre and text-code-text are code-specific; they cannot be on the base.
+  // Horizontal scroll is handled by styles.codeTextarea (CSS Module) rather than a utility: the
+  // overflow-hidden shorthand from TEXTAREA_BASE and overflow-x-auto have equal CSS specificity so
+  // the build-time order is non-deterministic; the module rule is loaded last and always wins.
   code: 'font-mono text-sm leading-relaxed text-code-text whitespace-pre',
   callout: '',
   divider: '',
@@ -104,6 +108,9 @@ export function BlockRow({
   // null means closed; a string is the text typed after the "/".
   const [slashQuery, setSlashQuery] = useState<string | null>(null);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
+  // Tracks the per-block actions dropdown: forced closed while dragging so a press-then-drag does
+  // not leave the menu open once the drag activates (the pointer sensor requires 4px movement).
+  const [menuOpen, setMenuOpen] = useState(false);
   const { value, edit, reset, flush } = useAutosavedText(block.text, onChangeText);
   const {
     attributes,
@@ -247,6 +254,8 @@ export function BlockRow({
       className={cn(
         TEXTAREA_BASE,
         textareaTypeClasses[block.type],
+        // CSS Module rule that guarantees overflow-x: auto wins for code blocks (see module file).
+        block.type === 'code' && styles.codeTextarea,
         block.type === 'todo' && block.checked && 'text-text-muted line-through',
       )}
       value={value}
@@ -272,7 +281,8 @@ export function BlockRow({
       ref={setNodeRef}
       className={cn(
         // `group` enables group-hover: on the gutter so handles appear when any part of the block is hovered.
-        'group relative grid grid-cols-[46px_minmax(0,1fr)] items-start',
+        // The gutter column is 48px — just wide enough for one 48px touch target per row.
+        'group relative grid grid-cols-[48px_minmax(0,1fr)] items-start',
         isDragging && 'z-10 rounded-sm border border-border bg-surface shadow-pop',
       )}
       data-block-id={block.id}
@@ -282,38 +292,56 @@ export function BlockRow({
       style={{ transform: CSS.Translate.toString(transform), transition }}
     >
       {/*
-        Gutter: drag handle + delete action, hidden until the block is hovered or focused.
-        On touch devices (hover: none) the gutter is always visible since there is no hover.
+        Gutter: one 48×48px drag handle that also opens a small actions menu on click or ArrowDown.
+        A single control keeps the gutter height equal to one block line regardless of block height.
+        Drag (pointer: 4px movement; keyboard: Space/Enter) and menu (pointer: click; keyboard:
+        ArrowDown) do not conflict — dnd-kit calls event.preventDefault() on Space/Enter keydown,
+        which prevents Radix's onKeyDown handler from firing on those keys, so ArrowDown is the
+        dedicated keyboard path to the menu. The menu is forced closed when isDragging becomes true
+        so a press-then-drag does not leave it open. On hover:none devices the gutter is always
+        visible; on pointer devices it appears on group-hover or when focus is inside the row.
       */}
       <div
         className={cn(
-          'flex justify-end gap-0.5 pt-1 pr-2',
+          'flex items-start justify-center',
           'opacity-0 transition-opacity duration-100 ease-in-out',
           'group-focus-within:opacity-100 group-hover:opacity-100',
           // Without pointer-hover there is no way to reveal gutter controls, so always show them.
           '[@media(hover:none)]:opacity-100',
         )}
       >
-        <button
-          type="button"
-          ref={setActivatorNodeRef}
-          className="grid h-6 w-5.5 flex-none cursor-grab place-items-center rounded-sm border-0 bg-transparent p-0 text-text-muted hover:bg-surface hover:text-text hover:ring-1 hover:ring-border hover:ring-inset"
-          data-testid="block-drag-handle"
-          aria-label={`Move the ${blockTypeLabel(block.type).toLowerCase()} block`}
-          {...attributes}
-          {...listeners}
+        <DropdownMenu
+          open={menuOpen && !isDragging}
+          onOpenChange={(next) => {
+            // Ignore open requests while dragging: the pointer sensor needs 4px before it
+            // activates, and a fast tap can set open=true before isDragging becomes true.
+            if (!isDragging) setMenuOpen(next);
+          }}
+          align="start"
+          trigger={
+            <button
+              type="button"
+              ref={setActivatorNodeRef}
+              className="grid h-12 w-12 flex-none cursor-grab place-items-center rounded-sm border-0 bg-transparent p-0 text-text-muted hover:bg-surface hover:text-text hover:ring-1 hover:ring-border hover:ring-inset"
+              data-testid="block-drag-handle"
+              aria-label={`Move the ${blockTypeLabel(block.type).toLowerCase()} block`}
+              {...attributes}
+              {...listeners}
+            >
+              <GripVertical size={16} aria-hidden />
+            </button>
+          }
         >
-          <GripVertical size={16} aria-hidden />
-        </button>
-        <button
-          type="button"
-          className="grid h-6 w-5.5 flex-none cursor-pointer place-items-center rounded-sm border-0 bg-transparent p-0 text-text-muted hover:bg-danger/14 hover:text-danger"
-          data-testid="block-delete"
-          aria-label={`Delete the ${blockTypeLabel(block.type).toLowerCase()} block`}
-          onClick={onDelete}
-        >
-          <Trash2 size={14} aria-hidden />
-        </button>
+          <DropdownMenuItem
+            variant="danger"
+            data-testid="block-delete"
+            aria-label={`Delete the ${blockTypeLabel(block.type).toLowerCase()} block`}
+            onSelect={onDelete}
+          >
+            <Trash2 size={14} aria-hidden />
+            Delete block
+          </DropdownMenuItem>
+        </DropdownMenu>
       </div>
 
       {/* Body: the type-specific wrapper around the shared textarea (or hr for divider). */}
