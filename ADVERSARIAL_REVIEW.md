@@ -571,3 +571,265 @@ Disposition: REJECTED - working as intended. The block genuinely contains 2000 b
 content a user actually typed is correct. Nothing in REQUIREMENTS.md caps a block's height, and
 capping it would put a nested scroll region inside an editable block, which is a worse experience
 than a long block. Recorded as surprising rather than broken, which is how it was filed.
+
+## ADV-022: A long line in a code block is clipped with no scrollbar and no way to reach the tail
+
+- Session: phase-2 gate
+- Suggested severity: MEDIUM
+
+What I did: created a page with a code block whose single line is about 700 characters
+(`const x = "aaa…"; // bbb…`), opened it at 1280x800, clicked into the block, pressed End, and then
+tried a horizontal wheel scroll over the block.
+
+Expected: either the line wraps, or the code block scrolls horizontally so the rest of the line can
+be read.
+
+Actual: the code textarea computes `white-space: pre` with `overflow: hidden`, so `scrollWidth` is
+6043px against a `clientWidth` of 672px. The line is cut dead at the right edge of the block with no
+ellipsis and no scrollbar; `scrollLeft` stays at 0 after End and after `mouse.wheel(400, 0)`, so
+about 90 percent of the line is unreachable by mouse and by keyboard. The text is not lost - a reload
+still has it, and the other ten block types wrap correctly (`overflow-wrap: break-word`) - it is only
+the code block, which is exactly the type most likely to hold a long line.
+
+Screenshot: screenshots/adv-022.png
+
+Disposition: ACCEPTED -> DEF-027. The code block is the one block type whose content is expected not
+to wrap, so it is also the one where clipping loses access to real content rather than merely looking
+untidy - and the remainder is unreachable by mouse and by keyboard alike. Every other block on the
+page wraps, which makes this a gap in the migration rather than a deliberate choice.
+
+## ADV-023: In light theme the sidebar row action menu is white-on-white - two of its three items are invisible
+
+- Session: phase-2 gate
+- Suggested severity: HIGH
+
+What I did: at 320px wide (light theme, the default in `index.html`) opened the navigation drawer,
+tapped the overflow trigger on a page row, and read the computed colours of the three menu items.
+
+Expected: the menu's items are readable on the menu's surface in both themes.
+
+Actual: `DropdownMenu` gives its content panel the themed `bg-surface` (white in light theme) but
+`DropdownMenuItem` colours its text with the dark-panel token: `text-panel-text` is `#eae8ee`, which
+against white is a contrast ratio of **1.22:1**. "Rename" and "Add a page inside" are effectively
+invisible - I could only find them by reading the DOM. The danger variant, `text-danger-soft`
+`#f08a84`, comes out at **2.42:1**, also under the 4.5:1 minimum. In dark theme the same items are
+14.48:1 and 7.27:1, so the bug is light-theme only, and the dropdown is the only path to rename,
+add-inside or delete a page below the `md` breakpoint - the three desktop icon buttons are
+`md:hidden`'s counterpart and do not exist there. `DropdownMenu` is used in exactly one place today
+(the sidebar row), so the blast radius is that one menu, but the token misuse is in the shared
+primitive.
+
+Screenshot: screenshots/adv-023.png
+
+Disposition: ACCEPTED -> DEF-026. The most serious finding of the pass and the only one I would call
+urgent. Light is the default theme, and below the md breakpoint this dropdown is the only route to
+rename, add inside or delete a page - the controls are present, focusable and functional, and cannot
+be seen. The cause is the general lesson of this pass: the menu borrows the dark sidebar's panel text
+tokens and then renders on a white surface, so it looked correct for as long as anyone only checked
+it against the drawer.
+
+## ADV-024: At mobile widths the closed drawer stays in the tab order, and Enter on an invisible button creates a page
+
+- Session: phase-2 gate
+- Suggested severity: MEDIUM
+
+What I did: at 320x800 with the drawer closed, pressed Tab repeatedly from a fresh load and logged
+the focused element and its bounding box, then pressed Enter on the third stop.
+
+Expected: a closed off-canvas drawer is out of the tab order, so tabbing goes from the skip link and
+the hamburger straight into the page body.
+
+Actual: Tab 1 is the skip link, Tab 2 is "Open navigation", and Tab 3 onwards walks the whole page
+tree inside the drawer while the drawer is closed and translated off-canvas - "Add a top-level page"
+at x=-69, "Collapse Home" at x=-250, "Home" at x=-174, and so on for all 25 seed pages. The focus
+ring is drawn off screen, so the page looks unfocused and the user has no idea where they are. The
+drawer wrapper also keeps `pointer-events-auto` while closed. Pressing Enter on the invisible "Add a
+top-level page" button created a page and navigated to it, with the only visible feedback being the
+title changing to "Untitled" - the drawer itself never opened. A keyboard user on a narrow window can
+operate the whole sidebar blind.
+
+Screenshot: screenshots/adv-024.png
+
+Disposition: ACCEPTED -> DEF-028. A closed drawer is not part of the page, and keeping its contents
+focusable means a keyboard user tabs into controls they cannot see and can create a page by pressing
+Enter on nothing. The fix is to take the closed drawer out of the tab order rather than to hide it
+visually alone.
+
+## ADV-025: The emoji picker is wider than a 320px viewport and its right column cannot be reached
+
+- Session: phase-2 gate
+- Suggested severity: MEDIUM
+
+What I did: at 320x800 opened a page and clicked the page icon to open the emoji picker, then
+measured the picker and tried to scroll horizontally.
+
+Expected: at the narrowest supported width the picker fits inside the viewport, or the page scrolls
+so the rest of it can be reached.
+
+Actual: the picker renders 340px wide from x=8 to x=348 in a 320px viewport, so its last 28px sit
+outside the window. `document.documentElement.scrollWidth` is still 320 and there is no horizontal
+scroll, so the clipped strip - the rightmost emoji column, the tail of the category nav row and the
+picker's own scrollbar - is permanently unreachable. The same picker at 1280 sits fully inside the
+viewport, so this is width-specific. Nothing errors; the picker is usable for the emojis that happen
+to fall in the visible columns.
+
+Screenshot: screenshots/adv-025.png
+
+Disposition: ACCEPTED -> DEF-029. 320px is the width the project's own mobile-first standard names as
+the floor, so a picker that is wider than the viewport with an unreachable column fails at a
+supported size. The picker is a third-party component, so the fix is likely to be constraining its
+width from the popover rather than changing its internals.
+
+## ADV-026: At 320px, sidebar rows nested ten deep show one character of their title
+
+- Session: phase-2 gate
+- Suggested severity: MEDIUM
+
+What I did: created a chain of 15 nested pages titled "Level N nesting depth test", then opened the
+drawer at 320x800 and measured the width of each row's title element.
+
+Expected: however deep the tree goes, a row keeps enough width to tell one page from another - the
+indent should stop growing well before that.
+
+Actual: the indent does stop growing (every row from level 10 down starts at x=182), but at 320px the
+292px drawer minus that indent minus the 48px overflow trigger leaves the title **17px** wide: every
+row from level 10 to level 15 renders as `L…` and the six pages are indistinguishable. At 1280 the
+same rows get 89px, which is tight but legible. Nothing is broken functionally - the rows still
+navigate - but the mobile drawer stops being usable as a way of finding a deeply nested page.
+
+Screenshot: screenshots/adv-026.png
+
+Disposition: ACCEPTED -> DEF-030. Nesting as deep as you like is an advertised feature of the page
+tree, so a depth the product invites must stay legible at the width the product supports. A per-level
+indent that is fixed in pixels cannot survive both; the indent needs a ceiling, or deep levels need a
+different affordance than raw indentation.
+
+## ADV-027: The block gutter's drag and delete controls are 22x24px and 2px apart on a touch-width viewport
+
+- Session: phase-2 gate
+- Suggested severity: MEDIUM
+
+What I did: opened a 50-block page at 320x800 and measured the drag handle and the delete button in
+the block gutter, at rest and with the block focused.
+
+Expected: on a touch-width viewport the two controls are large enough to hit, and the destructive one
+is not immediately adjacent to the one you use most.
+
+Actual: both are 22x24px - well under the 48px touch minimum the rest of the UI honours (the sidebar
+rows and the dropdown items are all `min-h-12`) - and the delete button's left edge is 24px from the
+drag handle's, i.e. a 2px gap between two 22px targets, with delete on the right where a
+right-handed thumb lands. On a real touch device there is also no hover, so the pair only appears
+once the block is focused. Reordering a block on a phone therefore means hitting a 22px target 2px
+from "delete block". No confirmation dialog stands behind block deletion, unlike page deletion.
+
+Screenshot: screenshots/adv-027.png
+
+Disposition: ACCEPTED -> DEF-031. Already known and flagged in PR-8 as a design decision rather than a
+restyle detail; this pass supplies the part that settles it. 22x24px is under the 48px the project's
+own standard requires, and the adversary's addition is that the delete control sits 2px from the drag
+handle at the width where the pointer is a finger - an unconfirmed destructive action next to the
+control a user reaches for most. That combination makes it a defect rather than a preference. The fix
+needs the gutter column widened, which is a visible layout change, so it is a task of its own.
+
+## ADV-028: StatusCard's accent eyebrow labels fail contrast on the light surface
+
+- Session: phase-2 gate
+- Suggested severity: MEDIUM
+
+What I did: forced the workspace snapshot to take six seconds so the loading StatusCard stayed on
+screen, in light theme, and measured the eyebrow label; then measured the "Not found" card's eyebrow
+by visiting a page id that does not exist.
+
+Expected: a 12px uppercase label meets 4.5:1 against the card it sits on, in both themes.
+
+Actual: the three eyebrow intents all use accent hues tuned for the dark surface and are reused
+unchanged on the white card: `accent` is `--amber #ecad0a` at **1.99:1** ("PERSONAL SPACE" on the
+loading and error cards - it reads as a pale yellow smudge), `info` is `--blue #209dd7` at
+**3.06:1** ("NOT FOUND"), and only `error` `--danger #cf3b34` clears the bar at 4.85:1. In dark
+theme amber on the card surface is 8.84:1, so again this is light-theme only. The lead line beneath
+each eyebrow is high contrast, so nothing is unreadable in the sense of unusable - the label above it
+is.
+
+Screenshot: screenshots/adv-028.png
+
+Disposition: ACCEPTED -> DEF-032. Amber at 1.99:1 and blue at 3.06:1 on the light surface both fail
+WCAG AA for the size they are used at. Same root cause as DEF-026: brand colours chosen against a
+dark panel, reused on white. Worth fixing at the token level rather than per component, since
+StatusCard is now the shared primitive and any later caller inherits the same problem.
+
+## ADV-029: A keyboard block drag loses most ArrowDown presses at key auto-repeat speed
+
+- Session: phase-2 gate
+- Suggested severity: LOW
+
+What I did: on the 50-block page, focused the first block's drag handle, pressed Space to pick it up,
+then pressed ArrowDown 20 times at three cadences, reading the dnd-kit live region after each run.
+
+Expected: 20 presses move the block 20 positions, whatever the cadence.
+
+Actual: with an 80ms gap the block reaches position 21 (all 20 registered). With a 40ms gap - about
+the auto-repeat rate of a held arrow key on macOS - it reaches position 16, so five presses are
+dropped. With no gap it reaches position 4: 17 of 20 presses are lost. The announcements themselves
+are correct and now name the block's text rather than its UUID, and a single deliberate press always
+works, so this only bites the user who holds the key down to move a block a long way - they get a
+much smaller move than they asked for and no sign that anything was dropped.
+
+Disposition: ACCEPTED -> DEF-033. Kept at LOW: a single deliberate press always lands, so the drag is
+not broken, and the loss is silent rather than destructive. Accepted rather than rejected because
+holding an arrow key is the natural way to move a block a long way, and dropping 17 of 20 presses is a
+real ceiling on the gesture. This is likely dnd-kit's own keyboard coordinate getter rather than our
+code, so the fix may be a configuration change or an upstream constraint we document instead.
+
+## ADV-030: At 320x400 the slash menu sits flush against the right and bottom edges
+
+- Session: phase-2 gate
+- Suggested severity: LOW
+
+What I did: at 320x400 opened a 50-block page, created an empty block at the end and typed "/".
+
+Expected: the menu keeps a small margin from the viewport edge, the way the Radix dropdown does with
+its `collisionPadding: 8`.
+
+Actual: the menu measures left 24, right 320, top 84, bottom 400 in a 320x400 viewport - its right
+edge is exactly on the viewport's right edge and its bottom exactly on the bottom, so the rounded
+corner and the drop shadow are clipped on two sides and the list has no visual end. The menu does
+scroll internally (`max-height: 316px`, `overflow-y: auto`) and every item is reachable by arrow
+keys, and at the bottom of a long page at 1280x800 it correctly flips above the caret, so this is
+cosmetic rather than a trap. Recorded because the two popover families are inconsistent: one pads
+against collisions and the other does not.
+
+Screenshot: screenshots/adv-030.png
+
+Disposition: ACCEPTED -> DEF-034. Cosmetic, and correctly rated LOW - the menu is usable, it just has
+no breathing room at the smallest supported viewport. Grouped into the same fix batch as the other
+320px findings because it is the same collision-padding question the emoji picker raises.
+
+## ADV-031: A 500-character title fills 646px of the header and pushes every block below the fold
+
+- Session: phase-2 gate
+- Suggested severity: LOW
+
+What I did: created a page whose title is exactly 500 characters - the server's own maximum, which
+`InlineTitleInput` also enforces with `maxLength` - and opened it at 1280x800. (Typing 600 characters
+into the rename input is correctly capped at 500, and the value survives a reload.)
+
+Expected: not sure - but something that keeps the page's content reachable without a screen and a
+half of scrolling.
+
+Actual: the h1 wraps to 646px tall, the header to 770px, so at 1280x800 the viewport holds nothing
+but the icon and the title: the "Updated" line, the first block and the whole editor are below the
+fold. The title wraps cleanly and nothing overflows sideways, the sidebar row truncates with an
+ellipsis and the breadcrumb clamps to 22 characters, so the layout holds - it is only the header that
+has no ceiling. Since 500 characters is the documented limit rather than an abuse, a page at the
+limit is a state the product allows and the header does not budget for.
+
+Screenshot: screenshots/adv-031.png
+
+Disposition: REJECTED - working as intended. A title is the page's own content, and 500 characters is
+the documented maximum rather than an abuse, so a title at the limit legitimately occupies the space
+it needs. The finding itself establishes that the layout holds: the h1 wraps cleanly, nothing overflows
+sideways, the sidebar row truncates and the breadcrumb clamps. What is left is a very long title
+pushing content down, and the alternatives are worse - clamping the h1 would hide part of what the
+user typed, and scrolling the header away would leave the page unlabelled. The user who writes a
+500-character title has asked for a 500-character heading. Reconsider only if a real user does this by
+accident rather than an adversary doing it deliberately.
