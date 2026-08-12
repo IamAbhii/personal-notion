@@ -1,6 +1,6 @@
 ## DEF-034: At 320x400 the slash menu sits flush against the right and bottom edges
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: LOW
 - Found by: adversary (ADV-030)
 - Phase: 2
@@ -19,6 +19,7 @@ Actual: The menu measures `left:24, right:320, top:84, bottom:400` — its right
 History:
 
 - qa: opened. Reproduced: right:320, bottom:400, margins both 0 in a 320x400 viewport. Screenshot: screenshots/adv-030.png
+- qa: CLOSED. SlashMenu now has horizontal collision detection (`useLayoutEffect` shifts `leftPx` so right edge stays 8px from viewport) and flips above the block when no room below with `≥8px` buffer. Retested at 320×400: right margin ≥8px and bottom margin ≥8px confirmed by e2e assertion (phase-2-restyle-regressions.spec.ts). Regression test added.
 
 ## DEF-033: Keyboard block drag loses most ArrowDown presses at auto-repeat speed
 
@@ -40,10 +41,11 @@ Actual: 10 presses at 40ms intervals registered only 4 of 10 (the block moved fr
 History:
 
 - qa: opened. Reproduced: 10 ArrowDown presses at 40ms → position 5/5 max (block constrained by small page; 6 of 10 presses dropped). Screenshot: screenshots/adv-029.png (none filed by adversary).
+- qa: re-measured after `scrollBehavior: 'auto'` partial fix. 10 ArrowDown at 40ms on a 5-block page: moved to position 5/5, 4 moves registered, 6 dropped (same drop rate as before). The `// Future:` comment is confirmed in BlockEditor.tsx (lines 61-65) documenting the upstream root cause in @dnd-kit/core KeyboardSensor. The `scrollBehavior: 'auto'` change targets pages with scroll but did not measurably reduce drops on a short page with no scrolling. Leaving OPEN as a documented upstream limitation.
 
 ## DEF-032: StatusCard accent eyebrow labels fail contrast on the light surface
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: adversary (ADV-028)
 - Phase: 2
@@ -61,10 +63,11 @@ Actual: The "NOT FOUND" eyebrow uses `--blue #209dd7` = `rgb(32, 157, 215)`, whi
 History:
 
 - qa: opened. Measured: rgb(32,157,215) on white = 3.06:1; rgb(236,173,10) on white = 1.99:1. Screenshot: screenshots/adv-028.png
+- qa: CLOSED. Developer introduced `text-blue-fg` and `text-amber-fg` tokens that map to darker shades in light theme (--blue-fg: #0d6b99 ~5.9:1; --amber-fg: #7d5f00 ~5.65:1). Retested: NOT FOUND eyebrow (blue-fg) measured ≥4.5:1 by e2e test against the card surface; amber-fg token measured ≥4.5:1 against bg-surface by injected-element evaluation. Both pass WCAG AA. Developer-reported ratios: 5.57:1 (blue) and ~6:1 (amber), consistent with measurements. Regression tests added in phase-2-restyle-regressions.spec.ts.
 
 ## DEF-031: Block gutter controls are 22x24px and 2px apart at touch width
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: adversary (ADV-027)
 - Phase: 2
@@ -83,10 +86,11 @@ Actual: Both the drag handle (`data-testid="block-drag-handle"`) and the delete 
 History:
 
 - qa: opened. Measured: drag handle 22x24px, delete button 22x24px, gap 2px. Screenshot: screenshots/adv-027.png
+- qa: CLOSED. Developer replaced two separate buttons with a single 48×48px drag handle that opens a DropdownMenu containing the delete action. Measured: handle 48×48px confirmed by e2e bounding box assertion. Delete is inside the portalled dropdown (not a sibling button — confirmed by asserting `block-delete` is not visible before opening the menu and visible after). Gutter wrapper height ≤ block row height for each block confirmed. Escape dismisses menu without deleting. Mouse click-to-delete removes the block. Screenshot: screenshots/phase-2-def031-gutter-dropdown.png. Regression tests added in phase-2-restyle-regressions.spec.ts.
 
 ## DEF-030: At 320px, sidebar rows nested ten deep show one character of their title
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: adversary (ADV-026)
 - Phase: 2
@@ -105,10 +109,11 @@ Actual: The indent is 16px per level with a cap that kicks in at level 10 (every
 History:
 
 - qa: opened. Adversary measurement: title width 17px at levels 10+. Playwright automation could not force the tree expansion in the narrow viewport test, so the 17px figure is the adversary's own measurement from screenshots/adv-026.png. Screenshot: screenshots/adv-026.png
+- qa: CLOSED. Developer added `rowIndent()` in `treeLayout.ts` with `MAX_INDENT_DEPTH = 3` capping indent at `8 + 3×12 = 44px` past depth 3. Retested: created a 5-level chain; at 320px sidebar drawer, max measured paddingLeft = 44px (capped as designed). Automation now succeeds through depth 4. Title space at capped indent: 272px drawer minus 28px (expand+icon) minus 44px (max indent) minus 134px (mobile overflow button + gaps) = 66px — readable. Screenshot: screenshots/phase-2-def030-deep-nesting.png. Regression test added in phase-2-restyle-regressions.spec.ts.
 
 ## DEF-029: Emoji picker wider than a 320px viewport, right column unreachable
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: adversary (ADV-025)
 - Phase: 2
@@ -126,10 +131,11 @@ Actual: The em-emoji-picker web component renders at approximately 340px (advers
 History:
 
 - qa: opened. My measurement: Radix popper width=304px at x=8; em-emoji-picker extends beyond the wrapper (screenshot confirms category nav and last emoji column clipped at right edge). Adversary measurement: picker right edge at x=348 in 320px viewport, 28px overflow. Screenshot: screenshots/adv-025.png
+- qa: CLOSED. Developer set `pickerWidth = Math.min(340, window.innerWidth - 16)` so the picker component itself is sized to fit, and the Radix Popover Content has `collisionPadding={8}`. Retested at 320px: popover content x ≥ 8px and x+width ≤ 312px (8px margin on both sides) confirmed by e2e bounding box assertion. Regression test added in phase-2-restyle-regressions.spec.ts.
 
 ## DEF-028: Closed mobile drawer stays in the tab order; Enter on an invisible button creates a page
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: adversary (ADV-024)
 - Phase: 2
@@ -147,10 +153,11 @@ Actual: Tabs 1–2 correctly reach the skip link and the hamburger. Tab 3 onward
 History:
 
 - qa: opened. Confirmed: 4 off-canvas elements found at Tab 3–6 (x=−69, −250, −174, −69). Screenshot: screenshots/adv-024.png
+- qa: CLOSED. Developer added `inert={(isMobile && !isSidebarOpen) || undefined}` on the drawer wrapper in WorkspaceShell. Retested at 390px: drawer wrapper `hasAttribute('inert')` = true when closed, false when open. At 1280px desktop, inert is never set. Sidebar content (add-page button) is reachable when open. `inert` prevents focus on off-canvas elements. Regression test added in phase-2-restyle-regressions.spec.ts. Screenshot: screenshots/phase-2-def028-drawer-closed.png.
 
 ## DEF-027: Long code-block line is clipped with no scrollbar; tail is unreachable
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: adversary (ADV-022)
 - Phase: 2
@@ -168,10 +175,11 @@ Actual: The code textarea computes `white-space: pre` and `overflow: hidden` (bo
 History:
 
 - qa: opened. Measured: scrollWidth 1686px, clientWidth 672px, overflow hidden (with ~200-char line). Screenshot: screenshots/adv-022.png
+- qa: CLOSED. Developer added `.codeTextarea { overflow-x: auto; overflow-y: hidden; }` in `BlockRow.module.css` to guarantee the CSS Module rule wins over the utility's `overflow-hidden` shorthand. Retested with a 250-char line: `getComputedStyle(textarea).overflowX = 'auto'` confirmed, `scrollWidth > clientWidth` confirmed, `scrollLeft` moves from 0 to >0 when scrolled programmatically (proving overflow-x:auto is real, not hidden). Regression test added in phase-2-restyle-regressions.spec.ts.
 
 ## DEF-026: Light-theme sidebar row action menu is white-on-white — two of three items are invisible
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: HIGH
 - Found by: adversary (ADV-023)
 - Phase: 2
@@ -190,6 +198,7 @@ Actual: The `DropdownMenu` panel renders with a white background (`rgb(255, 255,
 History:
 
 - qa: opened. Measured: menu bg rgb(255,255,255); "Rename" color rgb(234,232,238) = 1.22:1 on white; "Add a page inside" color rgb(234,232,238) = 1.22:1 on white; "Delete" color rgb(240,138,132) = 2.42:1 on white. Screenshot: screenshots/adv-023.png
+- qa: CLOSED. Developer changed `DropdownMenuItem` default variant to `text-text` (≈18:1 on white, developer-reported 17.44:1) and danger variant to `text-danger-fg` (--danger #cf3b34, ≈4.73:1 on white, developer-reported 4.85:1). Retested at 390px: e2e contrast assertion ≥4.5:1 passes for both "Rename" and "Delete" items. The menu bg is bg-surface (white in light theme). All three items now readable. Screenshot: screenshots/phase-2-def026-menu-contrast.png. Regression test added in phase-2-restyle-regressions.spec.ts.
 
 ## DEF-025: Three further vacuous-guard patterns in cascade-delete and defect-regression specs
 
