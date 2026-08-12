@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { cn } from '../lib/cn';
 import type { BlockTypeOption } from '../lib/blocks';
 
 export interface SlashMenuProps {
@@ -47,7 +48,7 @@ export function SlashMenu({
 
   return (
     <div
-      className={`slash${placeAbove ? ' slash--above' : ''}`}
+      className={cn('slash', placeAbove && 'slash--above')}
       id="slash-menu"
       data-testid="slash-menu"
       ref={rootRef}
@@ -67,7 +68,7 @@ export function SlashMenu({
                 id={`slash-option-${option.type}`}
                 role="option"
                 aria-selected={index === highlightedIndex}
-                className={`slash__item${index === highlightedIndex ? ' slash__item--active' : ''}`}
+                className={cn('slash__item', index === highlightedIndex && 'slash__item--active')}
                 data-testid="slash-menu-item"
                 data-block-type={option.type}
                 // The pointer down is what picks: a click after blur would have closed the menu.

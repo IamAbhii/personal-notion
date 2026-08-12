@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { cn } from '../../lib/cn';
 
 /**
  * The server rejects a longer title, so the limit is enforced where the user types rather than
@@ -9,7 +10,14 @@ export const MAX_TITLE_LENGTH = 500;
 export interface InlineTitleInputProps {
   value: string;
   ariaLabel: string;
+  /** Applied to the <input> element; callers supply their own field styling. */
   className?: string;
+  /**
+   * Controls the wrapper display mode. 'inline' (default) makes the wrapper a flex child so it
+   * fills a sidebar row. 'block' makes it display:block for the page header, which also repositions
+   * the refusal hint to the left edge.
+   */
+  layout?: 'inline' | 'block';
   onCommit: (value: string) => void;
   onCancel: () => void;
 }
@@ -22,6 +30,7 @@ export function InlineTitleInput({
   value,
   ariaLabel,
   className,
+  layout = 'inline',
   onCommit,
   onCancel,
 }: InlineTitleInputProps) {
@@ -58,7 +67,9 @@ export function InlineTitleInput({
   };
 
   return (
-    <span className="inline-edit">
+    <span
+      className={cn('relative min-w-0', layout === 'block' ? '[display:block]' : 'flex flex-1')}
+    >
       <input
         ref={inputRef}
         className={className}
@@ -84,7 +95,16 @@ export function InlineTitleInput({
         autoFocus
       />
       {isRefused ? (
-        <span className="inline-edit__hint" role="alert">
+        <span
+          className={cn(
+            // Anchored below the input, opaque danger pill. Uses font-sans explicitly because
+            // <span> inside an emoji-font parent would otherwise inherit the emoji face.
+            'absolute top-[calc(100%+4px)] z-10 w-max rounded-sm bg-danger px-2 py-1 font-sans text-xs leading-[1.35] font-[650] text-white',
+            // Block layout: anchor to the left edge and widen so long messages fit without truncation.
+            layout === 'block' ? 'left-0 max-w-[320px]' : 'right-0 max-w-[150px]',
+          )}
+          role="alert"
+        >
           A page needs a name, so the old one was kept.
         </span>
       ) : null}

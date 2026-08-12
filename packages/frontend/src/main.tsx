@@ -6,6 +6,9 @@ import { createAppRouter } from './router';
 import { watchForUnload } from './sync/ops';
 import './styles/theme.css';
 import './styles/app.css';
+// Temporary: legacy component rules kept here while Part 2 migrates each component to co-located
+// CSS Modules. This import is removed when legacy.css is empty.
+import './styles/legacy.css';
 
 // Entry point. One QueryClient for the app, handed to the router as context so route loaders and
 // components share the same cache.

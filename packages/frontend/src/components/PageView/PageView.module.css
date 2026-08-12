@@ -1,0 +1,10 @@
+@reference '../../styles/app.css';
+
+/* The .icon button has a compound hover box-shadow combining --shadow-panel (a CSS variable) with
+   an amber focus ring; Tailwind has no utility for layering multiple shadow values, and using
+   var(--amber) from the theme avoids the raw hex that was here before. */
+.icon:hover {
+  box-shadow:
+    var(--shadow-panel),
+    0 0 0 3px color-mix(in srgb, var(--amber) 25%, transparent);
+}

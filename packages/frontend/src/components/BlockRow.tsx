@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { SlashMenu } from './SlashMenu';
-import { DragHandleIcon, TrashIcon } from './icons';
+import { GripVertical, Trash2 } from 'lucide-react';
+import { cn } from '../lib/cn';
 import {
   DEFAULT_CALLOUT_EMOJI,
   DEFAULT_CODE_LANGUAGE,
@@ -227,7 +228,7 @@ export function BlockRow({
   return (
     <div
       ref={setNodeRef}
-      className={`block block--${block.type}${isDragging ? ' block--dragging' : ''}`}
+      className={cn(`block block--${block.type}`, isDragging && 'block--dragging')}
       data-block-id={block.id}
       data-block-type={block.type}
       style={{ transform: CSS.Translate.toString(transform), transition }}
@@ -242,7 +243,7 @@ export function BlockRow({
           {...attributes}
           {...listeners}
         >
-          <DragHandleIcon />
+          <GripVertical size={16} aria-hidden />
         </button>
         <button
           type="button"
@@ -251,7 +252,7 @@ export function BlockRow({
           aria-label={`Delete the ${blockTypeLabel(block.type).toLowerCase()} block`}
           onClick={onDelete}
         >
-          <TrashIcon />
+          <Trash2 size={14} aria-hidden />
         </button>
       </div>
 
@@ -275,7 +276,7 @@ export function BlockRow({
             <li className="block__list-item">{editor}</li>
           </ol>
         ) : block.type === 'todo' ? (
-          <div className={`block__todo${block.checked ? ' block__todo--done' : ''}`}>
+          <div className={cn('block__todo', block.checked && 'block__todo--done')}>
             <input
               type="checkbox"
               className="block__checkbox"

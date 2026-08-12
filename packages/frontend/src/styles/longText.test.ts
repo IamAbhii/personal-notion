@@ -1,43 +1,67 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
+// DEF-008 regression guard: a 500-character title must still wrap in the page header and
+// ellipsise in the breadcrumb after the Tailwind utility migration (no more CSS rules to assert).
+//
+// This version renders the component and checks that the required utility classes are present on
+// the elements - overflow-wrap:anywhere on the heading and button (prevents horizontal overflow
+// for a spaceless title), text-ellipsis + max-w on the breadcrumb label (clips without widening
+// the fixed-height top bar), and flex-nowrap + overflow-hidden on the breadcrumb container.
+//
+// We use React.createElement so the file stays .ts rather than requiring a .tsx rename.
 
-// A 500-character title is layout, not markup: nothing in the DOM says whether it wraps. The tests
-// run with CSS off, so the rules that bound it are asserted against the stylesheet itself (DEF-008).
+import React from 'react';
+import { describe, expect, it, vi } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import { PageView } from '../components/PageView/PageView';
+import { makePage } from '../test/fixtures';
 
-// The suite is run both from the package and from the repo root, and import.meta.url is not a file
-// URL under Vite, so the stylesheet is found by trying both relative paths.
-const candidates = ['src/styles/app.css', 'packages/frontend/src/styles/app.css'].map((path) =>
-  resolve(process.cwd(), path),
-);
-const css = readFileSync(
-  candidates.find((path) => existsSync(path))!,
-  'utf8',
-);
+const longTitle = 'L'.repeat(500);
+const longPage = makePage({ id: 'p-long', title: longTitle });
 
-/** The declarations inside one rule, so a property is not matched from a neighbouring block. */
-function ruleBody(selector: string): string {
-  const match = new RegExp(`\\${selector}\\s*\\{([^}]*)\\}`).exec(css);
-  expect(match, `no rule for ${selector}`).not.toBeNull();
-  return match![1]!;
+function renderLongTitle() {
+  render(
+    React.createElement(PageView, {
+      page: longPage,
+      breadcrumb: [longPage],
+      childCount: 0,
+      onSelectPage: vi.fn(),
+      onRename: vi.fn(),
+      onChangeIcon: vi.fn(),
+    }),
+  );
 }
 
-describe('a very long title', () => {
+describe('a very long title (DEF-008)', () => {
   it('wraps in the page header, including a title with no spaces to break at', () => {
-    // 500 characters at 42px is around 14,000px on one line; the column is 860px and does not scroll.
-    expect(ruleBody('.page__title')).toMatch(/overflow-wrap:\s*anywhere/);
-    expect(ruleBody('.page__title-button')).toMatch(/overflow-wrap:\s*anywhere/);
-    // The button is inline by default, which would let it exceed the column it sits in.
-    expect(ruleBody('.page__title-button')).toMatch(/max-width:\s*100%/);
+    renderLongTitle();
+
+    // The h1 carries overflow-wrap:anywhere so a spaceless 500-char title cannot run off screen.
+    const h1 = screen.getByTestId('page-title');
+    expect(h1).toHaveAttribute('class', expect.stringContaining('[overflow-wrap:anywhere]'));
+
+    // The title button inherits the h1 typography; max-w-full stops it exceeding the column.
+    const titleButton = screen.getByRole('button', { name: /Rename/ });
+    expect(titleButton).toHaveAttribute(
+      'class',
+      expect.stringContaining('[overflow-wrap:anywhere]'),
+    );
+    expect(titleButton).toHaveAttribute('class', expect.stringContaining('max-w-full'));
   });
 
   it('is clipped in the breadcrumb rather than widening the top bar', () => {
-    expect(ruleBody('.breadcrumb__label')).toMatch(/text-overflow:\s*ellipsis/);
-    expect(ruleBody('.breadcrumb__label')).toMatch(/max-width:/);
+    renderLongTitle();
+
+    // The label element is a separate inline span so clipping does not push the icon out of view.
+    const label = screen.getByTestId('breadcrumb-label');
+    expect(label).toHaveAttribute('class', expect.stringContaining('text-ellipsis'));
+    expect(label).toHaveAttribute('class', expect.stringMatching(/max-w-/));
   });
 
   it('cannot make the breadcrumb wrap out of the fixed-height top bar', () => {
-    expect(ruleBody('.breadcrumb')).toMatch(/flex-wrap:\s*nowrap/);
-    expect(ruleBody('.breadcrumb')).toMatch(/overflow:\s*hidden/);
+    renderLongTitle();
+
+    const breadcrumb = screen.getByRole('navigation', { name: 'Breadcrumb' });
+    // flex-nowrap prevents the trail from wrapping; overflow-hidden clips excess crumbs.
+    expect(breadcrumb).toHaveAttribute('class', expect.stringContaining('flex-nowrap'));
+    expect(breadcrumb).toHaveAttribute('class', expect.stringContaining('overflow-hidden'));
   });
 });
