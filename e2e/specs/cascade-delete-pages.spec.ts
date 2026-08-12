@@ -7,130 +7,103 @@ test.describe('Cascade delete pages with nested pages and blocks', () => {
   });
 
   test('deleting a page with nested pages removes nested content and blocks', async ({ page }) => {
-    // Navigate to the app
     await page.goto('/');
     await page.waitForLoadState('networkidle');
 
-    // Look for a page with sub-pages in the sidebar (seeded pages should have this)
     const sidebar = page.locator('[data-testid="sidebar"]');
 
-    // Find a page that has nested pages
-    let parentPageId;
-    let nestedPageId;
-    const allRows = sidebar.locator('[data-page-id]');
-    const rowCount = await allRows.count();
+    // Create the parent page so the test owns its fixture rather than hunting the seed.
+    // Capture the URL first so we can wait for it to CHANGE — waitForURL resolves immediately
+    // when the pattern already matches the current URL (DEF-001 lesson).
+    const urlBeforeParent = page.url();
+    const addPageButton = page.getByRole('button', { name: 'Add a top-level page' });
+    await addPageButton.click();
+    await page.waitForFunction(
+      (before) => window.location.href !== before && /\/page\/[^/]+/.test(window.location.href),
+      urlBeforeParent,
+    );
+    await page.waitForLoadState('networkidle');
 
-    // Look through the seeded pages for one with nested content
-    for (let i = 0; i < rowCount; i++) {
-      const row = allRows.nth(i);
-      const pageId = await row.getAttribute('data-page-id');
-      if (pageId) {
-        // Check if this row has an expand button
-        const expandButton = row.locator('[data-testid="page-expand"]');
-        if ((await expandButton.count()) > 0 && (await expandButton.isVisible())) {
-          parentPageId = pageId;
+    const parentPageIdMatch = page.url().match(/\/page\/([^/]+)/);
+    expect(parentPageIdMatch).toBeTruthy();
+    const parentPageId = parentPageIdMatch![1];
 
-          // Find the first nested page (next row with greater indentation)
-          const parentElement = await row.boundingBox();
-          for (let j = i + 1; j < rowCount; j++) {
-            const childRow = allRows.nth(j);
-            const childId = await childRow.getAttribute('data-page-id');
-            const childElement = await childRow.boundingBox();
+    // The parent row must be visible in the sidebar.
+    const parentRow = sidebar.locator(`[data-page-id="${parentPageId}"]`);
+    await expect(parentRow).toBeVisible();
 
-            if (childId && childElement && parentElement) {
-              // If this row is indented more than parent, it's a child
-              if (childElement.x > parentElement.x) {
-                nestedPageId = childId;
-                break;
-              } else {
-                // Stop looking if we hit a sibling
-                break;
-              }
-            }
-          }
-          break;
-        }
-      }
+    // Create a child page inside the parent using the add-child button.
+    // The button lives inside the hover-reveal actions container (pointer-events-none until hover),
+    // so hover the row first — same technique used in delete-page.spec.ts.
+    const urlBeforeChild = page.url();
+    const addChildButton = parentRow.locator('[data-testid="page-add-child"]');
+    await parentRow.hover();
+    await addChildButton.click();
+
+    // Wait until the URL actually changes to the child page URL.
+    await page.waitForFunction(
+      (before) => window.location.href !== before && /\/page\/[^/]+/.test(window.location.href),
+      urlBeforeChild,
+    );
+    await page.waitForLoadState('networkidle');
+
+    const nestedPageIdMatch = page.url().match(/\/page\/([^/]+)/);
+    expect(nestedPageIdMatch).toBeTruthy();
+    const nestedPageId = nestedPageIdMatch![1];
+
+    // The child page must be a different page from the parent.
+    expect(nestedPageId).not.toBe(parentPageId);
+
+    // Both pages must be visible in the sidebar before the deletion.
+    await expect(sidebar.locator(`[data-page-id="${parentPageId}"]`)).toBeVisible();
+    await expect(sidebar.locator(`[data-page-id="${nestedPageId}"]`)).toBeVisible();
+
+    // We are already on the child page after clicking add-child — verify the block editor.
+    const blockEditor = page.locator('[data-testid="block-editor"]');
+    await expect(blockEditor).toBeVisible();
+    expect(page.url()).toContain(nestedPageId);
+
+    // Delete the parent from here — no need to navigate to it first.
+    // The cascade removes the parent and all its children.
+    // Hover the parent row to make the action buttons interactive, then delete unconditionally.
+    const parentRowFinal = sidebar.locator(`[data-page-id="${parentPageId}"]`);
+    await parentRowFinal.hover();
+    const deleteButton = parentRowFinal.locator('[data-testid="page-delete"]');
+    await deleteButton.click();
+    await page.waitForTimeout(300);
+
+    // Confirm the deletion dialog if one appears.
+    const confirmButton = page.getByRole('button', { name: /confirm|delete|yes/i }).first();
+    if (await confirmButton.isVisible()) {
+      await confirmButton.click();
     }
 
-    // If we found a page with nested content, test the deletion
-    if (parentPageId && nestedPageId) {
-      // Navigate to the nested page to see its blocks
-      const nestedRow = sidebar.locator(`[data-page-id="${nestedPageId}"]`);
-      const nestedTitle = nestedRow.locator('[data-testid="page-row-title"]');
-      await nestedTitle.click();
-      await page.waitForLoadState('networkidle');
-      await page.waitForTimeout(300);
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(300);
 
-      // Verify the nested page has blocks (or at least a page body)
-      const blockEditor = page.locator('[data-testid="block-editor"]');
-      await expect(blockEditor).toBeVisible();
+    // Both the parent and the nested child must have disappeared from the sidebar.
+    await expect(sidebar.locator(`[data-page-id="${parentPageId}"]`)).not.toBeVisible();
+    await expect(sidebar.locator(`[data-page-id="${nestedPageId}"]`)).not.toBeVisible();
 
-      // Store the nested page's ID so we can verify it's gone
-      const nestedPageUrl = page.url();
-      expect(nestedPageUrl).toContain(nestedPageId);
-
-      // Navigate back to parent
-      const parentRow = sidebar.locator(`[data-page-id="${parentPageId}"]`);
-      const parentTitle = parentRow.locator('[data-testid="page-row-title"]');
-      await parentTitle.click();
-      await page.waitForLoadState('networkidle');
-      await page.waitForTimeout(300);
-
-      // Delete the parent page
-      const deleteButton = parentRow.locator('[data-testid="page-delete"]');
-      if (await deleteButton.isVisible()) {
-        await deleteButton.click();
-        await page.waitForTimeout(500);
-
-        // Confirm deletion
-        const confirmButton = page.getByRole('button', { name: /confirm|delete|yes/i }).first();
-        if (await confirmButton.isVisible()) {
-          await confirmButton.click();
-          await page.waitForTimeout(500);
-        }
-
-        await page.waitForLoadState('networkidle');
-        await page.waitForTimeout(500);
-
-        // Verify the parent page is gone from sidebar
-        const parentPageInSidebar = sidebar.locator(`[data-page-id="${parentPageId}"]`);
-        await expect(parentPageInSidebar).not.toBeVisible();
-
-        // Verify the nested page is also gone from sidebar
-        const nestedPageInSidebar = sidebar.locator(`[data-page-id="${nestedPageId}"]`);
-        await expect(nestedPageInSidebar).not.toBeVisible();
-
-        // Verify we cannot navigate to the nested page URL (it should redirect)
-        // The current page should have changed away from the nested page
-        const currentUrl = page.url();
-        expect(currentUrl).not.toContain(nestedPageId);
-      }
-    }
+    // The URL must no longer reference either deleted page.
+    expect(page.url()).not.toContain(nestedPageId);
   });
 
   test('creating and deleting a page verifies cascade behavior', async ({ page }) => {
-    // Navigate to the app
     await page.goto('/');
     await page.waitForLoadState('networkidle');
 
-    // Use an existing test that we know works: delete-page.spec.ts demonstrates this
-    // So we'll just verify that the cascade delete works by using the API reset endpoint
-    // which validates the cascade behavior internally
-
-    // For now, just verify the page deletion flow by checking the sidebar updates
     const sidebar = page.locator('[data-testid="sidebar"]');
     const initialPageCount = await sidebar.locator('[data-page-id]').count();
 
-    // The initial sidebar should have pages
+    // The initial sidebar should have pages (seeded).
     expect(initialPageCount).toBeGreaterThan(0);
 
-    // The cascade delete is already tested in delete-page.spec.ts for Phase 1
-    // This test just confirms the sidebar structure remains valid
+    // Verify sidebar structure remains consistent across a reload.
     await page.reload();
     await page.waitForLoadState('networkidle');
 
     const afterReloadPageCount = await sidebar.locator('[data-page-id]').count();
-    expect(afterReloadPageCount).toBeGreaterThanOrEqual(0);
+    expect(afterReloadPageCount).toBe(initialPageCount);
   });
 });

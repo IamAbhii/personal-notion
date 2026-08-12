@@ -57,9 +57,12 @@ test('rename a page from sidebar and verify name updates in both sidebar and pag
   // Rename the page in the sidebar - use data-page-id to target the correct row (within sidebar only)
   const sidebarRow = page.locator(`[data-testid="sidebar"] [data-page-id="${pageId}"]`);
   await expect(sidebarRow).toBeVisible();
-  // Target the rename action button via its stable data-testid
+  // Target the rename action button via its stable data-testid.
+  // The desktop actions container is pointer-events-none until the row is hovered;
+  // hover the row first so the buttons become pointer-interactive.
   const sidebarRenameButton = sidebarRow.locator('[data-testid="page-rename"]').first();
   await expect(sidebarRenameButton).toBeVisible();
+  await sidebarRow.hover();
   await sidebarRenameButton.click();
 
   // Get the rename input - it appears in the sidebar row after clicking the rename button
