@@ -48,6 +48,14 @@
   --row-hover-solid: #211f27;
   --row-current-solid: #2d2512;
 
+  /* Text on amber: amber (#ecad0a) is bright enough that it needs dark text in both themes;
+     this token decouples that intent from the raw hex so components never hardcode a color. */
+  --text-on-amber: #1a1920;
+  /* Soft danger: the hover tint on destructive row actions, lighter than --danger to avoid alarm. */
+  --danger-soft: #f08a84;
+  /* Toast warning surface: opaque dark-amber background for write-failure toast notifications. */
+  --toast-warning-surface: #3a2410;
+
   /* Editor surfaces: a code block and a callout are tinted panels, so each theme needs its own
      opaque values rather than one alpha over an unknown background. */
   --code-surface: #f1efe9;
@@ -73,6 +81,11 @@
   --panel-border: rgba(255, 255, 255, 0.07);
   --row-hover-solid: #17161d;
   --row-current-solid: #241d0f;
+
+  /* Dark theme keeps the same semantic intent; amber is still bright so dark text is correct. */
+  --text-on-amber: #1a1920;
+  --danger-soft: #f08a84;
+  --toast-warning-surface: #3a2410;
 
   --code-surface: #121118;
   --code-border: #2c2b37;

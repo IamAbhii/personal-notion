@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react';
+import { Dialog } from './ui/Dialog/Dialog';
+import { Button } from './ui/Button/Button';
 
 export interface ConfirmDialogProps {
   title: string;
@@ -12,6 +13,10 @@ export interface ConfirmDialogProps {
 /**
  * A modal confirmation. Destructive actions route through this so nothing irreversible - deleting a
  * page and everything nested inside it - happens on a single click.
+ *
+ * Radix Dialog handles focus trap, focus return, scroll lock, Escape and overlay click, so no
+ * hand-rolled keydown listener or stopPropagation is needed here. `autoFocus` on the confirm button
+ * directs Radix's focus-scope to land on it when the dialog opens.
  */
 export function ConfirmDialog({
   title,
@@ -20,49 +25,32 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
-  const confirmRef = useRef<HTMLButtonElement>(null);
-
-  // Focus the confirm button and let Escape cancel, so the dialog is usable from the keyboard.
-  useEffect(() => {
-    confirmRef.current?.focus();
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onCancel();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [onCancel]);
-
   return (
-    <div className="overlay" onMouseDown={onCancel}>
-      <div
-        className="dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="confirm-dialog-title"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <h2 className="dialog__title" id="confirm-dialog-title">
-          {title}
-        </h2>
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        // Radix calls this with false on Escape or overlay click; forward to the parent's handler.
+        if (!open) onCancel();
+      }}
+      title={title}
+      description={
         <div className="dialog__body">
           {lines.map((line) => (
             <p key={line}>{line}</p>
           ))}
         </div>
-        <div className="dialog__actions">
-          <button type="button" className="button button--ghost" onClick={onCancel}>
+      }
+      footer={
+        <>
+          <Button variant="ghost" onClick={onCancel}>
             Cancel
-          </button>
-          <button
-            type="button"
-            className="button button--danger"
-            ref={confirmRef}
-            onClick={onConfirm}
-          >
+          </Button>
+          {/* autoFocus directs Radix's focus-scope to land here when the dialog opens. */}
+          <Button variant="danger" autoFocus onClick={onConfirm}>
             {confirmLabel}
-          </button>
-        </div>
-      </div>
-    </div>
+          </Button>
+        </>
+      }
+    />
   );
 }

@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
-import { EmojiPickerPopover } from './EmojiPickerPopover';
-import { InlineTitleInput } from './InlineTitleInput';
-import { collapseBreadcrumb } from '../lib/treeLayout';
-import type { PageRecord } from '../api/types';
+import { EmojiPickerPopover } from '../EmojiPickerPopover';
+import { InlineTitleInput } from '../InlineTitleInput/InlineTitleInput';
+import { collapseBreadcrumb } from '../../lib/treeLayout';
+import { cn } from '../../lib/cn';
+import type { PageRecord } from '../../api/types';
+import styles from './PageView.module.css';
 
 export interface PageViewProps {
   page: PageRecord;
@@ -37,20 +39,28 @@ export function PageView({
     <>
       {/* A sticky bar so the trail to the current page survives scrolling.
           Future: the sync status indicator (synced / N pending / offline) lands on its right. */}
-      <div className="topbar">
+      <div className="sticky top-0 z-5 flex h-13 items-center justify-between gap-4 border-b border-border bg-canvas/97 px-4 backdrop-blur sm:px-7">
         {/* The chain is collapsed rather than rendered whole: pages nest to any depth, and a 26-deep
             trail otherwise wraps to several lines and pushes itself out of the fixed-height bar. */}
-        <nav className="breadcrumb" aria-label="Breadcrumb">
+        <nav
+          className="flex min-h-5 min-w-0 flex-nowrap items-center gap-1 overflow-hidden text-xs text-text-muted"
+          aria-label="Breadcrumb"
+        >
           {collapseBreadcrumb(breadcrumb).map((item, index) => (
-            <span className="breadcrumb__item" key={item.kind === 'page' ? item.page.id : 'gap'}>
+            <span
+              className="inline-flex min-w-0 items-center gap-1 last:flex-[0_1_auto]"
+              data-testid="breadcrumb-item"
+              key={item.kind === 'page' ? item.page.id : 'gap'}
+            >
               {index > 0 ? (
-                <span className="breadcrumb__sep" aria-hidden="true">
+                <span className="text-border" aria-hidden="true">
                   /
                 </span>
               ) : null}
               {item.kind === 'gap' ? (
                 <span
-                  className="breadcrumb__gap"
+                  className="px-0.5 font-bold tracking-[0.05em] text-text-muted"
+                  data-testid="breadcrumb-gap"
                   title={`${item.hidden.length} pages between: ${item.hidden.map((crumb) => crumb.title).join(' / ')}`}
                 >
                   ...
@@ -58,17 +68,23 @@ export function PageView({
               ) : (
                 <button
                   type="button"
-                  className="breadcrumb__link"
+                  className="inline-flex min-w-0 cursor-pointer items-center gap-1.5 rounded-sm border-0 bg-transparent px-1.5 py-0.5 text-text-muted hover:bg-surface hover:text-blue aria-[current=page]:font-semibold aria-[current=page]:text-text"
+                  data-testid="breadcrumb-link"
                   aria-current={item.page.id === page.id ? 'page' : undefined}
                   title={item.page.title}
                   onClick={() => onSelectPage(item.page.id)}
                 >
-                  <span className="breadcrumb__icon" aria-hidden="true">
+                  <span className="font-emoji text-[13px] leading-none" aria-hidden="true">
                     {item.page.icon}
                   </span>
                   {/* A long title is truncated here rather than in the button, so the icon stays
                       visible instead of being pushed out by the text. */}
-                  <span className="breadcrumb__label">{item.page.title}</span>
+                  <span
+                    className="inline-block max-w-[22ch] overflow-hidden align-bottom text-ellipsis whitespace-nowrap"
+                    data-testid="breadcrumb-label"
+                  >
+                    {item.page.title}
+                  </span>
                 </button>
               )}
             </span>
@@ -76,14 +92,20 @@ export function PageView({
         </nav>
       </div>
 
-      <main className="page">
+      <main className="mx-auto max-w-[860px] px-4 pt-6 pb-24 sm:px-8 sm:pt-8 md:px-14">
         {/* data-page-id here lets a test assert which page the main area is showing without
             parsing the URL. Same convention as the sidebar rows. */}
-        <header className="page__header" data-page-id={page.id}>
-          <div className="page__icon-wrap">
+        <header className="mt-2.5" data-testid="page-header" data-page-id={page.id}>
+          <div className="relative inline-block">
+            {/* Icon button: visually 76px so it naturally exceeds the 48px touch minimum. The
+                hover transform + compound shadow are in the module CSS because Tailwind cannot
+                compose two shadow layers into a single shadow property. */}
             <button
               type="button"
-              className="page__icon"
+              className={cn(
+                'grid size-[76px] cursor-pointer place-items-center rounded-lg border border-border bg-surface font-emoji text-[44px] leading-none shadow-panel transition-[transform,box-shadow] duration-[120ms] ease-in-out hover:-translate-y-px motion-reduce:transition-none',
+                styles.icon,
+              )}
               aria-label={`Change the icon for ${page.title}`}
               onClick={() => setPickingIcon(true)}
             >
@@ -101,7 +123,10 @@ export function PageView({
             <InlineTitleInput
               value={page.title}
               ariaLabel={`New name for ${page.title}`}
-              className="page__title-input"
+              // Heading-sized input: inherits the same font stack and responsive sizes as the h1,
+              // with a blue underline to signal edit mode. [overflow-wrap:anywhere] matches the h1.
+              className="mt-4.5 w-full border-0 border-b-2 border-blue bg-transparent pb-0.5 font-sans text-[28px] leading-[1.1] font-[750] tracking-tight [overflow-wrap:anywhere] text-text focus:outline-none sm:text-4xl md:text-[42px]"
+              layout="block"
               onCommit={(title) => {
                 setEditingTitle(false);
                 onRename(title);
@@ -109,10 +134,16 @@ export function PageView({
               onCancel={() => setEditingTitle(false)}
             />
           ) : (
-            <h1 className="page__title">
+            // A title has no length limit worth relying on, so it wraps - including mid-word for
+            // a title with no spaces (overflow-wrap:anywhere). The h1 carries the overflow-wrap
+            // and word-break so the button inherits them via [font:inherit].
+            <h1
+              className="mt-4.5 text-[28px] leading-[1.1] font-[750] tracking-tight [overflow-wrap:anywhere] break-words sm:text-4xl md:text-[42px]"
+              data-testid="page-title"
+            >
               <button
                 type="button"
-                className="page__title-button"
+                className="[display:block] max-w-full cursor-text border-0 bg-transparent p-0 text-left tracking-[inherit] [overflow-wrap:anywhere] break-words [font:inherit]"
                 aria-label={`Rename ${page.title}`}
                 onClick={() => setEditingTitle(true)}
               >
@@ -121,13 +152,13 @@ export function PageView({
             </h1>
           )}
 
-          <p className="page__meta">
+          <p className="mt-3.5 flex items-center gap-2 text-xs text-text-muted">
             {/* A leaf page says nothing about nesting rather than saying "0 nested pages". */}
             {childCount > 0 ? (
               <>
-                <span className="dot dot--amber" aria-hidden="true" />
+                <span className="inline-block size-2 rounded-full bg-amber" aria-hidden="true" />
                 {childCount === 1 ? '1 nested page' : `${childCount} nested pages`}
-                <span className="page__meta-sep" aria-hidden="true">
+                <span className="text-border" aria-hidden="true">
                   &middot;
                 </span>
               </>

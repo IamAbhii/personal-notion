@@ -1,5 +1,5 @@
 import { useParams } from '@tanstack/react-router';
-import { PageView } from '../components/PageView';
+import { PageView } from '../components/PageView/PageView';
 import { BlockEditor } from '../components/BlockEditor';
 import { useWorkspace } from '../workspace/context';
 import { ancestorChain, childrenOf } from '../lib/pageTree';
@@ -14,7 +14,7 @@ export function PageScreen() {
   if (!page) {
     // Reachable by a stale deep link or a page deleted on another device.
     return (
-      <main className="page">
+      <main className="mx-auto max-w-[860px] px-4 py-8 pb-24 sm:px-14">
         <section className="placeholder">
           <p className="placeholder__eyebrow">Not found</p>
           <p className="placeholder__lead">This page no longer exists.</p>

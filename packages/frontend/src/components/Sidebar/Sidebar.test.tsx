@@ -1,8 +1,17 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Sidebar, type SidebarProps } from './Sidebar';
-import { fixturePages, makePage } from '../test/fixtures';
+import { fixturePages, makePage } from '../../test/fixtures';
+import { useUiStore } from '../../stores/uiStore';
+
+// Reset the UI store between tests so collapse state and drawer state do not leak across specs.
+beforeEach(() => {
+  useUiStore.setState({
+    isSidebarOpen: false,
+    collapsedPageIds: new Set(),
+  });
+});
 
 function renderSidebar(overrides: Partial<SidebarProps> = {}) {
   const props: SidebarProps = {
@@ -33,8 +42,12 @@ describe('Sidebar tree', () => {
     }
 
     // Lisbon sits two levels deep, so its row is indented further than its grandparent's.
-    const lisbon = screen.getByRole('button', { name: 'Lisbon' }).closest('.row');
-    const journal = screen.getByRole('button', { name: 'Journal' }).closest('.row');
+    const lisbon = screen
+      .getByRole('button', { name: 'Lisbon' })
+      .closest('[data-testid="page-row"]');
+    const journal = screen
+      .getByRole('button', { name: 'Journal' })
+      .closest('[data-testid="page-row"]');
     expect(lisbon?.getAttribute('style')).toContain('36px');
     expect(journal?.getAttribute('style')).toContain('8px');
   });
@@ -50,8 +63,12 @@ describe('Sidebar tree', () => {
     );
     renderSidebar({ pages: deep, currentPageId: 'p-23' });
 
-    const deepest = screen.getByRole('button', { name: 'Level 23' }).closest('.row');
-    const capped = screen.getByRole('button', { name: 'Level 10' }).closest('.row');
+    const deepest = screen
+      .getByRole('button', { name: 'Level 23' })
+      .closest('[data-testid="page-row"]');
+    const capped = screen
+      .getByRole('button', { name: 'Level 10' })
+      .closest('[data-testid="page-row"]');
 
     expect(deepest?.getAttribute('style')).toBe(capped?.getAttribute('style'));
     const indent = Number(
@@ -73,7 +90,9 @@ describe('Sidebar tree', () => {
     renderSidebar();
 
     // Lisbon is two levels deep: the attribute must carry its own id, not an ancestor's.
-    const lisbonRow = screen.getByRole('button', { name: 'Lisbon' }).closest('.row');
+    const lisbonRow = screen
+      .getByRole('button', { name: 'Lisbon' })
+      .closest('[data-testid="page-row"]');
     expect(lisbonRow).toHaveAttribute('data-page-id', 'p-lisbon');
 
     // The row's action buttons must be inside the tagged element, so a spec can scope to it.
@@ -85,12 +104,19 @@ describe('Sidebar tree', () => {
     }
   });
 
-  it('marks the current page', () => {
+  it('marks the current page using data-current="true" on the row', () => {
     renderSidebar({ currentPageId: 'p-trips' });
 
-    expect(screen.getByRole('button', { name: 'Trips' }).closest('.row')).toHaveClass(
-      'row--current',
-    );
+    // State is signalled via data-current so tests do not couple to CSS module class names,
+    // which are hashed at build time and undefined when css: false is set in vite.config.ts.
+    const row = screen.getByRole('button', { name: 'Trips' }).closest('[data-testid="page-row"]');
+    expect(row).toHaveAttribute('data-current', 'true');
+
+    // The previously-current page should not be marked.
+    const journalRow = screen
+      .getByRole('button', { name: 'Journal' })
+      .closest('[data-testid="page-row"]');
+    expect(journalRow).toHaveAttribute('data-current', 'false');
   });
 
   it('collapses and expands a subtree', async () => {
@@ -253,5 +279,111 @@ describe('Sidebar actions', () => {
     await user.click(screen.getByRole('button', { name: 'Lisbon' }));
 
     expect(props.onSelectPage).toHaveBeenCalledWith('p-lisbon');
+  });
+
+  it('calls onClose when a page is selected, so the mobile drawer closes', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    renderSidebar({ onClose });
+
+    await user.click(screen.getByRole('button', { name: 'Lisbon' }));
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Sidebar mobile overflow menu', () => {
+  it('renders an overflow trigger for each page row', () => {
+    renderSidebar();
+
+    // Each page gets its own Actions-for trigger button.
+    for (const page of fixturePages) {
+      expect(screen.getByRole('button', { name: `Actions for ${page.title}` })).toBeInTheDocument();
+    }
+  });
+
+  it('opens the overflow menu showing Rename, Add a page inside, and Delete', async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+
+    await user.click(screen.getByRole('button', { name: 'Actions for Trips' }));
+
+    expect(screen.getByRole('menuitem', { name: /Rename/ })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /Add a page inside/ })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /Delete/ })).toBeInTheDocument();
+  });
+
+  it('overflow menu Rename opens the rename input for the correct page', async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+
+    await user.click(screen.getByRole('button', { name: 'Actions for Trips' }));
+    await user.click(screen.getByRole('menuitem', { name: /Rename/ }));
+
+    // findByLabelText waits for the async re-render after the menu item click.
+    expect(await screen.findByLabelText('New name for Trips')).toBeInTheDocument();
+  });
+
+  it('overflow menu Add a page inside calls onCreatePage with the page id', async () => {
+    const user = userEvent.setup();
+    const props = renderSidebar();
+
+    await user.click(screen.getByRole('button', { name: 'Actions for Trips' }));
+    await user.click(screen.getByRole('menuitem', { name: /Add a page inside/ }));
+
+    expect(props.onCreatePage).toHaveBeenCalledWith('p-trips');
+  });
+
+  it('overflow menu Delete opens the confirm dialog for the correct page', async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+
+    await user.click(screen.getByRole('button', { name: 'Actions for Journal' }));
+    await user.click(screen.getByRole('menuitem', { name: /Delete/ }));
+
+    // findByRole waits for the dialog to mount after the menu item click.
+    expect(await screen.findByRole('dialog')).toHaveTextContent('Delete "Journal"?');
+  });
+
+  it('overflow menu items carry the same testids as the desktop buttons', async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+
+    await user.click(screen.getByRole('button', { name: 'Actions for Reading list' }));
+
+    // Items should have the same data-testid values as the desktop row buttons.
+    const renameItems = screen.getAllByTestId('page-rename');
+    const addChildItems = screen.getAllByTestId('page-add-child');
+    const deleteItems = screen.getAllByTestId('page-delete');
+
+    // Each page row has a desktop button; the open menu adds one more for this page.
+    expect(renameItems.length).toBeGreaterThan(fixturePages.length);
+    expect(addChildItems.length).toBeGreaterThan(fixturePages.length);
+    expect(deleteItems.length).toBeGreaterThan(fixturePages.length);
+  });
+});
+
+describe('Sidebar drawer (mobile)', () => {
+  it('calls onClose when Escape is pressed inside the sidebar', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    renderSidebar({ onClose });
+
+    // Focus the sidebar panel itself to fire a keydown on it.
+    const sidebar = screen.getByTestId('sidebar');
+    sidebar.focus();
+    await user.keyboard('{Escape}');
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not blow up when Escape is pressed and no onClose is provided', async () => {
+    const user = userEvent.setup();
+    renderSidebar(); // no onClose prop
+
+    const sidebar = screen.getByTestId('sidebar');
+    sidebar.focus();
+    // Should not throw.
+    await user.keyboard('{Escape}');
   });
 });

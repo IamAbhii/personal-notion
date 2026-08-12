@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { PageView } from './PageView';
-import { fixturePages, makePage } from '../test/fixtures';
-import { ancestorChain } from '../lib/pageTree';
+import { fixturePages, makePage } from '../../test/fixtures';
+import { ancestorChain } from '../../lib/pageTree';
 
 const lisbon = fixturePages.find((page) => page.id === 'p-lisbon')!;
 
@@ -39,7 +39,7 @@ describe('PageView', () => {
   it('tags the header with the page id, so a spec need not parse the URL', () => {
     renderPageView();
 
-    const header = screen.getByRole('heading', { level: 1 }).closest('.page__header');
+    const header = screen.getByTestId('page-header');
     expect(header).toHaveAttribute('data-page-id', 'p-lisbon');
   });
 
@@ -115,12 +115,9 @@ describe('PageView', () => {
     );
 
     // The label is a separate element so it can be clipped without pushing the icon out of the button.
-    const label = screen.getByLabelText('Breadcrumb').querySelector('.breadcrumb__label');
+    const label = screen.getByTestId('breadcrumb-label');
     expect(label).toHaveTextContent(longTitle);
-    expect(screen.getByLabelText('Breadcrumb').querySelector('.breadcrumb__link')).toHaveAttribute(
-      'title',
-      longTitle,
-    );
+    expect(screen.getByTestId('breadcrumb-link')).toHaveAttribute('title', longTitle);
   });
 
   it('collapses a deep breadcrumb to a bounded row of crumbs (DEF-009)', () => {
@@ -142,11 +139,11 @@ describe('PageView', () => {
       />,
     );
 
-    const crumbs = screen.getByLabelText('Breadcrumb').querySelectorAll('.breadcrumb__item');
+    const crumbs = screen.getAllByTestId('breadcrumb-item');
     expect(crumbs).toHaveLength(4);
     // The current page is what tells the user where they are, so it is never the crumb dropped.
     expect(screen.getByLabelText('Breadcrumb')).toHaveTextContent('Level 25');
-    expect(screen.getByLabelText('Breadcrumb').querySelector('.breadcrumb__gap')).toHaveAttribute(
+    expect(screen.getByTestId('breadcrumb-gap')).toHaveAttribute(
       'title',
       expect.stringContaining('23 pages between'),
     );
