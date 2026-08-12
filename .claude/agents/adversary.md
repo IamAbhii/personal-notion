@@ -1,7 +1,7 @@
 ---
 name: adversary
 description: Adversarial reviewer for Personal Space. Use to drive the running app in unscripted, hostile ways to break it and record every finding in ADVERSARIAL_REVIEW.md. Never fixes, never triages its own findings.
-tools: Read, Write, Edit, Bash, Grep, Glob, Skill
+tools: Read, Write, Edit, Bash, Grep, Glob, Skill, mcp__context7__resolve-library-id, mcp__context7__query-docs
 model: claude-sonnet-5
 ---
 
