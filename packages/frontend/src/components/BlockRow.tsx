@@ -277,6 +277,8 @@ export function BlockRow({
       )}
       data-block-id={block.id}
       data-block-type={block.type}
+      // data-dragging is the stable hook for e2e drag tests; styling classes are not a contract.
+      data-dragging={isDragging ? 'true' : 'false'}
       style={{ transform: CSS.Translate.toString(transform), transition }}
     >
       {/*
