@@ -24,6 +24,11 @@ export interface EmojiPickerPopoverProps {
 export function EmojiPickerPopover({ onPick, onClose }: EmojiPickerPopoverProps) {
   // Match the picker's own chrome to the app theme, which is set on <html> before first paint.
   const isDark = document.documentElement.dataset.theme === 'dark';
+  // Cap the picker at the viewport width minus 16px of edge padding (8px each side) so it stays
+  // fully usable at 320px. The third-party EmojiPicker renders at a fixed width set by its `width`
+  // prop; constraining from the outside (max-w on the popover) clips it without making it
+  // scrollable, so we size the picker itself to fit rather than fighting its internals.
+  const pickerWidth = Math.min(340, window.innerWidth - 16);
 
   return (
     <RadixPopover.Root
@@ -44,17 +49,19 @@ export function EmojiPickerPopover({ onPick, onClose }: EmojiPickerPopoverProps)
           align="start"
           // 8px away from viewport edges keeps the picker on screen at 320px.
           collisionPadding={8}
-          // Width is capped so the 340px picker does not overflow narrow viewports.
-          className="max-w-[calc(100vw-1rem)] overflow-hidden rounded-md bg-surface shadow-[var(--shadow-pop)]"
+          className="overflow-hidden rounded-md bg-surface shadow-[var(--shadow-pop)]"
           role="dialog"
           aria-label="Choose a page icon"
           onInteractOutside={onClose}
         >
-          {/* w-[340px] h-[400px] must match the EmojiPicker's own width/height props exactly so the
-              fallback placeholder holds the same space as the loaded picker. */}
+          {/* The fallback div matches the picker's width/height so the placeholder holds the same
+              space as the loaded picker and avoids a layout shift on load. */}
           <Suspense
             fallback={
-              <div className="grid h-[400px] w-[340px] place-items-center bg-surface text-sm text-text-muted">
+              <div
+                className="grid h-[400px] place-items-center bg-surface text-sm text-text-muted"
+                style={{ width: pickerWidth }}
+              >
                 Loading emoji...
               </div>
             }
@@ -64,7 +71,7 @@ export function EmojiPickerPopover({ onPick, onClose }: EmojiPickerPopoverProps)
               // so the picker stays code-split.
               theme={(isDark ? 'dark' : 'light') as Theme}
               lazyLoadEmojis
-              width={340}
+              width={pickerWidth}
               height={400}
               onEmojiClick={(data: EmojiClickData) => {
                 onPick(data.emoji);

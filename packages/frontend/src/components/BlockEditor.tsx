@@ -55,7 +55,18 @@ export function BlockEditor({
   const sensors = useSensors(
     // A few pixels of movement before a drag starts, so clicking into a block's text still works.
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+    // scrollBehavior: 'auto' makes the viewport scroll instantaneously rather than smoothly during
+    // a keyboard drag; instant scroll means the DOM is in its final position before the next
+    // keydown fires, giving the coordinate getter an accurate layout to read.
+    // Future: at OS auto-repeat rate (~40ms), rapid ArrowDown presses during keyboard drag still
+    // drop moves because React has not flushed the previous position update before the next keydown
+    // fires and the coordinateGetter reads stale droppable positions. A complete fix requires either
+    // `flushSync` around dnd-kit's drag-state dispatch or batching key moves inside the sensor
+    // itself — both are upstream changes in @dnd-kit/core's KeyboardSensor.
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+      scrollBehavior: 'auto',
+    }),
   );
 
   const registerEditor = (blockId: string, element: HTMLTextAreaElement | null) => {
