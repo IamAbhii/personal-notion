@@ -29,9 +29,12 @@ export interface DropdownMenuItemProps extends RadixItemProps {
 }
 
 // Fully static variant class map so Tailwind's scanner can always find them; no interpolation.
+// The menu panel renders on bg-surface (white in light theme, dark gray in dark), so text tokens
+// must be surface-appropriate rather than panel-appropriate. text-text is readable on surface in
+// both themes; text-danger-fg is a theme-switching token (dark red in light, soft red in dark).
 const itemVariantClasses: Record<NonNullable<DropdownMenuItemProps['variant']>, string> = {
-  default: 'text-panel-text data-[highlighted]:bg-panel-hover',
-  danger: 'text-danger-soft data-[highlighted]:bg-danger/15',
+  default: 'text-text data-[highlighted]:bg-surface-hover',
+  danger: 'text-danger-fg data-[highlighted]:bg-danger/10',
 };
 
 /**

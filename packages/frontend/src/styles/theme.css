@@ -56,6 +56,16 @@
   /* Toast warning surface: opaque dark-amber background for write-failure toast notifications. */
   --toast-warning-surface: #3a2410;
 
+  /* Accessible foreground versions of brand accent colors for use on --surface (white in light
+     theme). The vibrant brand values fail WCAG AA 4.5:1 on white, so light theme needs darker
+     shades. Components that render on a surface background (cards, popups) use these tokens rather
+     than the raw brand palette values. */
+  --amber-fg: #7d5f00; /* ~6:1 on white, passes AA */
+  --blue-fg: #0d6b99; /* ~5.9:1 on white, passes AA */
+  --danger-fg: var(--danger); /* #cf3b34 = ~4.8:1 on white, passes AA */
+  /* Subtle hover tint for items rendered on a surface background (popup menus, cards). */
+  --surface-hover: rgba(0, 0, 0, 0.06);
+
   /* Editor surfaces: a code block and a callout are tinted panels, so each theme needs its own
      opaque values rather than one alpha over an unknown background. */
   --code-surface: #f1efe9;
@@ -86,6 +96,15 @@
   --text-on-amber: #1a1920;
   --danger-soft: #f08a84;
   --toast-warning-surface: #3a2410;
+
+  /* On a dark surface the existing vivid brand palette values pass contrast checks without
+     adjustment. The fg tokens map to them so components using --amber-fg / --blue-fg / --danger-fg
+     automatically get the right shade for each theme. */
+  --amber-fg: var(--amber); /* #ecad0a, 8.87:1 on dark surface */
+  --blue-fg: var(--blue); /* #209dd7, 5.77:1 on dark surface */
+  --danger-fg: var(--danger-soft); /* #f08a84, 7.56:1 on dark surface */
+  /* Hover tint for items on a dark surface background. */
+  --surface-hover: rgba(255, 255, 255, 0.08);
 
   --code-surface: #121118;
   --code-border: #2c2b37;

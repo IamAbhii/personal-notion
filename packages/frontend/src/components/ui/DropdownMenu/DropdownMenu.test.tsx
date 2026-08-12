@@ -99,4 +99,18 @@ describe('DropdownMenu', () => {
     const item = screen.getByRole('menuitem', { name: 'Item' });
     expect(item.closest('.test-class')).toBeInTheDocument();
   });
+
+  it('uses surface-appropriate text tokens so items are legible in both light and dark themes', async () => {
+    // text-text (not text-panel-text) is the correct token on bg-surface: in light theme
+    // text-panel-text (#eae8ee) produces 1.22:1 on white — effectively invisible (DEF-026).
+    const user = userEvent.setup();
+    renderMenu();
+    await user.click(screen.getByRole('button', { name: 'Open menu' }));
+
+    const rename = screen.getByRole('menuitem', { name: 'Rename' });
+    const deleteItem = screen.getByRole('menuitem', { name: 'Delete' });
+
+    expect(rename.className).toContain('text-text');
+    expect(deleteItem.className).toContain('text-danger-fg');
+  });
 });

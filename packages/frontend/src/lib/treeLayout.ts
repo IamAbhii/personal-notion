@@ -4,10 +4,16 @@ import type { PageRecord } from '../api/types';
 // Pages nest to any depth, so both indentation and the breadcrumb have to degrade rather than grow
 // until the title is squeezed to nothing. Kept pure so the limits are unit tested without a DOM.
 
-const INDENT_STEP = 14;
+const INDENT_STEP = 12;
 const ROW_INDENT_BASE = 8;
-/** Past this depth every row shares one indent, which keeps a readable title at any depth. */
-export const MAX_INDENT_DEPTH = 6;
+/**
+ * Past this depth every row shares one indent. The cap is set so that at the narrowest supported
+ * viewport (320px) the sidebar drawer (272px = 85vw) leaves at least 66px for the row title after
+ * accounting for disclosure (48px), icon (20px), mobile action button (48px), gaps (12px), and
+ * padding-right (6px). Maximum indent = 8 + 3*12 = 44px; title space = 272−28−44−134 = 66px.
+ * Future: if the sidebar layout changes (icon size, action button size), recalculate this constant.
+ */
+export const MAX_INDENT_DEPTH = 3;
 
 /**
  * The left padding of a sidebar row at `depth`, capped so a deeply nested row still has room for its

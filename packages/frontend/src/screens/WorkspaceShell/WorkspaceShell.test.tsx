@@ -65,6 +65,11 @@ vi.mock('sonner', () => ({
   Toaster: () => null,
 }));
 
+vi.mock('../../hooks/useIsMobile', () => ({
+  // Treat the test environment as mobile so inert behaviour is exercised.
+  useIsMobile: vi.fn(() => true),
+}));
+
 beforeEach(() => {
   // Reset the UI store so each test starts with a closed drawer.
   useUiStore.setState({ isSidebarOpen: false, collapsedPageIds: new Set() });
@@ -79,6 +84,31 @@ beforeEach(() => {
 });
 
 describe('WorkspaceShell mobile drawer', () => {
+  it('marks the drawer inert when closed so off-canvas elements are not reachable by keyboard', () => {
+    // DEF-028: a closed off-canvas drawer must be genuinely inert, not just visually translated
+    // away. The `inert` attribute removes all descendants from the tab order and pointer events.
+    render(<WorkspaceShell />);
+
+    // useIsMobile is mocked to true above so the inert gate is active.
+    // Sidebar is closed initially (isSidebarOpen=false in beforeEach).
+    const drawerPanel = screen.getByTestId('sidebar').closest('[inert]');
+    expect(drawerPanel).not.toBeNull();
+  });
+
+  it('removes inert from the drawer panel when the sidebar is opened', async () => {
+    const user = userEvent.setup();
+    render(<WorkspaceShell />);
+
+    // Verify inert is set while closed.
+    expect(screen.getByTestId('sidebar').closest('[inert]')).not.toBeNull();
+
+    // Open the drawer.
+    await user.click(screen.getByRole('button', { name: 'Open navigation' }));
+
+    // After opening, the drawer panel must not carry inert — all elements are now reachable.
+    expect(screen.getByTestId('sidebar').closest('[inert]')).toBeNull();
+  });
+
   it('opens from the hamburger toggle, closes on Escape, and returns focus to the toggle', async () => {
     const user = userEvent.setup();
     render(<WorkspaceShell />);

@@ -41,6 +41,14 @@
   --color-danger-soft: var(--danger-soft);
   --color-toast-warning-surface: var(--toast-warning-surface);
 
+  /* Accessible foreground accent colors for text on --surface backgrounds (cards, popovers).
+     These swap to darker shades in light theme where the vibrant brand palette fails WCAG AA. */
+  --color-amber-fg: var(--amber-fg);
+  --color-blue-fg: var(--blue-fg);
+  --color-danger-fg: var(--danger-fg);
+  /* Hover tint for interactive items rendered on a surface background. */
+  --color-surface-hover: var(--surface-hover);
+
   /* Brand palette (fixed across both themes) */
   --color-amber: var(--amber);
   --color-amber-soft: var(--amber-soft);

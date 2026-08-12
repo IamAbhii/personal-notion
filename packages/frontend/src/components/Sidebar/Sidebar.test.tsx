@@ -41,19 +41,23 @@ describe('Sidebar tree', () => {
       expect(screen.getByText(page.icon)).toBeInTheDocument();
     }
 
-    // Lisbon sits two levels deep, so its row is indented further than its grandparent's.
+    // Lisbon sits two levels deep (indent = base 8 + 2*step 12 = 32px), Journal at the root
+    // (depth 0) gets only the base indent (8px). The step changed from 14→12 to keep the title
+    // readable at 320px (DEF-030).
     const lisbon = screen
       .getByRole('button', { name: 'Lisbon' })
       .closest('[data-testid="page-row"]');
     const journal = screen
       .getByRole('button', { name: 'Journal' })
       .closest('[data-testid="page-row"]');
-    expect(lisbon?.getAttribute('style')).toContain('36px');
+    expect(lisbon?.getAttribute('style')).toContain('32px');
     expect(journal?.getAttribute('style')).toContain('8px');
   });
 
-  it('caps the indent of a very deep chain so the row keeps its title and icon (DEF-009)', () => {
+  it('caps the indent of a very deep chain so the row keeps its title and icon (DEF-009, DEF-030)', () => {
     // 24 levels: a per-level indent with no cap leaves a row of this depth with no room for text.
+    // The cap now kicks in at depth 3 (MAX_INDENT_DEPTH=3, max indent = 8 + 3*12 = 44px) to keep
+    // the title readable even at the 320px minimum viewport.
     const deep = Array.from({ length: 24 }, (_unused, index) =>
       makePage({
         id: `p-${index}`,
@@ -66,6 +70,7 @@ describe('Sidebar tree', () => {
     const deepest = screen
       .getByRole('button', { name: 'Level 23' })
       .closest('[data-testid="page-row"]');
+    // Level 10 is beyond the cap, so it has the same indent as Level 23.
     const capped = screen
       .getByRole('button', { name: 'Level 10' })
       .closest('[data-testid="page-row"]');
@@ -74,8 +79,8 @@ describe('Sidebar tree', () => {
     const indent = Number(
       /padding-left:\s*(\d+)px/.exec(deepest?.getAttribute('style') ?? '')?.[1],
     );
-    // The sidebar tree is 271px wide, so the indent has to leave the title most of it.
-    expect(indent).toBeLessThan(140);
+    // The capped indent must leave room for a readable title at 320px: max should be <= 50px.
+    expect(indent).toBeLessThanOrEqual(50);
   });
 
   it('renders siblings in sortKey order', () => {
