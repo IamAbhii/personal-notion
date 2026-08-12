@@ -1,17 +1,26 @@
+import type { ReactNode } from 'react';
 import { describeLoadFailure } from '../lib/errors';
+import { StatusCard } from '../components/ui/StatusCard/StatusCard';
+import { Button } from '../components/ui/Button/Button';
 
 // Full-window states that sit outside a workspace: loading, failure, and a signed-in user with no
 // workspace to open.
 
+/** Wrapper that centers a StatusCard in the full viewport. Reused by all three status screens. */
+function StatusScreenLayout({ children }: { children: ReactNode }) {
+  return <div className="grid h-full place-items-center bg-canvas px-4">{children}</div>;
+}
+
 /** Shown while the first read of /api/me and the snapshot is in flight. */
 export function AppLoading() {
   return (
-    <div className="status">
-      <div className="status__card">
-        <p className="status__eyebrow">Personal Space</p>
-        <p className="status__lead">Loading your workspace...</p>
-      </div>
-    </div>
+    <StatusScreenLayout>
+      <StatusCard
+        className="w-[min(420px,calc(100vw-2rem))]"
+        eyebrow="Personal Space"
+        lead="Loading your workspace..."
+      />
+    </StatusScreenLayout>
   );
 }
 
@@ -22,19 +31,19 @@ export function AppLoading() {
 export function AppError({ error }: { error: unknown }) {
   const { title, detail } = describeLoadFailure(error);
   return (
-    <div className="status">
-      <div className="status__card">
-        <p className="status__eyebrow status__eyebrow--error">{title}</p>
-        <p className="status__lead">{detail}</p>
-        <button
-          type="button"
-          className="button button--primary"
-          onClick={() => window.location.reload()}
-        >
+    <StatusScreenLayout>
+      <StatusCard
+        className="w-[min(420px,calc(100vw-2rem))]"
+        eyebrowIntent="error"
+        eyebrow={title}
+        lead={detail}
+      >
+        {/* mt-4.5 matches the original .status__card .button { margin-top: 18px } rule. */}
+        <Button className="mt-4.5" onClick={() => window.location.reload()}>
           Try again
-        </button>
-      </div>
-    </div>
+        </Button>
+      </StatusCard>
+    </StatusScreenLayout>
   );
 }
 
@@ -44,16 +53,17 @@ export function AppError({ error }: { error: unknown }) {
  */
 export function NoWorkspace() {
   return (
-    <div className="status">
-      <div className="status__card">
-        <p className="status__eyebrow">Personal Space</p>
-        <p className="status__lead">You do not belong to a workspace yet.</p>
-        <p className="status__note">
-          {/* Future: a workspace picker and a create-workspace flow land here when one account can
-              hold several workspaces. */}
-          Ask for an invitation, or seed a workspace for this account.
-        </p>
-      </div>
-    </div>
+    <StatusScreenLayout>
+      <StatusCard
+        className="w-[min(420px,calc(100vw-2rem))]"
+        eyebrow="Personal Space"
+        lead="You do not belong to a workspace yet."
+        note={
+          /* Future: a workspace picker and a create-workspace flow land here when one account can
+             hold several workspaces. */
+          'Ask for an invitation, or seed a workspace for this account.'
+        }
+      />
+    </StatusScreenLayout>
   );
 }

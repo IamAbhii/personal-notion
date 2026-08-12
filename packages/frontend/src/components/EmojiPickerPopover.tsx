@@ -34,7 +34,7 @@ export function EmojiPickerPopover({ onPick, onClose }: EmojiPickerPopoverProps)
       }}
     >
       {/*
-        A zero-size anchor inside the page__icon-wrap positions the popover next to the icon button.
+        A zero-size anchor inside the page icon wrap positions the popover next to the icon button.
         This component is rendered as a sibling to that button, so the anchor sits at the same
         origin and Radix's collision avoidance handles viewport edges.
       */}
@@ -45,12 +45,20 @@ export function EmojiPickerPopover({ onPick, onClose }: EmojiPickerPopoverProps)
           // 8px away from viewport edges keeps the picker on screen at 320px.
           collisionPadding={8}
           // Width is capped so the 340px picker does not overflow narrow viewports.
-          className="max-w-[calc(100vw-1rem)] overflow-hidden rounded-[var(--radius-md)] bg-surface shadow-[var(--shadow-pop)]"
+          className="max-w-[calc(100vw-1rem)] overflow-hidden rounded-md bg-surface shadow-[var(--shadow-pop)]"
           role="dialog"
           aria-label="Choose a page icon"
           onInteractOutside={onClose}
         >
-          <Suspense fallback={<div className="popover__loading">Loading emoji...</div>}>
+          {/* w-[340px] h-[400px] must match the EmojiPicker's own width/height props exactly so the
+              fallback placeholder holds the same space as the loaded picker. */}
+          <Suspense
+            fallback={
+              <div className="grid h-[400px] w-[340px] place-items-center bg-surface text-sm text-text-muted">
+                Loading emoji...
+              </div>
+            }
+          >
             <EmojiPicker
               // The Theme enum is a value export; casting the literal keeps the import type-only
               // so the picker stays code-split.
