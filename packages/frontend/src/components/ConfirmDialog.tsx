@@ -33,13 +33,14 @@ export function ConfirmDialog({
         if (!open) onCancel();
       }}
       title={title}
-      description={
-        <div className="dialog__body">
-          {lines.map((line) => (
-            <p key={line}>{line}</p>
-          ))}
-        </div>
-      }
+      description={lines.map((line) => (
+        // first:mt-0 removes the top margin from the first paragraph since the Dialog's description
+        // wrapper already provides spacing below the title. mt-2.5 matches the original
+        // .dialog__body p { margin: 10px 0 0 } rule.
+        <p key={line} className="m-0 mt-2.5 text-sm leading-relaxed text-text-muted first:mt-0">
+          {line}
+        </p>
+      ))}
       footer={
         <>
           <Button variant="ghost" onClick={onCancel}>

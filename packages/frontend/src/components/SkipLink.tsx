@@ -8,12 +8,12 @@ export interface SkipLinkProps {
  * The first focusable thing in the app: a link that jumps focus past the sidebar to the page body.
  * The sidebar's page tree is five controls per row, so a keyboard user otherwise walks the whole
  * workspace - over a hundred Tab presses on the seeded tree - before reaching the editor. Hidden
- * off screen until focused, so it costs a pointer user nothing.
+ * off screen until focused via -translate-y-[200%], so it costs a pointer user nothing.
  */
 export function SkipLink({ targetId, children }: SkipLinkProps) {
   return (
     <a
-      className="skip-link"
+      className="absolute top-2 left-2 z-[100] -translate-y-[200%] rounded-sm bg-amber px-3.5 py-2 text-sm font-bold text-text-on-amber no-underline focus-visible:translate-y-0"
       href={`#${targetId}`}
       onClick={(event) => {
         // Focus is moved by hand rather than left to the fragment: the router owns the URL, and a
