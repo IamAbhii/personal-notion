@@ -16,6 +16,7 @@ import {
 import { useAutosavedText } from '../hooks/useAutosavedText';
 import type { BlockRecord, BlockType } from '../api/types';
 import type { BlockTypeOption } from '../lib/blocks';
+import styles from './BlockRow.module.css';
 
 export interface BlockRowProps {
   block: BlockRecord;
@@ -42,6 +43,43 @@ function placeholderFor(type: BlockType): string {
   if (type === 'code') return 'Code';
   return `${blockTypeLabel(type)}...`;
 }
+
+/**
+ * Base textarea classes shared by every block type. The textarea is one element regardless of
+ * type so the caret, Enter and Backspace behave identically everywhere.
+ */
+const TEXTAREA_BASE =
+  'block w-full border-0 bg-transparent text-text py-0.5 m-0 font-sans text-base leading-relaxed resize-none overflow-hidden focus:outline-none placeholder:text-text-muted/75';
+
+/**
+ * Additional textarea classes per block type. These are static strings resolved by lookup rather
+ * than by string interpolation, so Tailwind can see every class at scan time. Divider has no
+ * textarea and is included only to satisfy the complete Record type.
+ */
+const textareaTypeClasses: Record<BlockType, string> = {
+  paragraph: '',
+  heading1: 'text-3xl font-[750] leading-tight tracking-tight',
+  heading2: 'text-2xl font-bold leading-snug tracking-tight',
+  heading3: 'text-lg font-bold leading-snug',
+  bulletedList: '',
+  numberedList: '',
+  todo: '',
+  quote: 'italic',
+  // font-mono, whitespace-pre and text-code-text are code-specific; they cannot be on the base.
+  code: 'font-mono text-sm leading-relaxed text-code-text whitespace-pre',
+  callout: '',
+  divider: '',
+};
+
+/**
+ * Extra padding-top for the block body on heading types, where the design adds visual breathing
+ * room above the heading level. Resolved by lookup so Tailwind scans all classes statically.
+ */
+const bodyTopPaddingClasses: Partial<Record<BlockType, string>> = {
+  heading1: 'pt-4.5',
+  heading2: 'pt-3.5',
+  heading3: 'pt-3.5',
+};
 
 /**
  * One block: its drag handle and delete action in the gutter, and its type-specific body. Every
@@ -206,7 +244,11 @@ export function BlockRow({
   const editor = (
     <textarea
       ref={attachEditor}
-      className={`block__text block__text--${block.type}`}
+      className={cn(
+        TEXTAREA_BASE,
+        textareaTypeClasses[block.type],
+        block.type === 'todo' && block.checked && 'text-text-muted line-through',
+      )}
       value={value}
       rows={1}
       spellCheck
@@ -228,16 +270,32 @@ export function BlockRow({
   return (
     <div
       ref={setNodeRef}
-      className={cn(`block block--${block.type}`, isDragging && 'block--dragging')}
+      className={cn(
+        // `group` enables group-hover: on the gutter so handles appear when any part of the block is hovered.
+        'group relative grid grid-cols-[46px_minmax(0,1fr)] items-start',
+        isDragging && 'z-10 rounded-sm border border-border bg-surface shadow-pop',
+      )}
       data-block-id={block.id}
       data-block-type={block.type}
       style={{ transform: CSS.Translate.toString(transform), transition }}
     >
-      <div className="block__gutter">
+      {/*
+        Gutter: drag handle + delete action, hidden until the block is hovered or focused.
+        On touch devices (hover: none) the gutter is always visible since there is no hover.
+      */}
+      <div
+        className={cn(
+          'flex justify-end gap-0.5 pt-1 pr-2',
+          'opacity-0 transition-opacity duration-100 ease-in-out',
+          'group-focus-within:opacity-100 group-hover:opacity-100',
+          // Without pointer-hover there is no way to reveal gutter controls, so always show them.
+          '[@media(hover:none)]:opacity-100',
+        )}
+      >
         <button
           type="button"
           ref={setActivatorNodeRef}
-          className="block__handle"
+          className="grid h-6 w-5.5 flex-none cursor-grab place-items-center rounded-sm border-0 bg-transparent p-0 text-text-muted hover:bg-surface hover:text-text hover:ring-1 hover:ring-border hover:ring-inset"
           data-testid="block-drag-handle"
           aria-label={`Move the ${blockTypeLabel(block.type).toLowerCase()} block`}
           {...attributes}
@@ -247,7 +305,7 @@ export function BlockRow({
         </button>
         <button
           type="button"
-          className="block__remove"
+          className="grid h-6 w-5.5 flex-none cursor-pointer place-items-center rounded-sm border-0 bg-transparent p-0 text-text-muted hover:bg-danger/14 hover:text-danger"
           data-testid="block-delete"
           aria-label={`Delete the ${blockTypeLabel(block.type).toLowerCase()} block`}
           onClick={onDelete}
@@ -256,30 +314,40 @@ export function BlockRow({
         </button>
       </div>
 
-      <div className="block__body">
+      {/* Body: the type-specific wrapper around the shared textarea (or hr for divider). */}
+      <div className={cn('min-w-0 py-0.5', bodyTopPaddingClasses[block.type])}>
         {block.type === 'divider' ? (
-          <hr className="block__divider" aria-label="Divider block" />
+          <hr className="my-3 h-px border-0 bg-border" aria-label="Divider block" />
         ) : block.type === 'heading1' ? (
-          <h1 className="block__heading block__heading--1">{editor}</h1>
+          // m-0 and tracking-tight match the original heading wrapper styles; the textarea itself
+          // also sets tracking-tight, overriding inheritance for fine-grained control.
+          <h1 className="m-0 tracking-tight">{editor}</h1>
         ) : block.type === 'heading2' ? (
-          <h2 className="block__heading block__heading--2">{editor}</h2>
+          <h2 className="m-0 tracking-tight">{editor}</h2>
         ) : block.type === 'heading3' ? (
-          <h3 className="block__heading block__heading--3">{editor}</h3>
+          <h3 className="m-0 tracking-tight">{editor}</h3>
         ) : block.type === 'bulletedList' ? (
-          <ul className="block__list block__list--bulleted">
-            <li className="block__list-item">{editor}</li>
+          // list-disc restores the marker that Tailwind preflight removes from all ul/ol/menu elements.
+          <ul className="m-0 list-disc pl-5.5">
+            <li className={styles.bulletedMarker}>{editor}</li>
           </ul>
         ) : block.type === 'numberedList' ? (
           // A one-item <ol start> per block: the browser draws the marker, and `start` is what makes
           // a run number 1, 2, 3 while a run broken by a paragraph starts again at 1.
-          <ol className="block__list block__list--numbered" start={listNumber}>
-            <li className="block__list-item">{editor}</li>
+          // list-decimal restores the marker that Tailwind preflight removes.
+          <ol className="m-0 list-decimal pl-5.5" start={listNumber}>
+            <li className={styles.numberedMarker}>{editor}</li>
           </ol>
         ) : block.type === 'todo' ? (
-          <div className={cn('block__todo', block.checked && 'block__todo--done')}>
+          // data-done is used by the unit test to check the done state without a class dependency.
+          <div
+            className="flex items-start gap-2.5"
+            data-testid="block-todo"
+            data-done={block.checked ? 'true' : 'false'}
+          >
             <input
               type="checkbox"
-              className="block__checkbox"
+              className="mt-2 size-4 flex-none cursor-pointer accent-blue"
               checked={block.checked}
               // The accessible name is the to-do's own text, which is what a screen reader and a
               // test both need to tell two checkboxes apart.
@@ -289,15 +357,27 @@ export function BlockRow({
             {editor}
           </div>
         ) : block.type === 'quote' ? (
-          <blockquote className="block__quote">{editor}</blockquote>
+          // border-l-4 snaps from the original 3px; pl-4 snaps from 15px — both within one scale step.
+          <blockquote className="m-0 border-l-4 border-purple pl-4">{editor}</blockquote>
         ) : block.type === 'code' ? (
-          <div className="block__code">
-            <span className="block__code-lang">{props.language ?? DEFAULT_CODE_LANGUAGE}</span>
+          <div className="rounded-md border border-code-border bg-code-surface px-3.5 pt-2.5 pb-3">
+            {/* data-testid used by unit tests to verify the language label without a class selector */}
+            <span
+              className="mb-1 block font-mono text-xs font-bold tracking-[0.1em] text-text-muted uppercase"
+              data-testid="block-code-lang"
+            >
+              {props.language ?? DEFAULT_CODE_LANGUAGE}
+            </span>
             {editor}
           </div>
         ) : block.type === 'callout' ? (
-          <aside className="block__callout">
-            <span className="block__callout-emoji" aria-hidden="true">
+          <aside className="flex items-start gap-3 rounded-md border border-callout-border bg-callout-surface px-3.5 py-3">
+            {/* data-testid used by unit tests to verify the emoji without a class selector */}
+            <span
+              className="flex-none font-emoji text-base leading-normal"
+              aria-hidden="true"
+              data-testid="block-callout-emoji"
+            >
               {props.emoji ?? DEFAULT_CALLOUT_EMOJI}
             </span>
             {editor}

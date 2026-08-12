@@ -130,6 +130,10 @@ describe('the eleven block types', () => {
     // The list markers are drawn by real list elements rather than typed into the text.
     expect(document.querySelector('[data-block-id="bul"] ul li')).toBeInTheDocument();
     expect(document.querySelector('[data-block-id="num"] ol li')).toBeInTheDocument();
+    // Tailwind preflight sets list-style:none on all ul/ol; list-disc/list-decimal must be
+    // explicit or the browser draws no marker at all.
+    expect(document.querySelector('[data-block-id="bul"] ul')).toHaveClass('list-disc');
+    expect(document.querySelector('[data-block-id="num"] ol')).toHaveClass('list-decimal');
     // A to-do is a working checkbox named by its own text.
     expect(screen.getByRole('checkbox', { name: 'Pack' })).toBeInTheDocument();
     expect(document.querySelector('[data-block-id="quote"] blockquote')).toBeInTheDocument();
@@ -137,11 +141,13 @@ describe('the eleven block types', () => {
     expect(document.querySelector('[data-block-id="div"] hr')).toBeInTheDocument();
     expect(document.querySelector('[data-block-id="div"] textarea')).toBeNull();
     // Code shows the language it is in; a callout shows its emoji.
-    expect(document.querySelector('[data-block-id="code"] .block__code-lang')).toHaveTextContent(
-      'typescript',
-    );
+    // data-testid selectors are used rather than class names because the migration replaced
+    // legacy class names with Tailwind utilities.
     expect(
-      document.querySelector('[data-block-id="call"] .block__callout-emoji'),
+      document.querySelector('[data-block-id="code"] [data-testid="block-code-lang"]'),
+    ).toHaveTextContent('typescript');
+    expect(
+      document.querySelector('[data-block-id="call"] [data-testid="block-callout-emoji"]'),
     ).toHaveTextContent('\u{1F525}');
     expect(document.querySelector('[data-block-id="para"] textarea')).toHaveValue('Plain');
   });
@@ -165,11 +171,11 @@ describe('the eleven block types', () => {
       makeBlock({ id: 'call', pageId: 'p-1', type: 'callout', text: 'Note', sortKey: 'a1' }),
     ]);
 
-    expect(document.querySelector('[data-block-id="code"] .block__code-lang')).toHaveTextContent(
-      'plain text',
-    );
     expect(
-      document.querySelector('[data-block-id="call"] .block__callout-emoji'),
+      document.querySelector('[data-block-id="code"] [data-testid="block-code-lang"]'),
+    ).toHaveTextContent('plain text');
+    expect(
+      document.querySelector('[data-block-id="call"] [data-testid="block-callout-emoji"]'),
     ).toHaveTextContent('\u{1F4A1}');
   });
 });
@@ -199,7 +205,9 @@ describe('the to-do checkbox', () => {
       }),
     ]);
 
-    expect(document.querySelector('[data-block-id="b-1"] .block__todo--done')).toBeInTheDocument();
+    // data-done is used rather than a class name because the migration replaced legacy class names
+    // with a data attribute on the todo wrapper.
+    expect(document.querySelector('[data-block-id="b-1"] [data-done="true"]')).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Pack' })).toBeChecked();
   });
 });

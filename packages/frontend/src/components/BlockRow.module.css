@@ -1,0 +1,13 @@
+@reference "../styles/app.css";
+
+/* ::marker has no Tailwind utility; these override marker color, size and weight per list type */
+.bulletedMarker::marker {
+  color: var(--amber);
+  font-size: 17px;
+}
+
+.numberedMarker::marker {
+  color: var(--blue);
+  font-weight: 700;
+  font-size: 14px;
+}

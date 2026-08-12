@@ -38,7 +38,7 @@ interface FocusRequest {
 
 /**
  * The page body: a vertical stack of editable blocks with drag-to-reorder. It owns what spans more
- * than one block - inserting, deleting, moving focus between blocks and the drop-to-sortKey maths -
+ * than one block — inserting, deleting, moving focus between blocks and the drop-to-sortKey maths —
  * while each BlockRow owns its own text, autosave and slash menu.
  */
 export function BlockEditor({
@@ -107,7 +107,7 @@ export function BlockEditor({
   const announcements = buildDragAnnouncements(blocks);
 
   return (
-    <section className="block-editor" data-testid="block-editor" aria-label="Page body">
+    <section className="mt-7 flex flex-col" data-testid="block-editor" aria-label="Page body">
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
@@ -141,18 +141,24 @@ export function BlockEditor({
       </DndContext>
 
       {blocks.length === 0 ? (
-        <button type="button" className="block-editor__empty" onClick={() => addBlock(null)}>
-          <span className="block-editor__empty-lead">This page is empty</span>
-          <span className="block-editor__empty-note">
+        // Empty page: a dashed placeholder the user clicks to add the first block.
+        <button
+          type="button"
+          className="mt-1.5 flex w-full cursor-text flex-col items-start gap-2 rounded-lg border border-dashed border-border bg-surface-sunken px-6.5 pt-6 pb-6.5 text-left hover:border-amber"
+          onClick={() => addBlock(null)}
+        >
+          <span className="text-base font-[650]">This page is empty</span>
+          <span className="max-w-[54ch] text-sm leading-relaxed text-text-muted">
             Click here to start writing, then type &quot;/&quot; for headings, lists, to-dos,
             quotes, code and callouts.
           </span>
         </button>
       ) : (
         // A click below the last block appends one, which is how a page grows without a toolbar.
+        // Tall enough that the last block can still scroll up far enough to show its slash menu.
         <button
           type="button"
-          className="block-editor__tail"
+          className="block h-45 w-full cursor-text border-0 bg-transparent"
           aria-label="Add a block at the end of the page"
           onClick={() => addBlock(blocks[blocks.length - 1]?.id ?? null)}
         />
