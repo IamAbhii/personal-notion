@@ -44,31 +44,18 @@ test.describe('DEF-014: Large paste truncation and feedback', () => {
     }
 
     console.log('Large text typed');
+
+    // The paste-clamp notice must be visible immediately after the clamping fires. Assert before
+    // the reload because the 2 s auto-dismiss lifetime means the notice will be gone by then.
+    // Without the fix (no notice) this assertion times out and fails.
+    const notice = page.locator('[data-testid="notice"]');
+    await expect(notice).toBeVisible({ timeout: 1000 });
+    console.log('Paste-clamp notice is visible — truncation feedback confirmed.');
+
     await page.waitForTimeout(500);
 
     // Wait for autosave
     await page.waitForTimeout(800);
-
-    // Check if there's a notice about truncation
-    const notices = page.locator('[role="alert"], [data-testid="notice"]');
-    let noticeFound = false;
-    const noticeCount = await notices.count();
-    console.log(`Found ${noticeCount} notices`);
-
-    for (let i = 0; i < noticeCount; i++) {
-      const noticeText = await notices.nth(i).textContent();
-      console.log(`Notice ${i}: "${noticeText}"`);
-      if (
-        noticeText &&
-        (noticeText.includes('truncat') ||
-          noticeText.includes('too long') ||
-          noticeText.includes('dropped'))
-      ) {
-        noticeFound = true;
-      }
-    }
-
-    console.log(`Notice found: ${noticeFound}`);
 
     // Reload and check the stored length
     await page.reload();
@@ -84,16 +71,8 @@ test.describe('DEF-014: Large paste truncation and feedback', () => {
     // Should be at most 10000 characters (exactly 10000 if truncated)
     expect(text?.length).toBeLessThanOrEqual(10000);
 
-    // If exactly 10000, that confirms truncation is working
     if (text?.length === 10000) {
-      console.log('Truncation works: stored exactly 10000 characters');
-    }
-
-    // Check for notice: ideally one should have been shown
-    // This is the missing piece - truncation silent but is now caught by length check
-    // Notice is expected to address the original defect fully
-    if (text?.length === 10000 && !noticeFound) {
-      console.log('DEF-014 partially fixed: truncation works, but notice/feedback is missing');
+      console.log('Truncation confirmed: stored exactly 10000 characters');
     }
   });
 });

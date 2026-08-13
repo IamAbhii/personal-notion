@@ -87,10 +87,11 @@ export function BlockEditor({
     setFocusRequest(null);
   }, [blocks, focusRequest]);
 
-  const addBlock = (afterBlockId: string | null) => {
+  /** Inserts a new block of the given type after afterBlockId and moves the caret to it. */
+  const addBlock = (afterBlockId: string | null, type: BlockType = 'paragraph') => {
     // The id comes back synchronously and the block is already in the snapshot, so this render and
     // the focus below happen before the browser can deliver another keystroke.
-    const blockId = onCreateBlock({ type: 'paragraph', afterBlockId });
+    const blockId = onCreateBlock({ type, afterBlockId });
     setFocusRequest({ blockId, caret: 'start' });
   };
 
@@ -131,23 +132,35 @@ export function BlockEditor({
           items={blocks.map((block) => block.id)}
           strategy={verticalListSortingStrategy}
         >
-          {blocks.map((block, index) => (
-            <BlockRow
-              key={block.id}
-              block={block}
-              listNumber={numberedListNumber(blocks, index)}
-              registerEditor={registerEditor}
-              onChangeText={(text) => onUpdateBlock(block, { text })}
-              // One op carries both: the slash query the user typed was a command, never content,
-              // so the conversion clears the text the same write that changes the type.
-              onConvertType={(type) => onUpdateBlock(block, { type, text: '' })}
-              onToggleChecked={(checked) => onUpdateBlock(block, { checked })}
-              onEnter={() => addBlock(block.id)}
-              onDeleteEmpty={() => deleteEmptyBlock(index)}
-              onDelete={() => onDeleteBlock(block)}
-              onNotice={onNotice}
-            />
-          ))}
+          {blocks.map((block, index) => {
+            const prev = blocks[index - 1];
+            // A list run is consecutive blocks of the same list type; tighter spacing reads as one
+            // group. Future: if more block types need run-based spacing, extract to a shared helper.
+            const continuesList =
+              (block.type === 'bulletedList' ||
+                block.type === 'numberedList' ||
+                block.type === 'todo') &&
+              prev?.type === block.type;
+
+            return (
+              <BlockRow
+                key={block.id}
+                block={block}
+                continuesList={continuesList}
+                listNumber={numberedListNumber(blocks, index)}
+                registerEditor={registerEditor}
+                onChangeText={(text) => onUpdateBlock(block, { text })}
+                // One op carries both: the slash query the user typed was a command, never content,
+                // so the conversion clears the text the same write that changes the type.
+                onConvertType={(type) => onUpdateBlock(block, { type, text: '' })}
+                onToggleChecked={(checked) => onUpdateBlock(block, { checked })}
+                onEnter={(type) => addBlock(block.id, type)}
+                onDeleteEmpty={() => deleteEmptyBlock(index)}
+                onDelete={() => onDeleteBlock(block)}
+                onNotice={onNotice}
+              />
+            );
+          })}
         </SortableContext>
       </DndContext>
 

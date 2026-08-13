@@ -91,8 +91,9 @@ test.describe('Tailwind migration regression: list markers', () => {
   }) => {
     const { firstBlock } = await openFreshPage(page);
 
-    // BlockEditor always creates a paragraph when Enter is pressed, regardless of block type.
-    // Build up three numbered-list blocks by converting each new paragraph via the slash menu.
+    // Build up three numbered-list blocks. Enter on a non-empty list creates another same-type
+    // block (DEF-038 fix), so convertViaSlash on the new empty block is a no-op for numbered
+    // lists but keeps the structure explicit.
 
     // Block 1: numbered list.
     await firstBlock.click();
@@ -141,7 +142,9 @@ test.describe('Tailwind migration regression: list markers', () => {
     // The fourth run must restart at 1, not continue at 4.
     await page.keyboard.press('Enter');
     await page.waitForTimeout(500);
-    // The new block is a paragraph — just type a break without converting.
+    // DEF-038: Enter on a non-empty list creates another same-type block, not a paragraph.
+    // Convert the new empty numbered-list block to a paragraph explicitly.
+    await convertViaSlash(page, 'Text', 'Text');
     await page.keyboard.type('A paragraph break');
     await page.waitForTimeout(300);
 

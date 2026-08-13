@@ -57,8 +57,8 @@ test('delete a page with children; verify confirmation dialog shows affected pag
   await expect(parentSidebarRow).toBeVisible();
   // Hover the row first — the desktop action buttons are pointer-events-none until hovered.
   const parentRenameButton = parentSidebarRow.locator('[data-testid="page-rename"]'); // rename action
-  await expect(parentRenameButton).toBeVisible();
   await parentSidebarRow.hover();
+  await expect(parentRenameButton).toBeVisible();
   await parentRenameButton.click();
 
   const parentRenameInput = parentSidebarRow.getByRole('textbox');
@@ -84,8 +84,8 @@ test('delete a page with children; verify confirmation dialog shows affected pag
   await expect(parentRowRefreshed).toBeVisible();
 
   const addChildButton1 = parentRowRefreshed.locator('[data-testid="page-add-child"]');
-  await expect(addChildButton1).toBeVisible();
   await parentRowRefreshed.hover();
+  await expect(addChildButton1).toBeVisible();
   await addChildButton1.click();
 
   // Navigate to the new child page
@@ -101,8 +101,8 @@ test('delete a page with children; verify confirmation dialog shows affected pag
   const childSidebarRow1 = page.locator(`[data-testid="sidebar"] [data-page-id="${childPageId1}"]`);
   await expect(childSidebarRow1).toBeVisible();
   const childRenameButton1 = childSidebarRow1.locator('[data-testid="page-rename"]');
-  await expect(childRenameButton1).toBeVisible();
   await childSidebarRow1.hover();
+  await expect(childRenameButton1).toBeVisible();
   await childRenameButton1.click();
 
   const childRenameInput1 = childSidebarRow1.getByRole('textbox');
@@ -128,8 +128,8 @@ test('delete a page with children; verify confirmation dialog shows affected pag
   await expect(parentRowRefreshed2).toBeVisible();
 
   const addChildButton2 = parentRowRefreshed2.locator('[data-testid="page-add-child"]');
-  await expect(addChildButton2).toBeVisible();
   await parentRowRefreshed2.hover();
+  await expect(addChildButton2).toBeVisible();
   await addChildButton2.click();
 
   await page.waitForLoadState('networkidle');
@@ -144,8 +144,8 @@ test('delete a page with children; verify confirmation dialog shows affected pag
   const child2SidebarRow = page.locator(`[data-testid="sidebar"] [data-page-id="${childPageId2}"]`);
   await expect(child2SidebarRow).toBeVisible();
   const child2RenameButton = child2SidebarRow.locator('[data-testid="page-rename"]');
-  await expect(child2RenameButton).toBeVisible();
   await child2SidebarRow.hover();
+  await expect(child2RenameButton).toBeVisible();
   await child2RenameButton.click();
 
   const child2RenameInput = child2SidebarRow.getByRole('textbox');
@@ -171,8 +171,8 @@ test('delete a page with children; verify confirmation dialog shows affected pag
   await expect(parentRowBeforeDelete).toBeVisible();
 
   const deleteButtonParent = parentRowBeforeDelete.locator('[data-testid="page-delete"]');
-  await expect(deleteButtonParent).toBeVisible();
   await parentRowBeforeDelete.hover();
+  await expect(deleteButtonParent).toBeVisible();
   await deleteButtonParent.click();
 
   // Wait for the confirmation dialog to appear with [role="dialog"]
@@ -228,8 +228,8 @@ test('delete a page with children; verify confirmation dialog shows affected pag
   const testSidebarRow = page.locator(`[data-testid="sidebar"] [data-page-id="${testPageId}"]`);
   await expect(testSidebarRow).toBeVisible();
   const testRenameButton = testSidebarRow.locator('[data-testid="page-rename"]');
-  await expect(testRenameButton).toBeVisible();
   await testSidebarRow.hover();
+  await expect(testRenameButton).toBeVisible();
   await testRenameButton.click();
 
   const testRenameInput = testSidebarRow.getByRole('textbox');
@@ -253,8 +253,8 @@ test('delete a page with children; verify confirmation dialog shows affected pag
     `[data-testid="sidebar"] [data-page-id="${testPageId}"]`,
   );
   const testDeleteButton = testSidebarRowBeforeDelete.locator('[data-testid="page-delete"]');
-  await expect(testDeleteButton).toBeVisible();
   await testSidebarRowBeforeDelete.hover();
+  await expect(testDeleteButton).toBeVisible();
   await testDeleteButton.click();
 
   // Confirmation dialog appears

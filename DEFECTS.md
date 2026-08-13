@@ -1,3 +1,143 @@
+## DEF-040: Notice toast never auto-dismisses
+
+- Status: CLOSED
+- Severity: MEDIUM
+- Found by: qa (relaying the operator)
+- Phase: 2
+
+Steps to reproduce:
+
+1. Launch the app: `npm start` then open http://localhost:8787.
+2. Navigate to any page that has a text block.
+3. Click into a text block and paste more than 10 000 characters of text so the paste-clamp notice fires, OR edit a block whose content the server rejects so a sync-error notice appears.
+4. Release the mouse and leave the screen completely alone — do not click the notice's close button.
+
+Expected: The notice card disappears automatically after approximately 2 seconds.
+Actual: The notice card remains on screen indefinitely. A second trigger stacks a second card alongside the first. Both cards stay until the user explicitly clicks the close button on each one.
+
+History:
+
+- qa: opened
+- orchestrator, relaying frontend-dev: FIX-READY. `notify.ts` now passes `duration: NOTICE_DURATION_MS` (2000 ms) to sonner instead of `Infinity`.
+- qa: CLOSED. Retested: triggered a paste-clamp notice by evaluating a 10001-char value onto the block textarea; notice appeared within 1500ms, then disappeared within 3000ms with no interaction. Regression: `defect-037-040-regressions.spec.ts` DEF-040 describe block passes. DEF-014 truncation spec also passes (notice hard-asserted visible). No regression on unrelated notice paths.
+
+## DEF-039: Same-type list items are not visually grouped — spacing is uniform
+
+- Status: CLOSED
+- Severity: LOW
+- Found by: qa (relaying the operator)
+- Phase: 2
+
+Steps to reproduce:
+
+1. Launch the app: `npm start` then open http://localhost:8787.
+2. Navigate to any page, or create a new one.
+3. Using the slash menu, add four or more consecutive Numbered list (or Bulleted list, or To-do) blocks one after another so they form a multi-item list.
+4. Add a Paragraph block immediately after the list.
+5. Observe the vertical spacing between the list items and between the last list item and the paragraph.
+
+Expected: The gap between consecutive same-type list items is visibly smaller than the gap between the last list item and the following paragraph block, so the list reads as one cohesive group.
+Actual: All inter-block gaps are the same size regardless of type adjacency. The four-item list does not read as a group; it is indistinguishable from four unrelated blocks of different types.
+
+History:
+
+- qa: opened
+- orchestrator, relaying frontend-dev: FIX-READY. Base inter-block gap changed from `mt-1` to `mt-3`; blocks continuing a same-type list run get `mt-0`, giving a 3:1 spacing ratio between a type transition and a list continuation.
+- qa: CLOSED. Retested: built three numbered-list items then a paragraph via slash menu; measured `getBoundingClientRect()` gaps — same-type gap=0px, type-transition gap=12px (3:1 ratio confirmed). Regression: `defect-037-040-regressions.spec.ts` DEF-039 describe block passes. Verified DEF-038 fix did not affect this measurement (paragraph created via slash menu, independent of Enter behaviour).
+
+## DEF-038: Enter in a list block does not continue the list
+
+- Status: CLOSED
+- Severity: HIGH
+- Found by: qa (relaying the operator)
+- Phase: 2
+
+Steps to reproduce:
+
+1. Launch the app: `npm start` then open http://localhost:8787.
+2. Navigate to any page, or create a new one with the "Add a top-level page" button.
+3. Click "This page is empty" to open the block editor.
+4. In the first empty block, type `/` to open the slash menu.
+5. Select "Numbered list" (or "Bulleted list" or "To-do") from the menu.
+6. Type some text — e.g. "First item".
+7. Press Enter.
+
+Expected: A second block of the same list type is created immediately below the first (marker "2." for a numbered list, a bullet for a bulleted list, an unchecked checkbox for a to-do). The cursor lands in it, ready to type the next item.
+Actual: Pressing Enter creates an empty Paragraph block. The list ends after one item. To add a second list item the user must re-invoke the slash menu and select the list type again. This applies to all three list types: Numbered list, Bulleted list, and To-do.
+
+History:
+
+- qa: opened
+- orchestrator, relaying frontend-dev: FIX-READY. `BlockRow.tsx` now passes `block.type` to `onEnter` when Enter is pressed on a non-empty list item, so the editor creates another block of the same type; Enter on an empty list item converts that block to a paragraph instead.
+- qa: CLOSED. Retested: typed three items with Enter between them in numbered, bulleted, and to-do lists; each produced three same-type blocks with correct text ("First item", "Second item", "Third item"); numbered list carried start=1/2/3. Enter on an empty numbered-list item produced a paragraph. Regression: `defect-037-040-regressions.spec.ts` DEF-038 describe block (4 tests) all pass. DEF-011 not regressed (no cross-block character bleed). DEF-018 not regressed (Enter with a non-matching slash query still closes the menu). `tailwind-migration-regressions.spec.ts` updated to use slash menu for paragraph creation — passes.
+
+## DEF-037: Block drag handle is not vertically centred on heading blocks
+
+- Status: CLOSED
+- Severity: MEDIUM
+- Found by: qa (relaying the operator)
+- Phase: 2
+
+Steps to reproduce:
+
+1. Launch the app: `npm start` then open http://localhost:8787.
+2. Navigate to any page that contains a Heading 1 or Heading 2 block (or create one via the slash menu: type `/` and select "Heading 2", then type text such as "Shortlist").
+3. Hover over the heading block so the drag handle (six-dot grip icon) appears to its left.
+4. Compare the vertical position of the grip icon's centre against the visual centre of the heading text.
+
+Expected: The drag handle's grip is vertically centred on the first line of the block's text for every block type, including headings.
+Actual: On Heading 2 (and Heading 1) blocks the grip sits noticeably above the visual centre of the heading text. The operator's screenshot showed the grip near the top of the text box for a "Shortlist" heading2 block. The offset is also visible to a lesser degree on other block types.
+
+History:
+
+- qa: opened
+- orchestrator, relaying frontend-dev: FIX-READY. The gutter cell is now `h-0` and the handle button absolutely positioned; a `handleTopClasses` lookup in `BlockRow.tsx` offsets the button per block type so its centre aligns with the first text line.
+- qa: CLOSED. Retested: created one block of every textual type and measured handle centre-Y vs first-line centre-Y via `getBoundingClientRect()`. Deltas (px): heading1=1.3, heading2=1.5, heading3=1.6, paragraph=1.0, bulletedList=1.0, numberedList=1.0, todo=1.0, quote=1.0, callout=0.0, code=−0.4. All within 4px tolerance. Regression: `defect-037-040-regressions.spec.ts` DEF-037 describe block passes in both isolated and combined runs.
+
+## DEF-036: Sidebar row actions stay visible after the pointer leaves the row
+
+- Status: CLOSED
+- Severity: MEDIUM
+- Found by: operator
+- Phase: 2
+
+Steps to reproduce:
+
+1. Launch the app at http://localhost:8787.
+2. Navigate to a page deep in the tree so the sidebar expands to show nested rows (e.g. Home > Projects > Flat Renovation > Lighting ideas).
+3. Click anywhere inside the "Lighting ideas" row (e.g. the expand toggle or a tap on the row itself) so keyboard focus lands inside the row.
+4. Move the pointer to a position well outside the sidebar (e.g. x=900, y=700).
+
+Expected: The three-button action overlay fades out once neither the pointer nor focus is in the row.
+Actual: The overlay stays fully visible (opacity: 1, pointer-events: auto) indefinitely. The row matches `:focus-within` because the CSS rule `md:group-focus-within:opacity-100` keeps the overlay visible whenever any element inside the group holds focus. A mouse click inside the row leaves focus there, so the overlay never hides until focus is explicitly moved elsewhere (e.g. Tab or Escape). Verified: after `.focus()` on the title button and `mouse.move(900, 700)`, overlay opacity remained 1 and focusWithin remained true. Screenshot: screenshots/def-035.png (same row; no second image needed).
+
+History:
+
+- qa: opened. Reproduced: focusWithin=true, opacity=1, pointerEvents=auto after mouse moved to (900,700). Shares screenshot with DEF-035.
+- qa: CLOSED. Retested: clicked the "Lighting ideas" title button then moved mouse to (900,700). Measured `page-row-desktop-actions` computed display. Result: display=none, focusWithin=false, focusVisible=false. Fix changed the overlay from opacity-0/opacity-100 to display:none/display:flex — a mouse click sets :focus but not :focus-visible, so the overlay correctly hides when the pointer leaves. Regression: `retest-def-035-036.spec.ts` DEF-036 test passes.
+
+## DEF-035: Nested sidebar page title fully occluded by hover action overlay
+
+- Status: CLOSED
+- Severity: HIGH
+- Found by: operator
+- Phase: 2
+
+Steps to reproduce:
+
+1. Launch the app at http://localhost:8787.
+2. Navigate to a deeply nested page so the sidebar shows it: Home > Projects > Flat Renovation > Lighting ideas (or any page nested 3+ levels deep with ~120px indentation).
+3. Move the pointer over the "Lighting ideas" row.
+
+Expected: The three action buttons appear at the right edge of the row but the page title remains visible and clickable in the left portion of the row. Clicking the title navigates to the page.
+Actual: The absolutely-positioned action overlay spans the full width of the row (including the title button's x-range). At 1280px, the title button for "Lighting ideas" runs from x≈134 to x≈271; the overlay covers x≈123..273 with an opaque background, completely hiding the title. elementFromPoint at the title button's centre returns the `page-add-child` overlay button, not the title. Clicking the page name therefore triggers "Add a page inside" rather than navigation. The page's content is unreachable from the sidebar by click. Verified: `elementFromPoint(202, 552)` → `[data-testid="page-add-child"]` aria-label="Add a page inside Lighting ideas".
+Screenshot: screenshots/def-035.png
+
+History:
+
+- qa: opened. Reproduced at 1280x800. Title button box: x=134, y=528, w=137, h=48. elementFromPoint at centre returns page-add-child overlay button, not the title. Screenshot confirms row title is invisible under opaque overlay.
+- qa: CLOSED. Retested: hovered the "Lighting ideas" row, sampled elementFromPoint at the title button's centre. Result: hitTestId=page-row-title, hitTag=BUTTON. Title box: x=98, y=144, w=173, h=48. The title is no longer occluded — `elementFromPoint` returns the title button itself, not an overlay action. Regression: `retest-def-035-036.spec.ts` DEF-035 test passes.
+
 ## DEF-034: At 320x400 the slash menu sits flush against the right and bottom edges
 
 - Status: CLOSED

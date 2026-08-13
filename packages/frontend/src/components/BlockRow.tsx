@@ -27,8 +27,12 @@ export interface BlockRowProps {
   /** Applies a slash-menu choice: the new type, and an empty text, since the query was a command. */
   onConvertType: (type: BlockType) => void;
   onToggleChecked: (checked: boolean) => void;
-  /** Enter: a new paragraph below this block, which the editor then focuses. */
-  onEnter: () => void;
+  /**
+   * Enter: creates a new block of the given type below this block, which the editor then focuses.
+   * The type is the current block's type when inside a list (so a bulleted run continues as
+   * bulleted), and undefined for all other types, which the editor defaults to paragraph.
+   */
+  onEnter: (type?: BlockType) => void;
   /** Backspace at the start of an empty block: delete it and put the caret in the block above. */
   onDeleteEmpty: () => void;
   onDelete: () => void;
@@ -36,6 +40,11 @@ export interface BlockRowProps {
   registerEditor: (blockId: string, element: HTMLTextAreaElement | null) => void;
   /** Says something to the user - used when a paste is clamped to the block text limit. */
   onNotice: (message: string) => void;
+  /**
+   * True when the previous block is the same list type (bulletedList/numberedList/todo), so
+   * consecutive items in a run render with tighter spacing than blocks of different types.
+   */
+  continuesList: boolean;
 }
 
 /** What an empty block of each type invites the user to do. */
@@ -86,6 +95,34 @@ const bodyTopPaddingClasses: Partial<Record<BlockType, string>> = {
 };
 
 /**
+ * Top-offset class for the drag handle button per block type. The button is absolutely positioned
+ * inside a zero-height gutter cell, so it does not contribute to the row height. The offset
+ * centres the handle on the first text line of each block type.
+ *
+ * Values are derived from getBoundingClientRect() measurements in a real browser at 1280x800:
+ *   paragraph/bulletedList/numberedList/todo/quote: delta +7px → -top-1.5 (-6px) → delta ~+1px
+ *   callout: delta -6px (language header above textarea) → top-1.5 (+6px) → delta ~0px
+ *   code: delta -22.4px (language label shifts textarea down) → top-5.5 (+22px) → delta ~-0.4px
+ *   headings: delta +1–2px already, kept as-is (positive offsets follow bodyTopPaddingClasses)
+ * All class strings are static so the Tailwind scanner generates every one.
+ */
+const handleTopClasses: Partial<Record<BlockType, string>> = {
+  heading1: 'top-4',
+  heading2: 'top-2.5',
+  heading3: 'top-1.5',
+  // Non-heading types: handle sits 7px below the first-line centre at top-0; raise it 6px.
+  paragraph: '-top-1.5',
+  bulletedList: '-top-1.5',
+  numberedList: '-top-1.5',
+  todo: '-top-1.5',
+  quote: '-top-1.5',
+  // Callout: emoji + border box raises the first text line; handle must move down 6px to match.
+  callout: 'top-1.5',
+  // Code: language-label header (~22px tall) sits above the textarea first line; push down 22px.
+  code: 'top-5.5',
+};
+
+/**
  * One block: its drag handle and delete action in the gutter, and its type-specific body. Every
  * textual type edits through one textarea so the caret, Enter and Backspace behave identically
  * everywhere, and the type only decides the wrapper element and the styling.
@@ -101,6 +138,7 @@ export function BlockRow({
   onDelete,
   registerEditor,
   onNotice,
+  continuesList,
 }: BlockRowProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   // Set when the slash menu converted this block, so the caret returns to it after the remount.
@@ -231,8 +269,19 @@ export function BlockRow({
       // Inside code a newline is the point of the block, so Enter is left to the textarea.
       if (block.type === 'code') return;
       event.preventDefault();
+      const isList =
+        block.type === 'bulletedList' || block.type === 'numberedList' || block.type === 'todo';
+      if (isList && value === '') {
+        // Empty list item: exit the list by converting the block to a paragraph and leaving the
+        // caret in it. The same refocusAfterConvert mechanism used by slash-menu conversions
+        // restores focus once the element remounts under the new block type.
+        refocusAfterConvert.current = true;
+        onConvertType('paragraph');
+        return;
+      }
       flush();
-      onEnter();
+      // A non-empty list item continues its own type; every other block type creates a paragraph.
+      onEnter(isList ? block.type : undefined);
       return;
     }
 
@@ -282,7 +331,10 @@ export function BlockRow({
       className={cn(
         // `group` enables group-hover: on the gutter so handles appear when any part of the block is hovered.
         // The gutter column is 48px — just wide enough for one 48px touch target per row.
+        // mt-3 is the base inter-block gap (12px); mt-0 keeps consecutive same-list items flush,
+        // giving a clear 3:1 visual ratio between "new block" and "list continuation" spacing.
         'group relative grid grid-cols-[48px_minmax(0,1fr)] items-start',
+        continuesList ? 'mt-0' : 'mt-3',
         isDragging && 'z-10 rounded-sm border border-border bg-surface shadow-pop',
       )}
       data-block-id={block.id}
@@ -293,7 +345,10 @@ export function BlockRow({
     >
       {/*
         Gutter: one 48×48px drag handle that also opens a small actions menu on click or ArrowDown.
-        A single control keeps the gutter height equal to one block line regardless of block height.
+        The gutter cell has height 0 (h-0) so the body column alone determines the row height;
+        the button is absolutely positioned within it and does not push rows taller than their
+        text. handleTopClasses shifts the button down per block type so it centres on the first
+        text line rather than the row top.
         Drag (pointer: 4px movement; keyboard: Space/Enter) and menu (pointer: click; keyboard:
         ArrowDown) do not conflict — dnd-kit calls event.preventDefault() on Space/Enter keydown,
         which prevents Radix's onKeyDown handler from firing on those keys, so ArrowDown is the
@@ -303,7 +358,10 @@ export function BlockRow({
       */}
       <div
         className={cn(
-          'flex items-start justify-center',
+          // h-0: this grid cell contributes zero height, so row height comes from the body only.
+          // relative: establishes the containing block for the absolutely positioned button.
+          // overflow-visible: lets the 48px button extend beyond the h-0 boundary.
+          'relative h-0 overflow-visible',
           'opacity-0 transition-opacity duration-100 ease-in-out',
           'group-focus-within:opacity-100 group-hover:opacity-100',
           // Without pointer-hover there is no way to reveal gutter controls, so always show them.
@@ -322,7 +380,12 @@ export function BlockRow({
             <button
               type="button"
               ref={setActivatorNodeRef}
-              className="grid h-12 w-12 flex-none cursor-grab place-items-center rounded-sm border-0 bg-transparent p-0 text-text-muted hover:bg-surface hover:text-text hover:ring-1 hover:ring-border hover:ring-inset"
+              className={cn(
+                // absolute + left-0: places the button flush with the gutter column's left edge.
+                // The top class shifts it down so its centre aligns with the block's first text line.
+                'absolute left-0 grid h-12 w-12 cursor-grab place-items-center rounded-sm border-0 bg-transparent p-0 text-text-muted hover:bg-surface hover:text-text hover:ring-1 hover:ring-border hover:ring-inset',
+                handleTopClasses[block.type] ?? 'top-0',
+              )}
               data-testid="block-drag-handle"
               aria-label={`Move the ${blockTypeLabel(block.type).toLowerCase()} block`}
               {...attributes}

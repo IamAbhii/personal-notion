@@ -39,7 +39,12 @@ function renderEditor(initial: BlockRecord[]): Recorded {
               ? ordered.findIndex((block) => block.id === args.afterBlockId)
               : ordered.length - 1;
             const sortKey = sortKeyAfterIndex(ordered, afterIndex);
-            return blocksForPage([...current, makeBlock({ id, pageId: 'p-1', sortKey })], 'p-1');
+            // Use args.type so list continuation creates a block of the same list type, not always
+            // a paragraph. This matches what useBlockMutations does in the real app.
+            return blocksForPage(
+              [...current, makeBlock({ id, pageId: 'p-1', sortKey, type: args.type })],
+              'p-1',
+            );
           });
           return id;
         }}
@@ -282,6 +287,131 @@ describe('Enter', () => {
 
     expect(recorded.created).toEqual([]);
     expect(editorFor('b-1')).toHaveValue('const a = 1\nconst b = 2');
+  });
+});
+
+describe('Enter in list blocks', () => {
+  it('creates another numbered block and the second renders with marker 2', async () => {
+    const user = userEvent.setup();
+    const recorded = renderEditor([
+      makeBlock({ id: 'b-1', pageId: 'p-1', type: 'numberedList', text: 'First', sortKey: 'a0' }),
+    ]);
+
+    await focusAt('b-1', 5);
+    await user.keyboard('{Enter}');
+
+    expect(recorded.created).toEqual([{ type: 'numberedList', afterBlockId: 'b-1' }]);
+    // New block is in the same numbered run, so its ol[start] is 2.
+    expect(document.querySelector('[data-block-id="b-new-1"] ol')).toHaveAttribute('start', '2');
+  });
+
+  it('creates another bulleted block on Enter in a bulleted list', async () => {
+    const user = userEvent.setup();
+    const recorded = renderEditor([
+      makeBlock({ id: 'b-1', pageId: 'p-1', type: 'bulletedList', text: 'Item', sortKey: 'a0' }),
+    ]);
+
+    await focusAt('b-1', 4);
+    await user.keyboard('{Enter}');
+
+    expect(recorded.created).toEqual([{ type: 'bulletedList', afterBlockId: 'b-1' }]);
+    expect(document.querySelector('[data-block-id="b-new-1"] ul li')).toBeInTheDocument();
+  });
+
+  it('creates an unchecked todo on Enter in a todo block', async () => {
+    const user = userEvent.setup();
+    const recorded = renderEditor([
+      makeBlock({
+        id: 'b-1',
+        pageId: 'p-1',
+        type: 'todo',
+        text: 'Do this',
+        checked: true,
+        sortKey: 'a0',
+      }),
+    ]);
+
+    await focusAt('b-1', 7);
+    await user.keyboard('{Enter}');
+
+    expect(recorded.created).toEqual([{ type: 'todo', afterBlockId: 'b-1' }]);
+    // New todo starts unchecked regardless of whether the previous item was checked.
+    expect(
+      document.querySelector('[data-block-id="b-new-1"] [data-done="false"]'),
+    ).toBeInTheDocument();
+  });
+
+  it('exits a bulleted list on Enter in an empty item by converting it to paragraph', async () => {
+    const user = userEvent.setup();
+    const recorded = renderEditor([
+      makeBlock({ id: 'b-1', pageId: 'p-1', type: 'bulletedList', text: '', sortKey: 'a0' }),
+    ]);
+
+    await focusAt('b-1', 0);
+    await user.keyboard('{Enter}');
+
+    expect(recorded.created).toEqual([]);
+    expect(recorded.updates).toEqual([{ id: 'b-1', changes: { type: 'paragraph', text: '' } }]);
+    expect(document.querySelector('[data-block-id="b-1"]')).toHaveAttribute(
+      'data-block-type',
+      'paragraph',
+    );
+  });
+
+  it('exits a numbered list on Enter in an empty item', async () => {
+    const user = userEvent.setup();
+    const recorded = renderEditor([
+      makeBlock({ id: 'b-1', pageId: 'p-1', type: 'numberedList', text: '', sortKey: 'a0' }),
+    ]);
+
+    await focusAt('b-1', 0);
+    await user.keyboard('{Enter}');
+
+    expect(recorded.created).toEqual([]);
+    expect(recorded.updates).toEqual([{ id: 'b-1', changes: { type: 'paragraph', text: '' } }]);
+    expect(document.querySelector('[data-block-id="b-1"]')).toHaveAttribute(
+      'data-block-type',
+      'paragraph',
+    );
+  });
+
+  it('exits a todo on Enter in an empty item', async () => {
+    const user = userEvent.setup();
+    const recorded = renderEditor([
+      makeBlock({ id: 'b-1', pageId: 'p-1', type: 'todo', text: '', sortKey: 'a0' }),
+    ]);
+
+    await focusAt('b-1', 0);
+    await user.keyboard('{Enter}');
+
+    expect(recorded.created).toEqual([]);
+    expect(recorded.updates).toEqual([{ id: 'b-1', changes: { type: 'paragraph', text: '' } }]);
+    expect(document.querySelector('[data-block-id="b-1"]')).toHaveAttribute(
+      'data-block-type',
+      'paragraph',
+    );
+  });
+
+  it('still creates a paragraph on Enter in a paragraph', async () => {
+    const user = userEvent.setup();
+    const recorded = renderEditor([paragraph]);
+
+    await focusAt('b-1', 'First block'.length);
+    await user.keyboard('{Enter}');
+
+    expect(recorded.created).toEqual([{ type: 'paragraph', afterBlockId: 'b-1' }]);
+  });
+
+  it('still creates a paragraph on Enter in a heading', async () => {
+    const user = userEvent.setup();
+    const recorded = renderEditor([
+      makeBlock({ id: 'b-1', pageId: 'p-1', type: 'heading1', text: 'Title', sortKey: 'a0' }),
+    ]);
+
+    await focusAt('b-1', 5);
+    await user.keyboard('{Enter}');
+
+    expect(recorded.created).toEqual([{ type: 'paragraph', afterBlockId: 'b-1' }]);
   });
 });
 
