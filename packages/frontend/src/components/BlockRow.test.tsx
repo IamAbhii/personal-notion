@@ -47,6 +47,7 @@ const block = makeBlock({ id: 'b-drag-test', pageId: 'p-1', text: 'Drag me', sor
 const defaultProps = {
   block,
   listNumber: 1,
+  continuesList: false,
   onChangeText: vi.fn(),
   onConvertType: vi.fn(),
   onToggleChecked: vi.fn(),
@@ -107,5 +108,94 @@ describe('BlockRow code block overflow (DEF-027)', () => {
     // styles.codeTextarea is a hashed module class; its presence means the overflow-x: auto rule
     // applies. The class name contains 'codeTextarea' in the vitest + CSS Modules setup.
     expect(textarea?.className).toMatch(/codeTextarea/);
+  });
+});
+
+describe('drag handle vertical alignment (Problem 1)', () => {
+  // jsdom does not compute layout, so the offset class contract is what can be asserted here.
+  // Values come from getBoundingClientRect() measurements in a real browser at 1280x800 (see
+  // handleTopClasses comment in BlockRow.tsx for the per-type deltas and chosen corrections).
+
+  it('applies top-4 to the heading1 handle, centring it on the first text line', () => {
+    vi.mocked(useSortable).mockReturnValue(makeSortableReturn(false));
+    const h1Block = makeBlock({ id: 'b-h1-align', pageId: 'p-1', type: 'heading1', text: 'Title' });
+    render(<BlockRow {...defaultProps} block={h1Block} />);
+    const handle = document.querySelector('[data-testid="block-drag-handle"]');
+    // top-4 (16px): measured delta +1.3px with this offset, within tolerance.
+    expect(handle?.className).toContain('top-4');
+  });
+
+  it('applies top-2.5 to the heading2 handle', () => {
+    vi.mocked(useSortable).mockReturnValue(makeSortableReturn(false));
+    const h2Block = makeBlock({ id: 'b-h2-align', pageId: 'p-1', type: 'heading2', text: 'Sub' });
+    render(<BlockRow {...defaultProps} block={h2Block} />);
+    const handle = document.querySelector('[data-testid="block-drag-handle"]');
+    expect(handle?.className).toContain('top-2.5');
+  });
+
+  it('applies top-1.5 to the heading3 handle', () => {
+    vi.mocked(useSortable).mockReturnValue(makeSortableReturn(false));
+    const h3Block = makeBlock({ id: 'b-h3-align', pageId: 'p-1', type: 'heading3', text: 'Sub' });
+    render(<BlockRow {...defaultProps} block={h3Block} />);
+    const handle = document.querySelector('[data-testid="block-drag-handle"]');
+    expect(handle?.className).toContain('top-1.5');
+  });
+
+  it('applies -top-1.5 to the paragraph handle (measured delta +7px at top-0)', () => {
+    vi.mocked(useSortable).mockReturnValue(makeSortableReturn(false));
+    const paraBlock = makeBlock({
+      id: 'b-para-align',
+      pageId: 'p-1',
+      type: 'paragraph',
+      text: 'Text',
+    });
+    render(<BlockRow {...defaultProps} block={paraBlock} />);
+    const handle = document.querySelector('[data-testid="block-drag-handle"]');
+    // -top-1.5 (-6px) corrects measured +7px delta to ~+1px.
+    expect(handle?.className).toContain('-top-1.5');
+  });
+
+  it('applies -top-1.5 to the bulletedList handle', () => {
+    vi.mocked(useSortable).mockReturnValue(makeSortableReturn(false));
+    const bulletBlock = makeBlock({
+      id: 'b-bul-align',
+      pageId: 'p-1',
+      type: 'bulletedList',
+      text: 'Item',
+    });
+    render(<BlockRow {...defaultProps} block={bulletBlock} />);
+    const handle = document.querySelector('[data-testid="block-drag-handle"]');
+    expect(handle?.className).toContain('-top-1.5');
+  });
+
+  it('applies top-1.5 to the callout handle (measured delta -6px at top-0)', () => {
+    vi.mocked(useSortable).mockReturnValue(makeSortableReturn(false));
+    const calloutBlock = makeBlock({
+      id: 'b-call-align',
+      pageId: 'p-1',
+      type: 'callout',
+      text: 'Note',
+    });
+    render(<BlockRow {...defaultProps} block={calloutBlock} />);
+    const handle = document.querySelector('[data-testid="block-drag-handle"]');
+    // top-1.5 (+6px) corrects measured -6px delta to ~0px.
+    expect(handle?.className).toContain('top-1.5');
+  });
+
+  it('applies top-5.5 to the code handle (language label adds ~22px before the textarea)', () => {
+    vi.mocked(useSortable).mockReturnValue(makeSortableReturn(false));
+    const codeBlock = makeBlock({ id: 'b-code-align', pageId: 'p-1', type: 'code', text: 'x' });
+    render(<BlockRow {...defaultProps} block={codeBlock} />);
+    const handle = document.querySelector('[data-testid="block-drag-handle"]');
+    // top-5.5 (+22px) corrects measured -22.4px delta to ~-0.4px.
+    expect(handle?.className).toContain('top-5.5');
+  });
+
+  it('falls back to top-0 for divider (no text; alignment is cosmetic)', () => {
+    vi.mocked(useSortable).mockReturnValue(makeSortableReturn(false));
+    const dividerBlock = makeBlock({ id: 'b-div-align', pageId: 'p-1', type: 'divider' });
+    render(<BlockRow {...defaultProps} block={dividerBlock} />);
+    const handle = document.querySelector('[data-testid="block-drag-handle"]');
+    expect(handle?.className).toContain('top-0');
   });
 });

@@ -1,7 +1,7 @@
-import { describe, expect, it, afterEach } from 'vitest';
+import { describe, expect, it, afterEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { Toaster } from 'sonner';
-import { notify } from './notify';
+import { Toaster, toast } from 'sonner';
+import { notify, NOTICE_DURATION_MS } from './notify';
 
 // The Toaster must be mounted in the document for toasts to render.
 function renderWithToaster() {
@@ -35,5 +35,28 @@ describe('notify', () => {
     notify('Second error');
     expect(await screen.findByText('First error')).toBeInTheDocument();
     expect(await screen.findByText('Second error')).toBeInTheDocument();
+  });
+
+  it('passes NOTICE_DURATION_MS as the toast duration so notices auto-dismiss', () => {
+    // Spy on the sonner module-level toast object to capture the options each call receives.
+    // This verifies the constant is wired to the toast call without needing real timer advancement.
+    const warnSpy = vi.spyOn(toast, 'warning');
+    const infoSpy = vi.spyOn(toast, 'info');
+    renderWithToaster();
+
+    notify('Timed warning');
+    expect(warnSpy).toHaveBeenCalledWith(
+      'Timed warning',
+      expect.objectContaining({ duration: NOTICE_DURATION_MS }),
+    );
+
+    notify('Timed info', 'info');
+    expect(infoSpy).toHaveBeenCalledWith(
+      'Timed info',
+      expect.objectContaining({ duration: NOTICE_DURATION_MS }),
+    );
+
+    warnSpy.mockRestore();
+    infoSpy.mockRestore();
   });
 });

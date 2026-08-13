@@ -172,9 +172,14 @@ export function Sidebar({
                 Below md: a single overflow trigger collapses all three actions into a dropdown,
                 freeing ~96px so the title stays readable at 320px. The testids are duplicated on
                 the menu items so a future mobile-viewport e2e spec can find them here too.
-                At md+: the three separate buttons are absolutely positioned, hidden until the row
-                is hovered or focused, with a background token that occludes the title behind them.
-                The token switches for the current-page row to match its tint. */}
+                At md+: the three separate buttons are display:none by default so the span consumes
+                zero flex-layout space and the title button fills the full available width — same
+                width as in the original absolute-positioned approach. The span becomes display:flex
+                only while the pointer is on the row or a child has :focus-visible, confining any
+                title truncation to the moment the user is already interacting with the row (DEF-035,
+                readability regression fix).
+                group-has-[:focus-visible] not group-focus-within: a mouse click gives :focus but
+                not :focus-visible, so the strip hides correctly when the pointer leaves (DEF-036). */}
 
             {/* Mobile overflow menu: one 48px trigger instead of three — hidden at md+ */}
             <span className="flex-none md:hidden">
@@ -219,22 +224,33 @@ export function Sidebar({
               </DropdownMenu>
             </span>
 
-            {/* Desktop three-button overlay: hidden below md, absolutely positioned and hover-revealed at md+ */}
+            {/* Desktop three-button strip: display:none by default so it takes zero flex-layout
+                space. display:flex only while hovered or keyboard-focused so title truncation is
+                confined to the hover moment. Pointer-events are automatic: display:none disables
+                them; display:flex re-enables them. */}
             <span
+              data-testid="page-row-desktop-actions"
               className={cn(
-                'hidden flex-none gap-px rounded-[7px] p-0.5',
-                'md:flex',
-                'md:pointer-events-none md:absolute md:right-1 md:opacity-0',
-                'md:group-hover:pointer-events-auto md:group-hover:opacity-100',
-                'md:group-focus-within:pointer-events-auto md:group-focus-within:opacity-100',
-                isCurrent
-                  ? 'md:group-focus-within:bg-row-current-solid md:group-hover:bg-row-current-solid'
-                  : 'md:group-focus-within:bg-row-hover-solid md:group-hover:bg-row-hover-solid',
+                // hidden = display:none at all widths by default (mobile uses overflow menu).
+                // At md+, switch to display:flex only during hover or keyboard focus.
+                // display:none removes the span from the flex layout entirely — no width
+                // reserved, no gap consumed — so unhovered titles are identical in width to
+                // the original before this fix (DEF-035 readability regression fix).
+                'hidden',
+                'md:group-hover:flex',
+                // group-has-[:focus-visible] and NOT group-focus-within: mouse clicks produce
+                // :focus but not :focus-visible, so the strip stays hidden after a click and
+                // pointer-leave (DEF-036).
+                'md:group-has-[:focus-visible]:flex',
+                'flex-none items-center gap-px rounded-[7px] p-0.5',
               )}
             >
+              {/* size-5 = 20px: desktop pointer-precision; 48px touch target lives on the mobile
+                  overflow trigger. At the deepest seed row (depth 3, row 263px) the overlay is
+                  66px wide, leaving the hovered title 67px — above the 64px floor (DEF-035). */}
               <button
                 type="button"
-                className="grid min-h-12 min-w-12 cursor-pointer place-items-center rounded-sm border-0 bg-transparent p-0 text-panel-text-muted hover:bg-white/12 hover:text-blue-soft"
+                className="grid size-5 cursor-pointer place-items-center rounded-sm border-0 bg-transparent p-0 text-panel-text-muted hover:bg-white/12 hover:text-blue-soft"
                 data-testid="page-rename"
                 aria-label={`Rename ${page.title}`}
                 title="Rename"
@@ -244,7 +260,7 @@ export function Sidebar({
               </button>
               <button
                 type="button"
-                className="grid min-h-12 min-w-12 cursor-pointer place-items-center rounded-sm border-0 bg-transparent p-0 text-panel-text-muted hover:bg-white/12 hover:text-blue-soft"
+                className="grid size-5 cursor-pointer place-items-center rounded-sm border-0 bg-transparent p-0 text-panel-text-muted hover:bg-white/12 hover:text-blue-soft"
                 data-testid="page-add-child"
                 aria-label={`Add a page inside ${page.title}`}
                 title="Add a page inside"
@@ -254,7 +270,7 @@ export function Sidebar({
               </button>
               <button
                 type="button"
-                className="grid min-h-12 min-w-12 cursor-pointer place-items-center rounded-sm border-0 bg-transparent p-0 text-panel-text-muted hover:bg-danger/22 hover:text-danger-soft"
+                className="grid size-5 cursor-pointer place-items-center rounded-sm border-0 bg-transparent p-0 text-panel-text-muted hover:bg-danger/22 hover:text-danger-soft"
                 data-testid="page-delete"
                 aria-label={`Delete ${page.title}`}
                 title="Delete"
