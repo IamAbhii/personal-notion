@@ -24,6 +24,9 @@ export interface MeResponse {
   memberships: Membership[];
 }
 
+/** What a page can be. A row is always a child of a database; never changes after creation. */
+export type PageKind = 'page' | 'database' | 'row';
+
 /** A page as the snapshot returns it. `sortKey` is a fractional index, not a position. */
 export interface PageRecord {
   id: string;
@@ -31,10 +34,54 @@ export interface PageRecord {
   title: string;
   icon: string;
   sortKey: string;
+  kind: PageKind;
   version: number;
   // The server sends epoch milliseconds; the union keeps an ISO string valid too, since both are
   // accepted by `new Date(...)` and D1 has stored timestamps both ways historically.
   updatedAt: number | string;
+}
+
+/** The seven property types. Fixed once created; a phase.update op carrying `type` is rejected. */
+export type PropertyType =
+  'text' | 'number' | 'select' | 'multiSelect' | 'date' | 'checkbox' | 'url';
+
+/**
+ * The six option colors, exported from the contract so frontend and worker share the list.
+ * Amber, blue and purple are the existing product palette; gray, teal and rose extend it so a
+ * select with six options is still readable.
+ */
+export const OPTION_COLORS = ['gray', 'amber', 'blue', 'purple', 'teal', 'rose'] as const;
+export type OptionColor = (typeof OPTION_COLORS)[number];
+
+/** One option in a select or multiSelect property. */
+export interface SelectOption {
+  id: string;
+  name: string;
+  color: OptionColor;
+}
+
+/** A property as the snapshot returns it. `options` is always an array, empty for non-select types. */
+export interface PropertyRecord {
+  id: string;
+  databasePageId: string;
+  name: string;
+  type: PropertyType;
+  options: SelectOption[];
+  sortKey: string;
+  version: number;
+  updatedAt: number;
+}
+
+/**
+ * A property value as the snapshot returns it. `value` is the raw JSON string as stored;
+ * the client parses it per type. `null` means the cell is empty.
+ */
+export interface PropertyValueRecord {
+  rowPageId: string;
+  propertyId: string;
+  value: string | null;
+  version: number;
+  updatedAt: number;
 }
 
 /**
@@ -74,20 +121,33 @@ export interface BlockRecord {
 
 /**
  * GET /api/workspaces/:workspaceId/snapshot — the only read on cold start.
- * Future: later phases add sibling keys here for databases, properties, rows and views.
+ * Future: Phase 4 adds views and per-view settings as a sibling key here.
  */
 export interface SnapshotResponse {
   workspaceId: string;
   pages: PageRecord[];
   blocks: BlockRecord[];
+  /** All properties for every database in this workspace. Absent on a pre-Phase-3 server. */
+  properties?: PropertyRecord[];
+  /** All property values for every row in this workspace. Absent on a pre-Phase-3 server. */
+  values?: PropertyValueRecord[];
 }
 
-/** The entity kinds ops can target. Future: 'database' | 'row' | 'view' join this. */
-export type OpEntity = 'page' | 'block';
+/** The entity kinds ops can target. Phase 3 adds property and value. */
+export type OpEntity = 'page' | 'block' | 'property' | 'value';
 
-/** The op types Phases 1 and 2 emit. Future: database and view op types are added here. */
+/** All op types across Phases 1–3. Future: view op types are added here. */
 export type OpType =
-  'page.create' | 'page.update' | 'page.delete' | 'block.create' | 'block.update' | 'block.delete';
+  | 'page.create'
+  | 'page.update'
+  | 'page.delete'
+  | 'block.create'
+  | 'block.update'
+  | 'block.delete'
+  | 'property.create'
+  | 'property.update'
+  | 'property.delete'
+  | 'value.set';
 
 /** Payload of a `page.create` op. The client mints the id, so no id is in the payload. */
 export interface PageCreatePayload {
@@ -95,6 +155,8 @@ export interface PageCreatePayload {
   title: string;
   icon: string;
   sortKey: string;
+  /** Omit for the default 'page' kind. A row or database is minted once and never changed. */
+  kind?: PageKind;
 }
 
 /** Payload of a `page.update` op: any subset of the mutable page fields. */
@@ -136,13 +198,53 @@ export interface BlockUpdatePayload {
 /** Payload of a `block.delete` op. Deletion is permanent; there is no trash. */
 export type BlockDeletePayload = Record<string, never>;
 
+/**
+ * Payload of a `property.create` op. The client mints the property id. `sortKey` omitted appends.
+ * `options` is only for select/multiSelect; omit for other types.
+ */
+export interface PropertyCreatePayload {
+  databasePageId: string;
+  name: string;
+  type: PropertyType;
+  options?: SelectOption[];
+  sortKey?: string;
+}
+
+/**
+ * Payload of a `property.update` op: rename, recolor/add/remove options, or reorder.
+ * `type` is absent — a property's type cannot be changed once created.
+ */
+export interface PropertyUpdatePayload {
+  name?: string;
+  options?: SelectOption[];
+  sortKey?: string;
+}
+
+/** Payload of a `property.delete` op. Cascades to all values for this property. */
+export type PropertyDeletePayload = Record<string, never>;
+
+/**
+ * Payload of a `value.set` op. The entityId is `${rowPageId}:${propertyId}` (composite key) so
+ * two devices editing the same cell converge under last-write-wins with no id clash.
+ * `value` is the JSON-encoded typed value, or null to clear the cell.
+ */
+export interface ValueSetPayload {
+  rowPageId: string;
+  propertyId: string;
+  value: string | null;
+}
+
 export type OpPayload =
   | PageCreatePayload
   | PageUpdatePayload
   | PageDeletePayload
   | BlockCreatePayload
   | BlockUpdatePayload
-  | BlockDeletePayload;
+  | BlockDeletePayload
+  | PropertyCreatePayload
+  | PropertyUpdatePayload
+  | PropertyDeletePayload
+  | ValueSetPayload;
 
 /**
  * An intent-based write. Every mutation in the app is one of these, minted client-side with a UUID

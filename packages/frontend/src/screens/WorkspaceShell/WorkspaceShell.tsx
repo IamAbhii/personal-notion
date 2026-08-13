@@ -7,6 +7,7 @@ import { meQueryOptions, queryKeys, snapshotQueryOptions } from '../../api/queri
 import { flushStashedOps } from '../../sync/ops';
 import { usePageMutations } from '../../hooks/usePageMutations';
 import { useBlockMutations } from '../../hooks/useBlockMutations';
+import { usePropertyMutations } from '../../hooks/usePropertyMutations';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { notify } from '../../lib/notify';
 import { Sidebar } from '../../components/Sidebar/Sidebar';
@@ -36,10 +37,14 @@ export function WorkspaceShell() {
   // Blocks arrive in the same snapshot; `?? []` keeps the shell rendering against a server that
   // predates the blocks key rather than crashing on it.
   const blocks = snapshot.blocks ?? [];
+  // Phase 3: properties and values. `?? []` keeps the shell rendering against a pre-Phase-3 server.
+  const properties = snapshot.properties ?? [];
+  const values = snapshot.values ?? [];
 
   const membership = me.memberships.find((entry) => entry.workspaceId === workspaceId);
   const mutations = usePageMutations(me.user.id, workspaceId, pages, notify);
   const blockMutations = useBlockMutations(me.user.id, workspaceId, blocks, notify);
+  const propertyMutations = usePropertyMutations(me.user.id, workspaceId, properties, notify);
 
   // An edit flushed as the last page was closing may not have reached the server - a service worker
   // controls the page, and Chromium drops a request routed through it once its client is gone. It
@@ -109,9 +114,15 @@ export function WorkspaceShell() {
   const selectPage = (pageId: string) =>
     void navigate({ to: '/w/$workspaceId/page/$pageId', params: { workspaceId, pageId } });
 
-  const createPage = async (parentId: string | null) => {
-    const pageId = await mutations.createPage(parentId);
+  const createPage = async (parentId: string | null, kind?: 'page' | 'database') => {
+    const pageId = await mutations.createPage(parentId, kind);
     // Null means the write failed and the user has been told; there is no page to open.
+    if (pageId) selectPage(pageId);
+  };
+
+  // Creates a row page inside a database, then opens it.
+  const createRow = async (databasePageId: string) => {
+    const pageId = await mutations.createPage(databasePageId, 'row');
     if (pageId) selectPage(pageId);
   };
 
@@ -125,6 +136,8 @@ export function WorkspaceShell() {
     await mutations.deletePage(page);
   };
 
+  // Sidebar needs a flat delete that also works for databases and rows.
+
   // Read the active theme once; tokens handle light/dark switching, so the Toaster's theme prop
   // is mainly for accessibility metadata rather than visual styling.
   const appTheme = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
@@ -136,11 +149,16 @@ export function WorkspaceShell() {
         workspaceId,
         pages,
         blocks,
+        properties,
+        values,
         mutations,
         blockMutations,
+        propertyMutations,
         selectPage,
         notify,
         createAndOpenPage: (parentId) => void createPage(parentId),
+        createAndOpenDatabase: (parentId) => void createPage(parentId, 'database'),
+        createAndOpenRow: (databasePageId) => void createRow(databasePageId),
       }}
     >
       {/*
@@ -206,6 +224,7 @@ export function WorkspaceShell() {
               currentPageId={pageParams.pageId ?? null}
               onSelectPage={selectPage}
               onCreatePage={(parentId) => void createPage(parentId)}
+              onCreateDatabase={(parentId) => void createPage(parentId, 'database')}
               onRenamePage={(page, title) => void mutations.updatePage(page, { title })}
               onDeletePage={(page) => void deletePage(page)}
               sidebarRef={sidebarRef}

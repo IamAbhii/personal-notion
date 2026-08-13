@@ -53,6 +53,15 @@ vi.mock('../../hooks/useBlockMutations', () => ({
   })),
 }));
 
+vi.mock('../../hooks/usePropertyMutations', () => ({
+  usePropertyMutations: vi.fn(() => ({
+    createProperty: vi.fn(),
+    updateProperty: vi.fn(),
+    deleteProperty: vi.fn(),
+    setValue: vi.fn(),
+  })),
+}));
+
 vi.mock('../../sync/ops', () => ({
   flushStashedOps: vi.fn(() => Promise.resolve(0)),
 }));

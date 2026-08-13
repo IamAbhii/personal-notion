@@ -6,7 +6,7 @@ import { InlineTitleInput } from '../InlineTitleInput/InlineTitleInput';
 import { Button } from '../ui/Button/Button';
 import { IconButton } from '../ui/IconButton/IconButton';
 import { DropdownMenu, DropdownMenuItem } from '../ui/DropdownMenu/DropdownMenu';
-import { ChevronRight, Ellipsis, Pencil, Plus, Trash2 } from 'lucide-react';
+import { ChevronRight, Ellipsis, Pencil, Plus, Table2, Trash2 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { useUiStoreShallow } from '../../stores/uiStore';
 import type { PageRecord } from '../../api/types';
@@ -20,6 +20,8 @@ export interface SidebarProps {
   currentPageId: string | null;
   onSelectPage: (pageId: string) => void;
   onCreatePage: (parentId: string | null) => void;
+  /** Creates a database page at the given parent (null for top level) and opens it. */
+  onCreateDatabase: (parentId: string | null) => void;
   onRenamePage: (page: PageRecord, title: string) => void;
   onDeletePage: (page: PageRecord) => void;
   /**
@@ -51,6 +53,7 @@ export function Sidebar({
   currentPageId,
   onSelectPage,
   onCreatePage,
+  onCreateDatabase,
   onRenamePage,
   onDeletePage,
   sidebarRef,
@@ -66,7 +69,9 @@ export function Sidebar({
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<PageRecord | null>(null);
 
-  const tree = buildPageTree(pages);
+  // Row pages are reached from the table, not the sidebar tree.
+  const nonRowPages = pages.filter((p) => p.kind !== 'row');
+  const tree = buildPageTree(nonRowPages);
 
   const handleSelectPage = (pageId: string) => {
     onSelectPage(pageId);
@@ -133,12 +138,21 @@ export function Sidebar({
               />
             )}
 
+            {/* Database pages show a table-grid icon overlay on the emoji to signal type. */}
             <span
-              className="w-5 flex-none text-center font-emoji text-sm leading-none"
+              className="relative w-5 flex-none text-center"
               aria-hidden="true"
               data-testid="page-icon"
             >
-              {page.icon}
+              <span className="font-emoji text-sm leading-none">{page.icon}</span>
+              {page.kind === 'database' ? (
+                <span
+                  className="absolute -right-1.5 -bottom-1 inline-flex items-center justify-center rounded-full bg-panel p-px"
+                  data-testid="database-marker"
+                >
+                  <Table2 size={8} className="text-blue-soft" aria-hidden />
+                </span>
+              ) : null}
             </span>
 
             {renamingId === page.id ? (
@@ -206,13 +220,24 @@ export function Sidebar({
                   <Pencil size={14} aria-hidden />
                   Rename
                 </DropdownMenuItem>
-                <DropdownMenuItem
-                  data-testid="page-add-child"
-                  onSelect={() => onCreatePage(page.id)}
-                >
-                  <Plus size={14} aria-hidden />
-                  Add a page inside
-                </DropdownMenuItem>
+                {page.kind !== 'database' ? (
+                  <DropdownMenuItem
+                    data-testid="page-add-child"
+                    onSelect={() => onCreatePage(page.id)}
+                  >
+                    <Plus size={14} aria-hidden />
+                    Add a page inside
+                  </DropdownMenuItem>
+                ) : null}
+                {page.kind !== 'database' ? (
+                  <DropdownMenuItem
+                    data-testid="page-add-database-child"
+                    onSelect={() => onCreateDatabase(page.id)}
+                  >
+                    <Table2 size={14} aria-hidden />
+                    Add a database inside
+                  </DropdownMenuItem>
+                ) : null}
                 <DropdownMenuItem
                   data-testid="page-delete"
                   variant="danger"
@@ -258,16 +283,31 @@ export function Sidebar({
               >
                 <Pencil size={14} aria-hidden />
               </button>
-              <button
-                type="button"
-                className="grid size-5 cursor-pointer place-items-center rounded-sm border-0 bg-transparent p-0 text-panel-text-muted hover:bg-white/12 hover:text-blue-soft"
-                data-testid="page-add-child"
-                aria-label={`Add a page inside ${page.title}`}
-                title="Add a page inside"
-                onClick={() => onCreatePage(page.id)}
-              >
-                <Plus size={14} aria-hidden />
-              </button>
+              {page.kind !== 'database' ? (
+                <button
+                  type="button"
+                  className="grid size-5 cursor-pointer place-items-center rounded-sm border-0 bg-transparent p-0 text-panel-text-muted hover:bg-white/12 hover:text-blue-soft"
+                  data-testid="page-add-child"
+                  aria-label={`Add a page inside ${page.title}`}
+                  title="Add a page inside"
+                  onClick={() => onCreatePage(page.id)}
+                >
+                  <Plus size={14} aria-hidden />
+                </button>
+              ) : null}
+              {page.kind !== 'database' ? (
+                // No data-testid here: the testid lives on the overflow menu item so getByTestId
+                // finds exactly one element even when multiple rows are rendered.
+                <button
+                  type="button"
+                  className="grid size-5 cursor-pointer place-items-center rounded-sm border-0 bg-transparent p-0 text-panel-text-muted hover:bg-white/12 hover:text-blue-soft"
+                  aria-label={`Add a database inside ${page.title}`}
+                  title="Add a database inside"
+                  onClick={() => onCreateDatabase(page.id)}
+                >
+                  <Table2 size={14} aria-hidden />
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="grid size-5 cursor-pointer place-items-center rounded-sm border-0 bg-transparent p-0 text-panel-text-muted hover:bg-danger/22 hover:text-danger-soft"
@@ -339,15 +379,27 @@ export function Sidebar({
         <h2 className="m-0 text-xs font-bold tracking-[0.11em] text-panel-text-muted uppercase">
           Pages
         </h2>
-        <button
-          type="button"
-          className="grid min-h-12 min-w-12 cursor-pointer place-items-center rounded-sm border-0 bg-transparent text-panel-text-muted hover:bg-panel-hover hover:text-amber-soft"
-          aria-label="Add a top-level page"
-          title="Add a top-level page"
-          onClick={() => onCreatePage(null)}
-        >
-          <Plus size={14} aria-hidden />
-        </button>
+        <span className="flex items-center gap-0.5">
+          <button
+            type="button"
+            className="grid min-h-12 min-w-12 cursor-pointer place-items-center rounded-sm border-0 bg-transparent text-panel-text-muted hover:bg-panel-hover hover:text-amber-soft"
+            aria-label="Add a top-level page"
+            title="Add a top-level page"
+            onClick={() => onCreatePage(null)}
+          >
+            <Plus size={14} aria-hidden />
+          </button>
+          <button
+            type="button"
+            className="grid min-h-12 min-w-12 cursor-pointer place-items-center rounded-sm border-0 bg-transparent text-panel-text-muted hover:bg-panel-hover hover:text-blue-soft"
+            aria-label="Add a top-level database"
+            title="Add a top-level database"
+            data-testid="new-database-top"
+            onClick={() => onCreateDatabase(null)}
+          >
+            <Table2 size={14} aria-hidden />
+          </button>
+        </span>
       </div>
 
       {/* Page tree: flex-1 + min-h-0 lets it shrink so the footer stays visible on short screens.
@@ -364,10 +416,20 @@ export function Sidebar({
         )}
       </nav>
 
-      <Button className="mx-0.5 mt-2 mb-2.5 w-full" onClick={() => onCreatePage(null)}>
-        <Plus size={16} aria-hidden />
-        New page
-      </Button>
+      <div className="mx-0.5 mt-2 mb-2.5 flex gap-1.5">
+        <Button className="flex-1" onClick={() => onCreatePage(null)}>
+          <Plus size={16} aria-hidden />
+          New page
+        </Button>
+        <Button
+          className="flex-1"
+          data-testid="new-database-bottom"
+          onClick={() => onCreateDatabase(null)}
+        >
+          <Table2 size={16} aria-hidden />
+          New database
+        </Button>
+      </div>
 
       <footer className="flex items-center gap-2.5 border-t border-panel-border pt-3">
         {/* Avatar: visually 30px circle, but min-48px hit area is on the footer as a whole. */}

@@ -5,15 +5,18 @@ import { submitOps } from '../sync/ops';
 import { buildPageCreateOp, buildPageDeleteOp, buildPageUpdateOp } from '../sync/pageOps';
 import { sortKeyForNewChild } from '../lib/pageTree';
 import { describeWriteFailure } from '../lib/errors';
-import type { PageRecord, PageUpdatePayload } from '../api/types';
+import type { PageKind, PageRecord, PageUpdatePayload } from '../api/types';
 
 /** The default look of a freshly created page, before the user names it or picks an icon. */
 export const DEFAULT_PAGE_TITLE = 'Untitled';
 export const DEFAULT_PAGE_ICON = '\u{1F4C4}';
 
 export interface PageMutations {
-  /** The new page's id, or null when the write failed - in which case the user has been told. */
-  createPage: (parentId: string | null) => Promise<string | null>;
+  /**
+   * The new page's id, or null when the write failed - in which case the user has been told.
+   * `kind` defaults to 'page'; pass 'database' or 'row' for the Phase 3 entity types.
+   */
+  createPage: (parentId: string | null, kind?: PageKind) => Promise<string | null>;
   updatePage: (page: PageRecord, changes: PageUpdatePayload) => Promise<void>;
   deletePage: (page: PageRecord) => Promise<void>;
   isMutating: boolean;
@@ -57,7 +60,7 @@ export function usePageMutations(
   };
 
   const create = useMutation({
-    mutationFn: async (parentId: string | null) => {
+    mutationFn: async ({ parentId, kind }: { parentId: string | null; kind?: PageKind }) => {
       // The id is minted here, not by the server, so the caller can navigate immediately.
       const pageId = crypto.randomUUID();
       const sortKey = reserveSortKey(parentId);
@@ -69,6 +72,7 @@ export function usePageMutations(
           title: DEFAULT_PAGE_TITLE,
           icon: DEFAULT_PAGE_ICON,
           sortKey,
+          kind,
         });
         await submitOps(workspaceId, [op]);
         // The reservation is held until the refetched snapshot carries the key, or a later create
@@ -122,12 +126,15 @@ export function usePageMutations(
   };
 
   return {
-    createPage: async (parentId) => {
+    createPage: async (parentId, kind) => {
       try {
-        return await create.mutateAsync(parentId);
+        return await create.mutateAsync({ parentId, kind });
       } catch (error) {
         const parent = parentId ? pages.find((page) => page.id === parentId) : undefined;
-        const action = parent ? `Adding a page inside ${label(parent)}` : 'Adding a page';
+        const entityName = kind === 'database' ? 'database' : kind === 'row' ? 'row' : 'page';
+        const action = parent
+          ? `Adding a ${entityName} inside ${label(parent)}`
+          : `Adding a ${entityName}`;
         await handleFailure(action, error);
         return null;
       }
