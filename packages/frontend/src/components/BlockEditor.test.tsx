@@ -752,6 +752,24 @@ describe('a paste longer than the block limit (DEF-014, DEF-015)', () => {
   });
 });
 
+describe('typing past the block limit fires the notice (DEF-021)', () => {
+  it('calls onNotice when a change event delivers text longer than the block limit', () => {
+    const recorded = renderEditor([
+      makeBlock({ id: 'b-1', pageId: 'p-1', sortKey: 'a0', text: '' }),
+    ]);
+
+    // Use fireEvent.change to drive the typed code path: handleChange is the same onChange handler
+    // whether text arrives via typing, IME composition, or paste. The notice must not say "pasted"
+    // because it fires for all three paths.
+    fireEvent.change(editorFor('b-1'), { target: { value: 'a'.repeat(10001) } });
+
+    expect(recorded.notices).toHaveLength(1);
+    // DEF-021: the message must not contain "pasted" — this change event was not a paste.
+    expect(recorded.notices[0]).not.toContain('pasted');
+    expect(recorded.notices[0]).toContain('10,000 characters');
+  });
+});
+
 describe('the empty page', () => {
   it('offers a first block and focuses it once created', async () => {
     const user = userEvent.setup();

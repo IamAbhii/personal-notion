@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { Sidebar, type SidebarProps } from './Sidebar';
 import { fixturePages, makePage } from '../../test/fixtures';
 import { useUiStore } from '../../stores/uiStore';
+import type { PageRecord } from '../../api/types';
 
 // Reset the UI store between tests so collapse state and drawer state do not leak across specs.
 beforeEach(() => {
@@ -23,6 +24,7 @@ function renderSidebar(overrides: Partial<SidebarProps> = {}) {
     currentPageId: 'p-journal',
     onSelectPage: vi.fn(),
     onCreatePage: vi.fn(),
+    onCreateDatabase: vi.fn(),
     onRenamePage: vi.fn(),
     onDeletePage: vi.fn(),
     ...overrides,
@@ -424,5 +426,88 @@ describe('Sidebar drawer (mobile)', () => {
     sidebar.focus();
     // Should not throw.
     await user.keyboard('{Escape}');
+  });
+});
+
+describe('Sidebar database affordances (Phase 3)', () => {
+  const dbPage: PageRecord = makePage({
+    id: 'p-db',
+    title: 'Projects',
+    kind: 'database',
+    icon: '\u{1F4CA}',
+    sortKey: 'a0',
+  });
+  const rowPage: PageRecord = makePage({
+    id: 'p-row',
+    title: 'Row 1',
+    kind: 'row',
+    parentId: 'p-db',
+    sortKey: 'a0',
+  });
+
+  it('excludes row pages from the sidebar tree', () => {
+    renderSidebar({ pages: [dbPage, rowPage] });
+    // The database itself should be visible
+    expect(screen.getByText('Projects')).toBeInTheDocument();
+    // Row pages must NOT appear in the tree
+    expect(screen.queryByText('Row 1')).not.toBeInTheDocument();
+  });
+
+  it('shows a database marker badge on database pages', () => {
+    renderSidebar({ pages: [dbPage] });
+    expect(screen.getByTestId('database-marker')).toBeInTheDocument();
+  });
+
+  it('does not show a database marker badge on plain pages', () => {
+    renderSidebar({ pages: [makePage({ id: 'p-plain', title: 'Plain' })] });
+    expect(screen.queryByTestId('database-marker')).not.toBeInTheDocument();
+  });
+
+  it('renders "Add a top-level database" button in the header', () => {
+    renderSidebar();
+    expect(screen.getByRole('button', { name: 'Add a top-level database' })).toBeInTheDocument();
+  });
+
+  it('calls onCreateDatabase with null when the top-level database button is clicked', async () => {
+    const user = userEvent.setup();
+    const props = renderSidebar();
+    await user.click(screen.getByRole('button', { name: 'Add a top-level database' }));
+    expect(props.onCreateDatabase).toHaveBeenCalledWith(null);
+  });
+
+  it('renders a "New database" bottom button', () => {
+    renderSidebar();
+    expect(screen.getByTestId('new-database-bottom')).toBeInTheDocument();
+  });
+
+  it('calls onCreateDatabase with null when the New database button is clicked', async () => {
+    const user = userEvent.setup();
+    const props = renderSidebar();
+    await user.click(screen.getByTestId('new-database-bottom'));
+    expect(props.onCreateDatabase).toHaveBeenCalledWith(null);
+  });
+
+  it('shows "Add a database inside" in the overflow menu for plain page rows', async () => {
+    const user = userEvent.setup();
+    renderSidebar({ pages: fixturePages });
+    // Journal is a plain page — its overflow menu should have the database option
+    await user.click(screen.getByRole('button', { name: 'Actions for Journal' }));
+    expect(screen.getByTestId('page-add-database-child')).toBeInTheDocument();
+  });
+
+  it('calls onCreateDatabase with the page id when "Add a database inside" is clicked', async () => {
+    const user = userEvent.setup();
+    const props = renderSidebar({ pages: fixturePages });
+    await user.click(screen.getByRole('button', { name: 'Actions for Journal' }));
+    await user.click(screen.getByTestId('page-add-database-child'));
+    expect(props.onCreateDatabase).toHaveBeenCalledWith('p-journal');
+  });
+
+  it('does not show "Add a page inside" or "Add a database inside" in the menu for a database page', async () => {
+    const user = userEvent.setup();
+    renderSidebar({ pages: [dbPage] });
+    await user.click(screen.getByRole('button', { name: 'Actions for Projects' }));
+    expect(screen.queryByTestId('page-add-child')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('page-add-database-child')).not.toBeInTheDocument();
   });
 });

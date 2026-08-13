@@ -204,10 +204,11 @@ export function BlockRow({
 
   const handleChange = (next: string) => {
     const { text: clamped, truncated } = clampBlockText(next);
-    // Clamping is defensible; clamping silently is not, so a dropped paste is said out loud.
+    // Clamping is defensible; clamping silently is not — the user must know their text was cut.
+    // This fires for both paste and keyboard input, so the message avoids saying "pasted" (DEF-021).
     if (truncated) {
       onNotice(
-        `A block holds at most ${MAX_BLOCK_TEXT_LENGTH.toLocaleString('en-GB')} characters, so the end of what you pasted was not kept. Split it across several blocks to keep all of it.`,
+        `A block holds at most ${MAX_BLOCK_TEXT_LENGTH.toLocaleString('en-GB')} characters, so some of the text was not kept. Split it across several blocks to keep all of it.`,
       );
     }
     if (slashQuery !== null) {
