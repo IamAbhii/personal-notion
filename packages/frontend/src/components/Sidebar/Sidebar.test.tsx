@@ -368,6 +368,40 @@ describe('Sidebar mobile overflow menu', () => {
   });
 });
 
+describe('Sidebar action overlay (DEF-035 and DEF-036)', () => {
+  it('clicking a nested page title navigates and does not open the rename input (DEF-035)', async () => {
+    const user = userEvent.setup();
+    const props = renderSidebar();
+
+    // Lisbon is two levels deep. Before DEF-035 was fixed the desktop action overlay was
+    // absolutely positioned and physically covered the title button at this indent depth, so
+    // elementFromPoint returned the pencil icon and the click fired setRenamingId instead of
+    // handleSelectPage. The fix moves the overlay in-flow so the title is never occluded.
+    await user.click(screen.getByRole('button', { name: 'Lisbon' }));
+
+    expect(props.onSelectPage).toHaveBeenCalledWith('p-lisbon');
+    // The rename input must not appear — the title click must reach handleSelectPage only.
+    expect(screen.queryByLabelText('New name for Lisbon')).not.toBeInTheDocument();
+  });
+
+  it('desktop action overlays use focus-visible semantics, not focus-within (DEF-036)', () => {
+    renderSidebar();
+
+    // Before DEF-036 was fixed the overlay used group-focus-within, which matches any focus
+    // including one caused by a mouse click, leaving the buttons visible after the pointer left.
+    // The fix switches to group-has-[:focus-visible] so only keyboard-driven focus keeps them shown.
+    const overlays = screen.getAllByTestId('page-row-desktop-actions');
+    expect(overlays.length).toBeGreaterThan(0);
+
+    for (const overlay of overlays) {
+      // Must not contain the old focus-within trigger.
+      expect(overlay.className).not.toContain('group-focus-within');
+      // Must contain the focus-visible trigger.
+      expect(overlay.className).toContain('focus-visible');
+    }
+  });
+});
+
 describe('Sidebar drawer (mobile)', () => {
   it('calls onClose when Escape is pressed inside the sidebar', async () => {
     const user = userEvent.setup();
