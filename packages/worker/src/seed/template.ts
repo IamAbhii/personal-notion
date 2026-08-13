@@ -2,9 +2,9 @@
 // workspace. Ids are minted per call by seedWorkspace, never written here, so the same template can
 // populate any number of workspaces without collisions.
 //
-// It grows with the phases: Phase 2 added `blocks` to these nodes, and a later phase adds a
-// `databases` section alongside, so nothing ever ships empty. Keep the shape append-only.
-import type { BlockType } from '../sync/ops';
+// It grows with the phases: Phase 2 added `blocks` to these nodes, Phase 3 added `databases`, and a
+// later phase adds views. Keep the shape append-only.
+import type { BlockType, OptionColor, PropertyType } from '../sync/ops';
 
 // One block of page content. Order inside the array is the order on the page; seedWorkspace mints the
 // fractional sort_keys. props is a JSON string for type-specific extras only.
@@ -20,6 +20,30 @@ export type SeedPage = {
   icon: string;
   blocks?: SeedBlock[];
   children?: SeedPage[];
+};
+
+// A property definition inside a database template. options is only meaningful for select and
+// multiSelect types; id is omitted here and minted by seedWorkspace so options can vary per workspace.
+export type SeedPropertyDef = {
+  name: string;
+  type: PropertyType;
+  options?: Array<{ name: string; color: OptionColor }>;
+};
+
+// One row in a seeded database. values maps property name to the JS value (not JSON-encoded); the
+// seed encoder converts it to the appropriate JSON string before inserting.
+export type SeedRowDef = {
+  title: string;
+  blocks?: SeedBlock[];
+  values?: Array<{ propertyName: string; value: unknown }>;
+};
+
+// A database page with its property schema and initial rows.
+export type SeedDatabaseDef = {
+  title: string;
+  icon: string;
+  properties: SeedPropertyDef[];
+  rows: SeedRowDef[];
 };
 
 // Written out in full on a few pages so a first run reads like a workspace someone actually keeps, and
@@ -210,5 +234,172 @@ export const SEED_PAGES: SeedPage[] = [
     title: 'Reading list',
     icon: '📚',
     children: [{ title: 'Finished in 2026', icon: '📖' }],
+  },
+];
+
+// Two databases that exercise all seven property types between them, with colored select and
+// multiSelect options and several realistic rows.
+//
+// "Work Projects" uses: select (status), multiSelect (tags), date (due), checkbox (done),
+//   number (effort), url (spec).
+// "Book Tracker" uses: select (status), multiSelect (topics), url (link), date (finished),
+//   number (rating), text (notes).
+//
+// Together they cover all seven property types (text, number, select, multiSelect, date, checkbox, url).
+export const SEED_DATABASES: SeedDatabaseDef[] = [
+  {
+    title: 'Work Projects',
+    icon: '🗂️',
+    properties: [
+      {
+        name: 'Status',
+        type: 'select',
+        options: [
+          { name: 'Backlog', color: 'gray' },
+          { name: 'In progress', color: 'blue' },
+          { name: 'Done', color: 'teal' },
+          { name: 'On hold', color: 'amber' },
+        ],
+      },
+      {
+        name: 'Tags',
+        type: 'multiSelect',
+        options: [
+          { name: 'Frontend', color: 'purple' },
+          { name: 'Backend', color: 'blue' },
+          { name: 'Design', color: 'rose' },
+          { name: 'Research', color: 'amber' },
+        ],
+      },
+      { name: 'Due date', type: 'date' },
+      { name: 'Done', type: 'checkbox' },
+      { name: 'Effort (days)', type: 'number' },
+      { name: 'Spec', type: 'url' },
+    ],
+    rows: [
+      {
+        title: 'Phase 3: databases and table view',
+        blocks: [
+          { type: 'heading2', text: 'Scope' },
+          { type: 'paragraph', text: 'Add database pages, properties and the table view.' },
+          { type: 'todo', text: 'Migration and Drizzle schema', checked: true },
+          { type: 'todo', text: 'Op handlers in apply.ts', checked: false },
+          { type: 'todo', text: 'Table view component', checked: false },
+        ],
+        values: [
+          { propertyName: 'Status', value: 'In progress' },
+          { propertyName: 'Tags', value: ['Frontend', 'Backend'] },
+          { propertyName: 'Due date', value: '2026-09-15' },
+          { propertyName: 'Done', value: false },
+          { propertyName: 'Effort (days)', value: 5 },
+          { propertyName: 'Spec', value: 'github.com/org/spec/phase-3' },
+        ],
+      },
+      {
+        title: 'Accessibility audit',
+        blocks: [
+          { type: 'paragraph', text: 'Screen reader pass on the sidebar and the editor.' },
+          { type: 'todo', text: 'Run axe on all routes', checked: false },
+        ],
+        values: [
+          { propertyName: 'Status', value: 'Backlog' },
+          { propertyName: 'Tags', value: ['Design', 'Frontend'] },
+          { propertyName: 'Due date', value: '2026-10-01' },
+          { propertyName: 'Done', value: false },
+          { propertyName: 'Effort (days)', value: 3 },
+        ],
+      },
+      {
+        title: 'Performance baseline',
+        blocks: [{ type: 'paragraph', text: 'Measure cold-start and snapshot load times.' }],
+        values: [
+          { propertyName: 'Status', value: 'Done' },
+          { propertyName: 'Tags', value: ['Backend'] },
+          { propertyName: 'Due date', value: '2026-08-01' },
+          { propertyName: 'Done', value: true },
+          { propertyName: 'Effort (days)', value: 2 },
+          { propertyName: 'Spec', value: 'notion.so/perf-baseline' },
+        ],
+      },
+    ],
+  },
+  {
+    title: 'Book Tracker',
+    icon: '📖',
+    properties: [
+      {
+        name: 'Status',
+        type: 'select',
+        options: [
+          { name: 'Want to read', color: 'gray' },
+          { name: 'Reading', color: 'amber' },
+          { name: 'Finished', color: 'teal' },
+          { name: 'Abandoned', color: 'rose' },
+        ],
+      },
+      {
+        name: 'Topics',
+        type: 'multiSelect',
+        options: [
+          { name: 'Design', color: 'purple' },
+          { name: 'Technology', color: 'blue' },
+          { name: 'History', color: 'amber' },
+          { name: 'Fiction', color: 'teal' },
+          { name: 'Science', color: 'rose' },
+        ],
+      },
+      { name: 'Link', type: 'url' },
+      { name: 'Finished', type: 'date' },
+      { name: 'Rating', type: 'number' },
+      { name: 'Notes', type: 'text' },
+    ],
+    rows: [
+      {
+        title: 'The Design of Everyday Things',
+        blocks: [
+          {
+            type: 'paragraph',
+            text: 'Norman doors and affordances. Every designer should read this.',
+          },
+        ],
+        values: [
+          { propertyName: 'Status', value: 'Finished' },
+          { propertyName: 'Topics', value: ['Design'] },
+          { propertyName: 'Link', value: 'bookshop.org/p/books/the-design-of-everyday-things' },
+          { propertyName: 'Finished', value: '2026-03-12' },
+          { propertyName: 'Rating', value: 5 },
+          {
+            propertyName: 'Notes',
+            value: 'Reread the visibility and feedback chapters before the next project.',
+          },
+        ],
+      },
+      {
+        title: 'A Philosophy of Software Design',
+        blocks: [
+          { type: 'paragraph', text: 'Ousterhout on complexity and deep modules.' },
+          {
+            type: 'todo',
+            text: 'Apply the deep-module principle to the repo layer',
+            checked: false,
+          },
+        ],
+        values: [
+          { propertyName: 'Status', value: 'Reading' },
+          { propertyName: 'Topics', value: ['Technology'] },
+          { propertyName: 'Rating', value: 4 },
+          { propertyName: 'Notes', value: 'Chapter 8 on pull complexity up is the key insight.' },
+        ],
+      },
+      {
+        title: 'The Pragmatic Programmer',
+        blocks: [],
+        values: [
+          { propertyName: 'Status', value: 'Want to read' },
+          { propertyName: 'Topics', value: ['Technology'] },
+          { propertyName: 'Link', value: 'pragprog.com/titles/tpp20' },
+        ],
+      },
+    ],
   },
 ];

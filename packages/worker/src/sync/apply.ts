@@ -24,10 +24,29 @@ import {
   type PagePatch,
 } from '../repo/pages';
 import {
+  buildPropertyRow,
+  deletePropertiesForDatabasesStatements,
+  deletePropertyStatement,
+  insertPropertyStatement,
+  listPropertyStates,
+  parseOptions,
+  updatePropertyStatement,
+  type PropertyPatch,
+} from '../repo/properties';
+import {
+  deleteValuesForPropertiesStatements,
+  deleteValuesForRowsStatements,
+  listValueStates,
+  upsertValueStatement,
+} from '../repo/propertyValues';
+import {
+  MAX_PROPERTIES_PER_DATABASE,
   payloadRejection,
   type BlockType,
   type Op,
   type OpResult,
+  type PropertyType,
+  type SelectOption,
   type VersionMismatch,
 } from './ops';
 
@@ -42,11 +61,29 @@ export type SyncOutcome = {
 };
 
 // The subset of each page the applier needs in memory: enough to check existence, compare versions,
-// walk the tree for cascade deletes and detect a parent cycle.
-type PageState = { version: number; parentId: string | null; sortKey: string };
+// walk the tree for cascade deletes, detect a parent cycle and enforce kind/parent rules.
+type PageState = {
+  version: number;
+  parentId: string | null;
+  sortKey: string;
+  kind: 'page' | 'database' | 'row';
+};
 
 // The same for blocks: existence, version, which page it sits on and where in that page.
 type BlockState = { version: number; pageId: string; sortKey: string };
+
+// What the applier needs per property: existence, version, which database it belongs to, its type
+// (for value validation) and its parsed options (for select/multiSelect option id checks).
+type PropertyState = {
+  version: number;
+  databasePageId: string;
+  type: string;
+  options: SelectOption[];
+  sortKey: string;
+};
+
+// What the applier needs per value: just the version, keyed by `${rowPageId}:${propertyId}`.
+type ValueState = { version: number };
 
 // Applies ops to a workspace and returns one result per op, in the order they were given.
 // Ops are re-ordered to client_seq before applying, because a later op may depend on an earlier one
@@ -59,13 +96,24 @@ export async function applyOps(db: Db, ctx: Ctx, ops: Op[]): Promise<SyncOutcome
     ordered.map((op) => op.opId),
   );
 
-  // Two reads - the page skeleton and the block skeleton - and then every decision is made in
-  // memory. Doing it per op would spend the whole D1 query budget on lookups.
-  const [rows, blockRows] = await Promise.all([listPageStates(db, ctx), listBlockStates(db, ctx)]);
+  // Four reads - pages, blocks, properties and values - then every decision is made in memory.
+  // Doing it per op would spend the whole D1 query budget on lookups.
+  const [rows, blockRows, propRows, valueRows] = await Promise.all([
+    listPageStates(db, ctx),
+    listBlockStates(db, ctx),
+    listPropertyStates(db, ctx),
+    listValueStates(db, ctx),
+  ]);
+
   const state = new Map<string, PageState>(
     rows.map((row) => [
       row.id,
-      { version: row.version, parentId: row.parentId, sortKey: row.sortKey },
+      {
+        version: row.version,
+        parentId: row.parentId,
+        sortKey: row.sortKey,
+        kind: (row.kind as 'page' | 'database' | 'row') ?? 'page',
+      },
     ]),
   );
   const blockState = new Map<string, BlockState>(
@@ -73,6 +121,22 @@ export async function applyOps(db: Db, ctx: Ctx, ops: Op[]): Promise<SyncOutcome
       row.id,
       { version: row.version, pageId: row.pageId, sortKey: row.sortKey },
     ]),
+  );
+  const propertyState = new Map<string, PropertyState>(
+    propRows.map((row) => [
+      row.id,
+      {
+        version: row.version,
+        databasePageId: row.databasePageId,
+        type: row.type,
+        options: parseOptions(row.options),
+        sortKey: row.sortKey,
+      },
+    ]),
+  );
+  // Value state is keyed by the derived id `${rowPageId}:${propertyId}`.
+  const valueState = new Map<string, ValueState>(
+    valueRows.map((row) => [`${row.rowPageId}:${row.propertyId}`, { version: row.version }]),
   );
 
   const now = Date.now();
@@ -168,12 +232,32 @@ export async function applyOps(db: Db, ctx: Ctx, ops: Op[]): Promise<SyncOutcome
         continue;
       }
       const parentId = op.payload.parentId ?? null;
+      const kind = op.payload.kind ?? 'page';
+
       // An op whose target no longer exists is dropped, not resurrected: recreating a deleted
       // ancestor to host an orphan would silently undo an explicit deletion.
       if (parentId !== null && !state.has(parentId)) {
         reject(op, 'parent page no longer exists');
         continue;
       }
+
+      // Kind/parent rules: a row must sit under a database; pages and databases must not sit under
+      // a database or row. These keep the tree structure well-formed for the table view.
+      if (kind === 'row') {
+        if (parentId === null || state.get(parentId)?.kind !== 'database') {
+          reject(op, 'a row page must have a database page as its parent');
+          continue;
+        }
+      } else {
+        if (parentId !== null) {
+          const parentKind = state.get(parentId)?.kind;
+          if (parentKind === 'database' || parentKind === 'row') {
+            reject(op, 'a page or database cannot be parented to a database or row page');
+            continue;
+          }
+        }
+      }
+
       const sortKey = op.payload.sortKey ?? nextSiblingKey(state, parentId);
       const row = buildPageRow(
         ctx,
@@ -182,12 +266,13 @@ export async function applyOps(db: Db, ctx: Ctx, ops: Op[]): Promise<SyncOutcome
           parentId,
           title: op.payload.title,
           icon: op.payload.icon,
+          kind,
         },
         sortKey,
         now,
       );
       dataStatements.push(insertPageStatement(db, row));
-      state.set(row.id, { version: row.version, parentId, sortKey });
+      state.set(row.id, { version: row.version, parentId, sortKey, kind });
       accept(op, row.version);
       continue;
     }
@@ -208,6 +293,19 @@ export async function applyOps(db: Db, ctx: Ctx, ops: Op[]): Promise<SyncOutcome
           reject(op, 'a page cannot be moved inside itself');
           continue;
         }
+        // Enforce kind/parent rules on reparenting, same as page.create.
+        const newParentKind = state.get(patch.parentId)?.kind;
+        if (current.kind === 'row') {
+          if (newParentKind !== 'database') {
+            reject(op, 'a row page must have a database page as its parent');
+            continue;
+          }
+        } else {
+          if (newParentKind === 'database' || newParentKind === 'row') {
+            reject(op, 'a page or database cannot be parented to a database or row page');
+            continue;
+          }
+        }
       }
       // Future: reject on mismatch to enable optimistic concurrency. Today the policy is last write
       // wins by server arrival order, and the mismatch is reported so the client can tell the user
@@ -226,6 +324,7 @@ export async function applyOps(db: Db, ctx: Ctx, ops: Op[]): Promise<SyncOutcome
         version: nextVersion,
         parentId: patch.parentId !== undefined ? patch.parentId : current.parentId,
         sortKey: patch.sortKey ?? current.sortKey,
+        kind: current.kind,
       });
       accept(op, nextVersion);
       continue;
@@ -310,16 +409,160 @@ export async function applyOps(db: Db, ctx: Ctx, ops: Op[]): Promise<SyncOutcome
       continue;
     }
 
-    // page.delete
+    if (op.type === 'property.create') {
+      if (propertyState.has(op.entityId)) {
+        reject(op, 'property already exists');
+        continue;
+      }
+      const { databasePageId, name, type, options, sortKey: suppliedKey } = op.payload;
+      const dbPage = state.get(databasePageId);
+      if (!dbPage || dbPage.kind !== 'database') {
+        reject(op, 'databasePageId is not a database page');
+        continue;
+      }
+      const existing = countPropertiesForDatabase(propertyState, databasePageId);
+      if (existing >= MAX_PROPERTIES_PER_DATABASE) {
+        reject(op, `database has reached the limit of ${MAX_PROPERTIES_PER_DATABASE} properties`);
+        continue;
+      }
+      const sortKey = suppliedKey ?? nextPropertyKey(propertyState, databasePageId);
+      const row = buildPropertyRow(
+        ctx,
+        {
+          id: op.entityId,
+          databasePageId,
+          name,
+          // payloadRejection already confirmed this is one of the seven PropertyType values, so
+          // the cast is safe rather than defensive.
+          type: type as PropertyType,
+          options: options as SelectOption[] | undefined,
+        },
+        sortKey,
+        now,
+      );
+      dataStatements.push(insertPropertyStatement(db, row));
+      propertyState.set(row.id, {
+        version: row.version,
+        databasePageId,
+        type,
+        options: parseOptions(row.options),
+        sortKey,
+      });
+      accept(op, row.version);
+      continue;
+    }
+
+    if (op.type === 'property.update') {
+      const current = propertyState.get(op.entityId);
+      if (!current) {
+        reject(op, 'property no longer exists');
+        continue;
+      }
+      const { name, options, sortKey } = op.payload;
+      // Validate that new options don't reference unknown colors (already checked by payloadRejection)
+      // and that the options are valid for the current type.
+      const patch: PropertyPatch = {
+        ...(name !== undefined ? { name } : {}),
+        ...(options !== undefined ? { options: options as SelectOption[] } : {}),
+        ...(sortKey !== undefined ? { sortKey } : {}),
+      };
+      // Future: reject on mismatch to enable optimistic concurrency. Same last-write-wins policy as
+      // page.update and block.update.
+      if (typeof op.baseVersion === 'number' && op.baseVersion !== current.version) {
+        versionMismatches.push({
+          opId: op.opId,
+          entityId: op.entityId,
+          baseVersion: op.baseVersion,
+          serverVersion: current.version,
+        });
+      }
+      dataStatements.push(updatePropertyStatement(db, ctx, op.entityId, patch, now));
+      const nextVersion = current.version + 1;
+      propertyState.set(op.entityId, {
+        version: nextVersion,
+        databasePageId: current.databasePageId,
+        type: current.type,
+        options: options !== undefined ? (options as SelectOption[]) : current.options,
+        sortKey: sortKey ?? current.sortKey,
+      });
+      accept(op, nextVersion);
+      continue;
+    }
+
+    if (op.type === 'property.delete') {
+      const current = propertyState.get(op.entityId);
+      if (!current) {
+        reject(op, 'property no longer exists');
+        continue;
+      }
+      // Delete the property's values before the property itself; both go into the same batch.
+      dataStatements.push(...deleteValuesForPropertiesStatements(db, ctx, [op.entityId]));
+      dataStatements.push(deletePropertyStatement(db, ctx, op.entityId));
+      // Remove affected values from the in-memory state.
+      for (const key of valueState.keys()) {
+        if (key.endsWith(`:${op.entityId}`)) valueState.delete(key);
+      }
+      propertyState.delete(op.entityId);
+      accept(op, null);
+      continue;
+    }
+
+    if (op.type === 'value.set') {
+      const { rowPageId, propertyId, value } = op.payload;
+      const rowPage = state.get(rowPageId);
+      if (!rowPage || rowPage.kind !== 'row') {
+        reject(op, 'rowPageId is not a row page');
+        continue;
+      }
+      const prop = propertyState.get(propertyId);
+      if (!prop) {
+        reject(op, 'property no longer exists');
+        continue;
+      }
+      // A value for a property that belongs to a different database than this row's database would
+      // be unreachable and confusing, so it is refused.
+      if (prop.databasePageId !== rowPage.parentId) {
+        reject(op, "propertyId does not belong to this row's database");
+        continue;
+      }
+      // Validate the JSON value against the property's type. null always means "clear the cell".
+      if (value !== null) {
+        const typeError = validateValue(prop.type, value, prop.options);
+        if (typeError) {
+          reject(op, typeError);
+          continue;
+        }
+      }
+      // entityId for value.set is the derived composite key, not a UUID.
+      const entityId = `${rowPageId}:${propertyId}`;
+      const existing = valueState.get(entityId);
+      const nextVersion = existing ? existing.version + 1 : 1;
+      dataStatements.push(
+        upsertValueStatement(db, ctx, rowPageId, propertyId, value, nextVersion, now),
+      );
+      valueState.set(entityId, { version: nextVersion });
+      // Future: reject on mismatch to enable optimistic concurrency. Same policy as other entity types.
+      if (typeof op.baseVersion === 'number' && existing && op.baseVersion !== existing.version) {
+        versionMismatches.push({
+          opId: op.opId,
+          entityId,
+          baseVersion: op.baseVersion,
+          serverVersion: existing.version,
+        });
+      }
+      accept(op, nextVersion);
+      continue;
+    }
+
+    // page.delete: remove the page plus its whole subtree (blocks, properties, values) in one batch.
     if (!state.has(op.entityId)) {
       reject(op, 'page no longer exists');
       continue;
     }
     const ids = subtreeIds(state, op.entityId);
     dataStatements.push(...deletePagesStatements(db, ctx, ids));
-    // The blocks of every deleted page go in the same batch: a page delete that left its blocks
-    // behind would leak rows nothing can ever reach. Only emitted when the subtree actually has
-    // blocks, so a delete of an empty page still costs one statement.
+
+    // Cascade blocks: blocks for every deleted page go in the same batch.
     const deletedPageIds = new Set(ids);
     const pagesWithBlocks = new Set<string>();
     for (const [blockId, block] of blockState) {
@@ -330,6 +573,33 @@ export async function applyOps(db: Db, ctx: Ctx, ops: Op[]): Promise<SyncOutcome
     if (pagesWithBlocks.size > 0) {
       dataStatements.push(...deleteBlocksForPagesStatements(db, ctx, [...pagesWithBlocks]));
     }
+
+    // Cascade properties: remove the property definitions for any deleted database pages.
+    const deletedDatabaseIds = ids.filter((id) => state.get(id)?.kind === 'database');
+    if (deletedDatabaseIds.length > 0) {
+      // Track which properties are being deleted so their values can be cleared from in-memory state.
+      const deletedPropIds: string[] = [];
+      for (const [propId, prop] of propertyState) {
+        if (deletedDatabaseIds.includes(prop.databasePageId)) {
+          deletedPropIds.push(propId);
+          propertyState.delete(propId);
+        }
+      }
+      dataStatements.push(...deletePropertiesForDatabasesStatements(db, ctx, deletedDatabaseIds));
+    }
+
+    // Cascade property values: remove the cell values for any deleted row pages (including rows
+    // that belonged to a deleted database, which are already in the subtree via their parentId).
+    const deletedRowIds = ids.filter((id) => state.get(id)?.kind === 'row');
+    if (deletedRowIds.length > 0) {
+      const deletedRowSet = new Set(deletedRowIds);
+      for (const key of valueState.keys()) {
+        const [rowPageId] = key.split(':');
+        if (rowPageId && deletedRowSet.has(rowPageId)) valueState.delete(key);
+      }
+      dataStatements.push(...deleteValuesForRowsStatements(db, ctx, deletedRowIds));
+    }
+
     for (const id of ids) state.delete(id);
     accept(op, null);
   }
@@ -390,6 +660,24 @@ function nextBlockKey(state: Map<string, BlockState>, pageId: string): string {
   return nextKeyAfter(lastInOrder(onPage)?.sortKey ?? null);
 }
 
+// The next fractional sort_key after the last property of databasePageId, for append-when-omitted.
+function nextPropertyKey(state: Map<string, PropertyState>, databasePageId: string): string {
+  const forDb = ordered(state, (prop) => prop.databasePageId === databasePageId);
+  return nextKeyAfter(lastInOrder(forDb)?.sortKey ?? null);
+}
+
+// How many properties currently exist for a given database, from in-memory projected state.
+function countPropertiesForDatabase(
+  state: Map<string, PropertyState>,
+  databasePageId: string,
+): number {
+  let count = 0;
+  for (const prop of state.values()) {
+    if (prop.databasePageId === databasePageId) count += 1;
+  }
+  return count;
+}
+
 // The matching entries of a projected state map as Ordered rows, pairing each row's sort_key with the
 // id the map is keyed by so the tiebreak has something to compare.
 function ordered<T extends { sortKey: string }>(
@@ -424,4 +712,53 @@ function createsCycle(state: Map<string, PageState>, pageId: string, newParentId
     cursor = state.get(cursor)?.parentId ?? null;
   }
   return false;
+}
+
+// Checks that a JSON-encoded value matches the expected property type. Returns a rejection reason
+// string or null when the value is valid. The caller guarantees value is not null (null = clear).
+function validateValue(type: string, value: string, options: SelectOption[]): string | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return 'value is not valid JSON';
+  }
+
+  switch (type) {
+    case 'text':
+    case 'url':
+      if (typeof parsed !== 'string') return `value for type ${type} must be a string`;
+      break;
+    case 'number':
+      if (typeof parsed !== 'number' || !Number.isFinite(parsed)) {
+        return 'value for type number must be a finite number';
+      }
+      break;
+    case 'select':
+      if (typeof parsed !== 'string') return 'value for type select must be an option id string';
+      if (!options.some((o) => o.id === parsed)) {
+        return 'select value references an unknown option id';
+      }
+      break;
+    case 'multiSelect':
+      if (!Array.isArray(parsed)) return 'value for type multiSelect must be an array';
+      for (const item of parsed) {
+        if (typeof item !== 'string') return 'multiSelect value items must be strings';
+        if (!options.some((o) => o.id === item)) {
+          return 'multiSelect value references an unknown option id';
+        }
+      }
+      break;
+    case 'date':
+      if (typeof parsed !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(parsed)) {
+        return 'value for type date must be a YYYY-MM-DD string';
+      }
+      break;
+    case 'checkbox':
+      if (typeof parsed !== 'boolean') return 'value for type checkbox must be a boolean';
+      break;
+    default:
+      break;
+  }
+  return null;
 }

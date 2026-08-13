@@ -81,7 +81,9 @@ describe('GET /api/me', () => {
       pages: { title: string; icon: string | null; parentId: string | null }[];
     };
     expect(payload.pages.length).toBeGreaterThan(10);
-    expect(payload.pages.every((page) => page.icon !== null && page.icon !== '')).toBe(true);
+    // Row pages are accessed from the table view and have no icon; all other seeded pages do.
+    const nonRowPages = payload.pages.filter((page) => (page as { kind?: string }).kind !== 'row');
+    expect(nonRowPages.every((page) => page.icon !== null && page.icon !== '')).toBe(true);
     // The seeded tree is nested, not a flat list.
     expect(payload.pages.some((page) => page.parentId !== null)).toBe(true);
 
@@ -133,12 +135,15 @@ describe('GET /api/workspaces/:workspaceId/snapshot', () => {
           title: 'Journal',
           icon: '📓',
           sortKey: page.sortKey,
+          kind: 'page',
           version: 1,
           updatedAt: page.updatedAt,
         },
       ],
-      // The blocks key is always present, empty for a page with no content yet.
+      // The blocks, properties and values keys are always present, empty when nothing exists yet.
       blocks: [],
+      properties: [],
+      values: [],
     });
 
     const cached = await apiFetch(`/api/workspaces/${owner.workspaceId}/snapshot`, {

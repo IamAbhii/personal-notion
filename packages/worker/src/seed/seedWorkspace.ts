@@ -4,22 +4,37 @@
 import { generateKeyBetween } from 'fractional-indexing';
 import type { Db } from '../db/client';
 import { runBatch, type Statement } from '../db/batch';
-import { blocks, pages, type BlockRow, type PageRow } from '../db/schema';
+import {
+  blocks,
+  pages,
+  properties,
+  propertyValues,
+  type BlockRow,
+  type PageRow,
+  type PropertyRow,
+  type PropertyValueRow,
+} from '../db/schema';
 import { newId } from '../lib/ids';
 import type { Ctx } from '../repo/context';
 import { countPages } from '../repo/pages';
-import { SEED_PAGES, type SeedPage } from './template';
+import type { SelectOption } from '../sync/ops';
+import { SEED_DATABASES, SEED_PAGES, type SeedDatabaseDef, type SeedPage } from './template';
 
-// D1 allows at most 100 bound parameters per query and a page row binds 9, so multi-row inserts are
-// chunked at 10 rows. Chunking is safe because every chunk goes into the same batch.
+// D1 allows at most 100 bound parameters per query and a page row binds 10 (now including kind),
+// so multi-row inserts are chunked at 10 rows. Chunking is safe because every chunk goes into the
+// same batch.
 const ROWS_PER_INSERT = 10;
 // A block row binds 11 parameters, so its chunks are smaller.
 const BLOCK_ROWS_PER_INSERT = 9;
+// A property row binds 10 parameters.
+const PROPERTY_ROWS_PER_INSERT = 10;
+// A property_values row binds 7 parameters.
+const VALUE_ROWS_PER_INSERT = 14;
 
-// Flattens the template into page rows and block rows, minting a fresh uuid for every row and a
+// Flattens the page template into page rows and block rows, minting a fresh uuid for every row and a
 // fractional sort_key per sibling group, so the tree renders in template order and each page's blocks
 // read in the order the template lists them.
-function buildRows(ctx: Ctx, now: number): { pageRows: PageRow[]; blockRows: BlockRow[] } {
+function buildPageRows(ctx: Ctx, now: number): { pageRows: PageRow[]; blockRows: BlockRow[] } {
   const pageRows: PageRow[] = [];
   const blockRows: BlockRow[] = [];
 
@@ -36,6 +51,7 @@ function buildRows(ctx: Ctx, now: number): { pageRows: PageRow[]; blockRows: Blo
         title: node.title,
         icon: node.icon,
         sortKey,
+        kind: 'page',
         version: 1,
         createdAt: now,
         updatedAt: now,
@@ -66,25 +82,222 @@ function buildRows(ctx: Ctx, now: number): { pageRows: PageRow[]; blockRows: Blo
   return { pageRows, blockRows };
 }
 
+// Flattens the database template into page rows (databases and rows), block rows, property rows and
+// value rows. Option ids are minted here so values can reference them. The lastPageKey parameter
+// positions the database pages after all regular pages in the root level.
+function buildDatabaseRows(
+  ctx: Ctx,
+  now: number,
+  lastPageKey: string | null,
+): {
+  pageRows: PageRow[];
+  blockRows: BlockRow[];
+  propertyRows: PropertyRow[];
+  valueRows: PropertyValueRow[];
+} {
+  const pageRows: PageRow[] = [];
+  const blockRows: BlockRow[] = [];
+  const propertyRows: PropertyRow[] = [];
+  const valueRows: PropertyValueRow[] = [];
+
+  let previousDbKey = lastPageKey;
+
+  for (const db of SEED_DATABASES) {
+    const dbSortKey = generateKeyBetween(previousDbKey, null);
+    previousDbKey = dbSortKey;
+    const dbPageId = newId();
+
+    // The database page itself (kind = 'database').
+    pageRows.push({
+      id: dbPageId,
+      workspaceId: ctx.workspaceId,
+      parentId: null,
+      title: db.title,
+      icon: db.icon,
+      sortKey: dbSortKey,
+      kind: 'database',
+      version: 1,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    // Mint property ids and option ids upfront so rows can reference them.
+    const propertyIdByName = new Map<string, string>();
+    // Maps property name → { optionId by option name }
+    const optionIdByName = new Map<string, Map<string, string>>();
+
+    let previousPropKey: string | null = null;
+    for (const propDef of db.properties) {
+      const propId = newId();
+      propertyIdByName.set(propDef.name, propId);
+      previousPropKey = generateKeyBetween(previousPropKey, null);
+
+      const optionMap = new Map<string, string>();
+      const options: SelectOption[] = (propDef.options ?? []).map((opt) => {
+        const optId = newId();
+        optionMap.set(opt.name, optId);
+        return { id: optId, name: opt.name, color: opt.color };
+      });
+      optionIdByName.set(propDef.name, optionMap);
+
+      propertyRows.push({
+        id: propId,
+        workspaceId: ctx.workspaceId,
+        databasePageId: dbPageId,
+        name: propDef.name,
+        type: propDef.type,
+        options: options.length > 0 ? JSON.stringify(options) : null,
+        sortKey: previousPropKey,
+        version: 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    // Rows (kind = 'row', parentId = dbPageId).
+    let previousRowKey: string | null = null;
+    for (const rowDef of db.rows) {
+      const rowSortKey = generateKeyBetween(previousRowKey, null);
+      previousRowKey = rowSortKey;
+      const rowPageId = newId();
+
+      pageRows.push({
+        id: rowPageId,
+        workspaceId: ctx.workspaceId,
+        parentId: dbPageId,
+        title: rowDef.title,
+        icon: null,
+        sortKey: rowSortKey,
+        kind: 'row',
+        version: 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      // Blocks on the row page.
+      let previousBlockKey: string | null = null;
+      for (const block of rowDef.blocks ?? []) {
+        const blockSortKey = generateKeyBetween(previousBlockKey, null);
+        previousBlockKey = blockSortKey;
+        blockRows.push({
+          id: newId(),
+          workspaceId: ctx.workspaceId,
+          pageId: rowPageId,
+          type: block.type,
+          text: block.text ?? '',
+          checked: block.checked ? 1 : 0,
+          props: block.props ?? null,
+          sortKey: blockSortKey,
+          version: 1,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+
+      // Property values for this row.
+      for (const { propertyName, value } of rowDef.values ?? []) {
+        const propId = propertyIdByName.get(propertyName);
+        if (!propId) continue;
+
+        const optionMap = optionIdByName.get(propertyName);
+        // Encode the value as a JSON string. For select/multiSelect, map option names to minted ids.
+        const encoded = encodeValue(propertyName, value, optionMap, db);
+        if (encoded === null) continue;
+
+        valueRows.push({
+          workspaceId: ctx.workspaceId,
+          rowPageId: rowPageId,
+          propertyId: propId,
+          value: encoded,
+          version: 1,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+    }
+  }
+
+  return { pageRows, blockRows, propertyRows, valueRows };
+}
+
+// Converts a seed value (JS value) to its JSON-encoded storage form. For select and multiSelect the
+// value is an option name (or array of names); these are mapped to the minted option ids.
+// Returns null when the value cannot be encoded (unknown option name etc.), which skips the cell.
+function encodeValue(
+  propertyName: string,
+  value: unknown,
+  optionMap: Map<string, string> | undefined,
+  db: SeedDatabaseDef,
+): string | null {
+  const propDef = db.properties.find((p) => p.name === propertyName);
+  if (!propDef) return null;
+
+  if (propDef.type === 'select') {
+    if (typeof value !== 'string') return null;
+    const id = optionMap?.get(value);
+    if (!id) return null;
+    return JSON.stringify(id);
+  }
+  if (propDef.type === 'multiSelect') {
+    if (!Array.isArray(value)) return null;
+    const ids: string[] = [];
+    for (const name of value) {
+      if (typeof name !== 'string') return null;
+      const id = optionMap?.get(name);
+      if (!id) return null;
+      ids.push(id);
+    }
+    return JSON.stringify(ids);
+  }
+  // All other types encode their value directly.
+  return JSON.stringify(value);
+}
+
 // The insert statements that populate a workspace from the template, plus how many pages they
 // create. Exposed as statements rather than only as a write so a caller that has other work to do
 // atomically - the test reset, which clears the workspace first - can put it all in one batch.
-// Pages first, then their blocks, all in one batch, so a seeded workspace is never half-populated.
-// Future: a later phase seeds databases and views too; add their statements here.
+// Pages first, then their blocks, then properties and values, all in one batch.
+// Future: Phase 4 seeds views too; add their statements here.
 export function buildSeedStatements(
   db: Db,
   ctx: Ctx,
   now: number,
 ): { statements: Statement[]; pageCount: number; blockCount: number } {
-  const { pageRows, blockRows } = buildRows(ctx, now);
+  const { pageRows, blockRows } = buildPageRows(ctx, now);
+
+  // Position databases after all regular pages at the root level. The last root-level page key is
+  // the last element of pageRows that has parentId = null, since walk visits them in order.
+  const lastRootKey = pageRows.filter((p) => p.parentId === null).pop()?.sortKey ?? null;
+
+  const {
+    pageRows: dbPageRows,
+    blockRows: dbBlockRows,
+    propertyRows,
+    valueRows,
+  } = buildDatabaseRows(ctx, now, lastRootKey);
+
+  const allPageRows = [...pageRows, ...dbPageRows];
+  const allBlockRows = [...blockRows, ...dbBlockRows];
   const statements: Statement[] = [];
-  for (let i = 0; i < pageRows.length; i += ROWS_PER_INSERT) {
-    statements.push(db.insert(pages).values(pageRows.slice(i, i + ROWS_PER_INSERT)));
+
+  for (let i = 0; i < allPageRows.length; i += ROWS_PER_INSERT) {
+    statements.push(db.insert(pages).values(allPageRows.slice(i, i + ROWS_PER_INSERT)));
   }
-  for (let i = 0; i < blockRows.length; i += BLOCK_ROWS_PER_INSERT) {
-    statements.push(db.insert(blocks).values(blockRows.slice(i, i + BLOCK_ROWS_PER_INSERT)));
+  for (let i = 0; i < allBlockRows.length; i += BLOCK_ROWS_PER_INSERT) {
+    statements.push(db.insert(blocks).values(allBlockRows.slice(i, i + BLOCK_ROWS_PER_INSERT)));
   }
-  return { statements, pageCount: pageRows.length, blockCount: blockRows.length };
+  for (let i = 0; i < propertyRows.length; i += PROPERTY_ROWS_PER_INSERT) {
+    statements.push(
+      db.insert(properties).values(propertyRows.slice(i, i + PROPERTY_ROWS_PER_INSERT)),
+    );
+  }
+  for (let i = 0; i < valueRows.length; i += VALUE_ROWS_PER_INSERT) {
+    statements.push(
+      db.insert(propertyValues).values(valueRows.slice(i, i + VALUE_ROWS_PER_INSERT)),
+    );
+  }
+
+  return { statements, pageCount: allPageRows.length, blockCount: allBlockRows.length };
 }
 
 // Populates a workspace from the template. Idempotent per workspace: a workspace that already has
