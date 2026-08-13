@@ -1,0 +1,17 @@
+# Local development variables for `wrangler dev`. Copy to packages/worker/.dev.vars, which is
+# gitignored. Nothing here is a real secret: local development needs no Google credentials.
+
+NODE_ENV=development
+
+# The dev-only bypass: run as a fixed synthetic owner with no sign-in. The Worker refuses to serve
+# any request if this is set while NODE_ENV=production.
+AUTH_DISABLED=true
+
+# The single address allowed in once sign-in is switched on. With AUTH_DISABLED=true it is optional.
+# ALLOWED_EMAIL=you@example.com
+
+# Only needed with AUTH_DISABLED unset, once the OAuth handlers land in the deployment phase.
+# GOOGLE_CLIENT_ID=
+# GOOGLE_CLIENT_SECRET=
+# SESSION_SECRET=
+# PUBLIC_ORIGIN=http://localhost:8787

@@ -9,3 +9,4 @@ coverage/
 *.db-journal
 *.sqlite
 .claude/settings.local.json
+.dev.vars

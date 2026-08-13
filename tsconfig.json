@@ -15,8 +15,14 @@
     "noEmit": true
   },
   "files": ["eslint.config.js"],
-  // Future: when packages/frontend and packages/worker land, add
-  // { "path": "packages/frontend" } and { "path": "packages/worker" } here so one root typecheck
-  // covers the whole workspace. Each package's tsconfig extends ./tsconfig.base.json.
+  // This project covers the repo's own tooling config only. The two packages are checked as separate
+  // projects by `npm run typecheck`, because each needs its own runtime types (DOM for the PWA,
+  // workerd for the Worker) and they cannot share one program.
+  //
+  // They are deliberately not listed in "references": TypeScript rejects a project reference to a
+  // project that sets noEmit (TS6310), and both packages are type-check-only - Vite and Wrangler own
+  // emit. Future: to make `tsc --build` walk the workspace from here, give each package
+  // emitDeclarationOnly with a declarationDir under node_modules/.cache instead of noEmit, then add
+  // { "path": "packages/frontend" } and { "path": "packages/worker" } below.
   "references": []
 }
