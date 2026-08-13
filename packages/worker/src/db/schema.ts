@@ -1,6 +1,6 @@
-// Drizzle table definitions mirroring migrations/0001_initial_schema.sql. The SQL migration is the
-// source of truth (wrangler applies it in dev, tests and deploy); this file is how the repository
-// layer talks about those tables in a typed way.
+// Drizzle table definitions mirroring migrations/0001_initial_schema.sql through 0004_databases.sql.
+// The SQL migrations are the source of truth (wrangler applies them in dev, tests and deploy); this
+// file is how the repository layer talks about those tables in a typed way.
 import { index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
 export const users = sqliteTable('users', {
@@ -55,6 +55,8 @@ export const appliedOps = sqliteTable(
   (table) => [index('applied_ops_workspace_id_idx').on(table.workspaceId)],
 );
 
+// kind is 'page' (default), 'database' or 'row'. Added in migration 0004; existing rows default
+// to 'page'. Stored as TEXT rather than an enum because SQLite has no enum type.
 export const pages = sqliteTable(
   'pages',
   {
@@ -64,6 +66,7 @@ export const pages = sqliteTable(
     title: text('title').notNull(),
     icon: text('icon'),
     sortKey: text('sort_key').notNull(),
+    kind: text('kind').notNull().default('page'),
     version: integer('version').notNull().default(1),
     createdAt: integer('created_at').notNull(),
     updatedAt: integer('updated_at').notNull(),
@@ -75,6 +78,55 @@ export const pages = sqliteTable(
 );
 
 export type PageRow = typeof pages.$inferSelect;
+
+// Mirrors migrations/0004_databases.sql. options is stored as a JSON string and parsed server-side
+// before the snapshot sends it to the client, because the client needs option metadata constantly.
+// Future: a per-property view settings column lands here in Phase 4, when views are added.
+export const properties = sqliteTable(
+  'properties',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id').notNull(),
+    databasePageId: text('database_page_id').notNull(),
+    name: text('name').notNull(),
+    type: text('type').notNull(),
+    options: text('options'),
+    sortKey: text('sort_key').notNull(),
+    version: integer('version').notNull().default(1),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (table) => [
+    index('properties_workspace_db_sort_idx').on(
+      table.workspaceId,
+      table.databasePageId,
+      table.sortKey,
+    ),
+  ],
+);
+
+export type PropertyRow = typeof properties.$inferSelect;
+
+// Mirrors migrations/0004_databases.sql. The composite primary key (row_page_id, property_id)
+// makes value.set an upsert, so two devices editing the same cell converge rather than duplicating.
+export const propertyValues = sqliteTable(
+  'property_values',
+  {
+    workspaceId: text('workspace_id').notNull(),
+    rowPageId: text('row_page_id').notNull(),
+    propertyId: text('property_id').notNull(),
+    value: text('value'),
+    version: integer('version').notNull().default(1),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.rowPageId, table.propertyId] }),
+    index('property_values_workspace_row_idx').on(table.workspaceId, table.rowPageId),
+  ],
+);
+
+export type PropertyValueRow = typeof propertyValues.$inferSelect;
 
 // Mirrors migrations/0003_blocks.sql. checked is stored as 0/1 because SQLite has no boolean type;
 // the snapshot converts it to a boolean on the wire.

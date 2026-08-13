@@ -21,6 +21,17 @@ export const MAX_BLOCK_TEXT_LENGTH = 10000;
 // construction; the limit stops it being used as a side channel for arbitrary state.
 export const MAX_BLOCK_PROPS_LENGTH = 1000;
 
+// Per-database property limits. 100 characters is longer than any sensible name; 50 properties is
+// more than any practical table; 50 options is more than any readable select menu.
+export const MAX_PROPERTY_NAME_LENGTH = 100;
+export const MAX_PROPERTIES_PER_DATABASE = 50;
+export const MAX_OPTIONS_PER_PROPERTY = 50;
+export const MAX_OPTION_NAME_LENGTH = 100;
+
+// value is a JSON string; 2000 characters comfortably holds a long text field without allowing
+// values to be used as a side channel for arbitrary blobs.
+export const MAX_VALUE_LENGTH = 2000;
+
 // The eleven block types the editor offers, and the only values the type column may hold. Membership
 // is checked in payloadRejection rather than by a zod enum, so an unknown type costs the client that
 // op instead of failing the whole batch.
@@ -40,25 +51,73 @@ export const BLOCK_TYPES = [
 
 export type BlockType = (typeof BLOCK_TYPES)[number];
 
-// True when value is one of the eleven types.
+// True when value is one of the eleven block types.
 export function isBlockType(value: string): value is BlockType {
   return (BLOCK_TYPES as readonly string[]).includes(value);
 }
+
+// The seven property types. type is fixed once created; a property.update carrying type is rejected.
+// Future: allowing type changes would require migrating existing values, which is a separate feature.
+export const PROPERTY_TYPES = [
+  'text',
+  'number',
+  'select',
+  'multiSelect',
+  'date',
+  'checkbox',
+  'url',
+] as const;
+
+export type PropertyType = (typeof PROPERTY_TYPES)[number];
+
+// True when value is one of the seven property types.
+export function isPropertyType(value: string): value is PropertyType {
+  return (PROPERTY_TYPES as readonly string[]).includes(value);
+}
+
+// The fixed palette for select/multiSelect option colors. Exported so the frontend can map names
+// to Tailwind classes and Phase 4's board columns inherit the same colors for free.
+// Future: more colors could be added here, but the current six cover the common case and adding one
+// later is a non-breaking change (old data keeps its stored color name).
+export const OPTION_COLORS = ['gray', 'amber', 'blue', 'purple', 'teal', 'rose'] as const;
+
+export type OptionColor = (typeof OPTION_COLORS)[number];
+
+// True when value is one of the allowed option colors.
+export function isOptionColor(value: string): value is OptionColor {
+  return (OPTION_COLORS as readonly string[]).includes(value);
+}
+
+// A single select or multiSelect option. id is client-minted so the client can reference it in
+// value.set before the property is persisted (in the same batch).
+export type SelectOption = { id: string; name: string; color: OptionColor };
+
+// Zod schema for a SelectOption, reused in property create/update payloads.
+const selectOptionSchema = z.object({
+  id: z.string().min(1),
+  name: z.string(),
+  color: z.string(),
+});
 
 const pageCreatePayload = z.object({
   parentId: z.string().nullable().optional(),
   title: z.string().optional(),
   icon: z.string().nullable().optional(),
   sortKey: z.string().optional(),
+  // kind is optional; defaults to 'page'. Rows must be parented to a database; databases and pages
+  // must not be parented to a database or row.
+  kind: z.enum(['page', 'database', 'row']).optional(),
 });
 
 // A page.update payload is a subset of the editable fields: ops are field-level rather than
-// whole-document, so a future implementation can merge two edits to different fields.
+// whole-document, so a future implementation can merge two edits to different fields. kind is
+// declared here so its presence can be detected and rejected per-op in payloadRejection.
 const pageUpdatePayload = z.object({
   title: z.string().optional(),
   icon: z.string().nullable().optional(),
   parentId: z.string().nullable().optional(),
   sortKey: z.string().optional(),
+  kind: z.unknown().optional(),
 });
 
 const pageDeletePayload = z.object({}).loose().optional();
@@ -88,10 +147,42 @@ const blockUpdatePayload = z.object({
 
 const blockDeletePayload = z.object({}).loose().optional();
 
+// Property create: all fields required or optional as stated. sortKey omitted appends after the last
+// property. options is only meaningful for select/multiSelect but is accepted for all types and
+// ignored by the frontend for others.
+const propertyCreatePayload = z.object({
+  databasePageId: z.string().min(1),
+  name: z.string(),
+  type: z.string(),
+  options: z.array(selectOptionSchema).optional(),
+  sortKey: z.string().optional(),
+});
+
+// type is declared so its presence can be detected and rejected per-op: a property's type cannot
+// change once set. All other fields are optional updates.
+// Future: allowing type changes would require migrating existing cell values; not in scope.
+const propertyUpdatePayload = z.object({
+  name: z.string().optional(),
+  options: z.array(selectOptionSchema).optional(),
+  sortKey: z.string().optional(),
+  type: z.unknown().optional(),
+});
+
+const propertyDeletePayload = z.object({}).loose().optional();
+
+// value.set is an upsert keyed by (row_page_id, property_id). entityId is the derived key
+// `${rowPageId}:${propertyId}` so the applied_ops log can identify it. value is a JSON string
+// encoding the typed value, or null to clear the cell.
+const valueSetPayload = z.object({
+  rowPageId: z.string().min(1),
+  propertyId: z.string().min(1),
+  value: z.string().nullable(),
+});
+
 const opEnvelope = {
   opId: z.string().min(1),
   workspaceId: z.string().min(1),
-  entity: z.enum(['page', 'block']),
+  entity: z.enum(['page', 'block', 'property', 'value']),
   entityId: z.string().min(1),
   // The version the client believed it was editing. Null when the client had no version yet.
   baseVersion: z.number().int().nullable().optional(),
@@ -100,8 +191,7 @@ const opEnvelope = {
   createdAt: z.number().int(),
 };
 
-// Future: later phases add database.*, row.* and view.* members to this union; the envelope and the
-// batching rules stay as they are.
+// Future: later phases add view.* members to this union; the envelope and batching rules stay as is.
 export const opSchema = z.discriminatedUnion('type', [
   z.object({ ...opEnvelope, type: z.literal('page.create'), payload: pageCreatePayload }),
   z.object({ ...opEnvelope, type: z.literal('page.update'), payload: pageUpdatePayload }),
@@ -109,6 +199,10 @@ export const opSchema = z.discriminatedUnion('type', [
   z.object({ ...opEnvelope, type: z.literal('block.create'), payload: blockCreatePayload }),
   z.object({ ...opEnvelope, type: z.literal('block.update'), payload: blockUpdatePayload }),
   z.object({ ...opEnvelope, type: z.literal('block.delete'), payload: blockDeletePayload }),
+  z.object({ ...opEnvelope, type: z.literal('property.create'), payload: propertyCreatePayload }),
+  z.object({ ...opEnvelope, type: z.literal('property.update'), payload: propertyUpdatePayload }),
+  z.object({ ...opEnvelope, type: z.literal('property.delete'), payload: propertyDeletePayload }),
+  z.object({ ...opEnvelope, type: z.literal('value.set'), payload: valueSetPayload }),
 ]);
 
 export const syncRequestSchema = z.object({ ops: z.array(opSchema) });
@@ -117,11 +211,15 @@ export type Op = z.infer<typeof opSchema>;
 export type SyncRequest = z.infer<typeof syncRequestSchema>;
 
 type BlockWriteOp = Extract<Op, { type: 'block.create' | 'block.update' }>;
+type PropertyWriteOp = Extract<Op, { type: 'property.create' | 'property.update' }>;
 
 // The entity an op type acts on. The envelope carries `entity` for the applied_ops log and for future
 // entity-scoped routing, so it must agree with the op type rather than being trusted blindly.
-function entityFamily(type: Op['type']): 'page' | 'block' {
-  return type.startsWith('block.') ? 'block' : 'page';
+function entityFamily(type: Op['type']): 'page' | 'block' | 'property' | 'value' {
+  if (type.startsWith('block.')) return 'block';
+  if (type.startsWith('property.')) return 'property';
+  if (type.startsWith('value.')) return 'value';
+  return 'page';
 }
 
 // Why an op's payload is unacceptable, or null when it is fine. Deliberately not expressed as zod
@@ -131,7 +229,17 @@ export function payloadRejection(op: Op): string | null {
   const family = entityFamily(op.type);
   if (op.entity !== family) return `entity must be "${family}" for ${op.type}`;
   if (op.type === 'block.create' || op.type === 'block.update') return blockRejection(op);
-  if (op.type === 'page.delete' || op.type === 'block.delete') return null;
+  if (op.type === 'property.create' || op.type === 'property.update') return propertyRejection(op);
+  if (op.type === 'value.set') return valueRejection(op);
+  // page.delete, block.delete and property.delete have no payload fields to validate.
+  if (op.type === 'page.delete' || op.type === 'block.delete' || op.type === 'property.delete') {
+    return null;
+  }
+
+  // page.create and page.update
+  if (op.type === 'page.update' && op.payload.kind !== undefined) {
+    return 'a page cannot change kind';
+  }
   const { title, icon, sortKey } = op.payload;
   if (title !== undefined && title.length > MAX_TITLE_LENGTH) {
     return `title must be at most ${MAX_TITLE_LENGTH} characters`;
@@ -168,6 +276,75 @@ function blockRejection(op: BlockWriteOp): string | null {
   }
   if (sortKey !== undefined && !isValidSortKey(sortKey)) {
     return 'sortKey is not a valid fractional index';
+  }
+  return null;
+}
+
+// Why a property create or update payload is unacceptable, or null when it is fine.
+function propertyRejection(op: PropertyWriteOp): string | null {
+  // A property's type is fixed once created: changing it would require migrating existing values.
+  // Future: type migration is a separate feature, not in scope.
+  if (op.type === 'property.update' && op.payload.type !== undefined) {
+    return "a property's type cannot be changed";
+  }
+
+  if (op.type === 'property.create') {
+    const { name, type, options, sortKey } = op.payload;
+    if (name.length > MAX_PROPERTY_NAME_LENGTH) {
+      return `name must be at most ${MAX_PROPERTY_NAME_LENGTH} characters`;
+    }
+    if (!isPropertyType(type)) return 'unknown property type';
+    if (options !== undefined) {
+      const err = validateOptions(options);
+      if (err) return err;
+    }
+    if (sortKey !== undefined && !isValidSortKey(sortKey)) {
+      return 'sortKey is not a valid fractional index';
+    }
+    return null;
+  }
+
+  // property.update
+  const { name, options, sortKey } = op.payload;
+  if (name !== undefined && name.length > MAX_PROPERTY_NAME_LENGTH) {
+    return `name must be at most ${MAX_PROPERTY_NAME_LENGTH} characters`;
+  }
+  if (options !== undefined) {
+    const err = validateOptions(options);
+    if (err) return err;
+  }
+  if (sortKey !== undefined && !isValidSortKey(sortKey)) {
+    return 'sortKey is not a valid fractional index';
+  }
+  return null;
+}
+
+// Validates an array of SelectOption definitions, returning a rejection reason or null.
+function validateOptions(
+  options: Array<{ id: string; name: string; color: string }>,
+): string | null {
+  if (options.length > MAX_OPTIONS_PER_PROPERTY) {
+    return `options must have at most ${MAX_OPTIONS_PER_PROPERTY} entries`;
+  }
+  const seenIds = new Set<string>();
+  for (const opt of options) {
+    if (opt.name.length > MAX_OPTION_NAME_LENGTH) {
+      return `option name must be at most ${MAX_OPTION_NAME_LENGTH} characters`;
+    }
+    if (!isOptionColor(opt.color)) return 'unknown option color';
+    if (seenIds.has(opt.id)) return 'duplicate option id';
+    seenIds.add(opt.id);
+  }
+  return null;
+}
+
+// Why a value.set payload is unacceptable without loading state, or null when it is fine.
+// Type-correctness of the JSON value against the property's type is checked in the applier, where
+// the property state is available.
+function valueRejection(op: Extract<Op, { type: 'value.set' }>): string | null {
+  const { value } = op.payload;
+  if (value !== null && value.length > MAX_VALUE_LENGTH) {
+    return `value must be at most ${MAX_VALUE_LENGTH} characters`;
   }
   return null;
 }
