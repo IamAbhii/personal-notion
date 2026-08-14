@@ -370,15 +370,18 @@ export function DatabaseView({
       <table className="w-full border-collapse text-left">
         <thead>
           <tr className="border-b border-border">
-            {/* Title column */}
-            <th className="min-w-[180px] border-r border-border">
+            {/* Title column — min-w-[160px] balances readability and desktop fit (DEF-042):
+                 with 6 properties at 120px each, 1 title at 160px, and 40px actions the
+                 table minimum (920px) fits within the ~956px content area at 1280x800. */}
+            <th className="min-w-[160px] border-r border-border">
               <span className="block px-3 py-2 text-left text-xs font-semibold tracking-wide text-text-muted uppercase">
                 Title
               </span>
             </th>
-            {/* One header per property */}
+            {/* One header per property — min-w-[120px] instead of 140px to allow all seeded
+                 columns to fit at 1280x800 once the 860px prose cap is lifted (DEF-042). */}
             {properties.map((prop) => (
-              <th key={prop.id} className="min-w-[140px] border-r border-border">
+              <th key={prop.id} className="min-w-[120px] border-r border-border">
                 <PropertyHeaderMenu
                   property={prop}
                   onRename={(name) => onUpdateProperty(prop, { name })}
@@ -436,8 +439,9 @@ export function DatabaseView({
               data-testid="database-row"
               data-row-id={row.id}
             >
-              {/* Title cell */}
-              <td className="border-r border-border p-0">
+              {/* Title cell — max-w-0 prevents a long title from expanding the column beyond
+                   the TH's min-w-[160px]; overflow-hidden clips the render at the column edge. */}
+              <td className="max-w-0 overflow-hidden border-r border-border p-0">
                 <button
                   type="button"
                   className="flex min-h-[40px] w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-sm font-medium text-text hover:text-blue-fg"
@@ -450,11 +454,12 @@ export function DatabaseView({
                   <span className="truncate">{row.title}</span>
                 </button>
               </td>
-              {/* One cell per property */}
+              {/* One cell per property — max-w-0 prevents any cell (e.g. a URL column with a long
+                   value) from widening the column past the TH's min-w-[120px] (DEF-042). */}
               {properties.map((prop) => {
                 const cellValue = valuesMap.get(row.id)?.get(prop.id) ?? null;
                 return (
-                  <td key={prop.id} className="border-r border-border p-0">
+                  <td key={prop.id} className="max-w-0 overflow-hidden border-r border-border p-0">
                     <CellEditor
                       property={prop}
                       rowPageId={row.id}

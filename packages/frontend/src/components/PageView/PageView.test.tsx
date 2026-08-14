@@ -120,6 +120,36 @@ describe('PageView', () => {
     expect(screen.getByTestId('breadcrumb-link')).toHaveAttribute('title', longTitle);
   });
 
+  it('applies the 860px prose constraint to a plain page but not a database page (DEF-042)', () => {
+    const db = makePage({ id: 'p-db', title: 'My DB', kind: 'database' });
+    const { rerender } = render(
+      <PageView
+        page={lisbon}
+        breadcrumb={[lisbon]}
+        childCount={0}
+        onSelectPage={vi.fn()}
+        onRename={vi.fn()}
+        onChangeIcon={vi.fn()}
+      />,
+    );
+    // Plain page: main must carry the 860px constraint class.
+    const main = document.querySelector('main')!;
+    expect(main.className).toContain('max-w-[860px]');
+
+    rerender(
+      <PageView
+        page={db}
+        breadcrumb={[db]}
+        childCount={0}
+        onSelectPage={vi.fn()}
+        onRename={vi.fn()}
+        onChangeIcon={vi.fn()}
+      />,
+    );
+    // Database page: max-w constraint must be absent so the table can use the full content width.
+    expect(main.className).not.toContain('max-w-[860px]');
+  });
+
   it('collapses a deep breadcrumb to a bounded row of crumbs (DEF-009)', () => {
     const chain = Array.from({ length: 26 }, (_unused, index) =>
       makePage({

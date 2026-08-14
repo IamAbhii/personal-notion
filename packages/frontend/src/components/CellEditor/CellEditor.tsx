@@ -471,8 +471,11 @@ function CheckboxCell({
   onSave: (v: string | null) => void;
 }) {
   const checked = parseValue<boolean>(value) ?? false;
+  // relative makes this label the containing block for the sr-only span (position:absolute in
+  // Tailwind's sr-only), preventing it from escaping to the initial containing block and thus
+  // overflowing the document when the checkbox column is scrolled off the right edge of the viewport.
   return (
-    <label className="flex min-h-[40px] cursor-pointer items-center px-2">
+    <label className="relative flex min-h-[40px] cursor-pointer items-center px-2">
       <input
         type="checkbox"
         className="size-4 cursor-pointer accent-blue"
@@ -493,12 +496,14 @@ function UrlCell({ value, onSave }: { value: string | null; onSave: (v: string |
   const href = ensureScheme(raw);
 
   if (!focused && raw) {
+    // min-w-0 lets the anchor shrink below its URL text width so the table column stays
+    // at the TH-defined minimum rather than expanding to fit the raw URL (DEF-042).
     return (
       <a
         href={href}
         target="_blank"
         rel="noopener noreferrer"
-        className="flex min-h-[40px] items-center overflow-hidden px-2 py-1.5 text-sm text-blue-fg underline hover:opacity-80"
+        className="flex min-h-[40px] min-w-0 items-center overflow-hidden px-2 py-1.5 text-sm text-blue-fg underline hover:opacity-80"
         onClick={(e) => e.stopPropagation()}
         onFocus={() => setFocused(true)}
       >

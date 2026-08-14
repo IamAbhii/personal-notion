@@ -237,7 +237,7 @@ export function WorkspaceShell() {
             adding a tab stop. inert disables all interactivity while the mobile drawer is open,
             matching the overlay pattern and preventing background interaction. */}
         <div
-          className="flex-1 overflow-auto bg-canvas md:flex-none"
+          className="min-w-0 flex-1 overflow-auto bg-canvas md:flex-none"
           id="page-body"
           data-testid="page-body"
           tabIndex={-1}

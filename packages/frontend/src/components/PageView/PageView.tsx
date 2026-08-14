@@ -92,7 +92,18 @@ export function PageView({
         </nav>
       </div>
 
-      <main className="mx-auto max-w-[860px] px-4 pt-6 pb-24 sm:px-8 sm:pt-8 md:px-14">
+      {/* Database pages get full content-area width so all columns fit at desktop widths.
+          Prose pages (page and row) keep the 860px reading measure — databases are tables
+          and tables are the content; paragraphs are not. Row pages are kept at the prose width
+          because they combine a property panel with a block editor: both read better in a
+          constrained column. Only `px-4` is applied for databases so no desktop padding eats
+          into the available table width. */}
+      <main
+        className={cn(
+          'mx-auto pt-6 pb-24 sm:pt-8',
+          page.kind === 'database' ? 'px-4' : 'max-w-[860px] px-4 sm:px-8 md:px-14',
+        )}
+      >
         {/* data-page-id here lets a test assert which page the main area is showing without
             parsing the URL. Same convention as the sidebar rows. */}
         <header className="mt-2.5" data-testid="page-header" data-page-id={page.id}>
