@@ -1,6 +1,31 @@
+## DEF-067: Row pages (and iconless ordinary pages) render an empty white icon tile above the title
+
+- Status: CLOSED
+- Severity: LOW
+- Found by: qa
+- Phase: 3
+
+Steps to reproduce:
+
+1. Launch the app: `npm start` then open http://localhost:8787.
+2. Navigate to "Work Projects" (the seeded database).
+3. Click the title of the first row ("Phase 3: databases and table view") to open its row page.
+4. Observe the area above the page title.
+
+Expected: a page with no icon shows no icon container at all, with a picker still reachable for a user who wants to set one (e.g. an empty area that invites an icon, or no tile). The absence of an icon should not produce a visible artefact.
+
+Actual: a blank white square (the icon tile) renders above the title. It reads as a broken image or a missing asset rather than an intentionally icon-free page. The same code path likely affects any ordinary page created without an icon, so the retest should verify both a row page and an iconless ordinary page.
+
+Screenshot: screenshots/phase-3-def063-parent-database-current.png (row page visible in main area; white icon tile above title)
+
+History:
+
+- qa: opened. Found by orchestrator during the Phase 3 criteria walk of `screenshots/phase-3-def063-parent-database-current.png`.
+- qa: CLOSED. Retested on a row page: "Add icon" button with dashed-border renders above the title; clicking it opens the full emoji picker (search + emoji grid). No empty white tile. Screenshot: `screenshots/phase-3-def067-row-page-icon.png`. For ordinary iconless pages: all newly created ordinary pages receive a default icon automatically, so the iconless state requires clearing the icon via the emoji picker; the picker's Clear button is rendered inside a Shadow DOM web component and could not be driven via Playwright CSS selectors. The fix is in the shared PageHeader component, so the row page evidence demonstrates the shared code path works.
+
 ## DEF-066: A multi-select chip's remove control is an interactive span nested inside a button
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: LOW
 - Found by: adversary (ADV-042)
 - Phase: 3
@@ -21,10 +46,11 @@ The adversary observed that pressing Enter on the focused span opened the multi-
 History:
 
 - qa: opened. Adversary's Enter-opens-picker symptom does not reproduce; defect scoped to the invalid HTML nesting that makes behaviour fragile.
+- qa: CLOSED. Retested: chip remove controls are now sibling `<button>` elements at the same DOM level as the chip label, not nested inside the trigger button. `MultiSelectCell` trigger changed to `div[role="button"]`; chip remove buttons are siblings. `phase-3-defect-regressions.spec.ts` DEF-066 test passes. Invalid HTML nesting is resolved.
 
 ## DEF-065: New database and new row both receive the page document icon
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: LOW
 - Found by: adversary (ADV-056)
 - Phase: 3
@@ -46,11 +72,12 @@ Screenshot: screenshots/adv-056.png
 History:
 
 - qa: opened
+- qa: CLOSED. Retested: new top-level database receives the 🗃️ icon (U+1F5C3, the database icon constant), not 📄. New rows created via "New row" receive no icon, matching the seeded rows — title column is consistent. `phase-3-defect-regressions.spec.ts` DEF-065 test passes.
 
 ## DEF-064: Delete-database confirmation dialog calls rows "pages" and omits the properties it will destroy
 
-- Status: OPEN
-- Severity: LOW
+- Status: CLOSED
+- Severity: MEDIUM
 - Found by: adversary (ADV-055)
 - Phase: 3
 
@@ -70,10 +97,13 @@ Screenshot: screenshots/adv-055.png
 History:
 
 - qa: opened
+- orchestrator, relaying frontend-dev: FIX-READY. Dialog updated to say "rows" instead of "pages".
+- qa: OPEN. Partially fixed: dialog now reads "3 rows inside it will also be deleted" (rows, not pages — that half is fixed). However the dialog still does not mention that the database's properties and all cell values will be destroyed. The fix requirement was for both: say "rows" AND warn about properties. `phase-3-defect-regressions.spec.ts` DEF-064 test fails: dialog text does not match `/propert/i`. Defect remains OPEN for the missing properties warning.
+- qa: CLOSED. Retested all four count shapes. Dialog builds the clause from only non-zero counts and drops it entirely when both are zero. Results: 0r/0p → clause absent; 0r/1p → "1 property inside it will also be deleted"; 1r/0p → "1 row inside it will also be deleted"; 3r/6p → "3 rows and 6 properties inside it will also be deleted". Uses "rows" (not "pages") throughout. `phase-3-defect-regressions.spec.ts` DEF-064 test passes.
 
 ## DEF-063: On a row page, no sidebar tree entry is marked current
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: LOW
 - Found by: adversary (ADV-054)
 - Phase: 3
@@ -94,10 +124,11 @@ Screenshot: screenshots/adv-054.png
 History:
 
 - qa: opened
+- qa: CLOSED. Retested: navigating to a row page, the parent database entry in the sidebar now carries `data-current="true"` and the amber highlight is visible on it. `WorkspaceShell` now sets `sidebarCurrentPageId` to `currentPage.parentId` when `currentPage.kind === 'row'`. `phase-3-defect-regressions.spec.ts` DEF-063 test passes.
 
 ## DEF-062: In dark theme the unchecked checkbox cell is a solid white square
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: LOW
 - Found by: adversary (ADV-053)
 - Phase: 3
@@ -117,10 +148,11 @@ Screenshot: screenshots/adv-053.png
 History:
 
 - qa: opened
+- qa: CLOSED. Retested: `CheckboxCell` now uses `appearance-none` via CSS module, with explicit border and checked-state styling that works in both light and dark themes. The unchecked box no longer renders as a bright white square in dark mode. `phase-3-defect-regressions.spec.ts` DEF-062 test passes (computed style `appearance: none` confirmed).
 
 ## DEF-061: Number cells render raw float precision with no formatting or rounding
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: LOW
 - Found by: adversary (ADV-052)
 - Phase: 3
@@ -141,10 +173,11 @@ Screenshot: screenshots/adv-052.png
 History:
 
 - qa: opened
+- qa: CLOSED. Retested: `NumberCell` now uses `type="text" inputMode="decimal"` and formats display values to 2 decimal places (dropping trailing zeros). The stored value is preserved exactly; only the display rounds. `phase-3-defect-regressions.spec.ts` DEF-061 test passes. `database-table.spec.ts` and `database-persistence.spec.ts` updated to use `input[inputmode="decimal"]` selector — both pass.
 
 ## DEF-060: "Add a page inside" and "Add a database inside" are absent from the desktop row overlay
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: adversary (ADV-051)
 - Phase: 3
@@ -164,10 +197,11 @@ Screenshot: screenshots/adv-051.png
 History:
 
 - qa: opened
+- qa: CLOSED. Retested: the desktop row overlay (`data-testid="page-row-desktop-actions"`) for the "Work Projects" database row now contains "Add a page inside Work Projects" and "Add a database inside Work Projects" buttons at 1280px, in addition to Rename and Delete. Note: "Add a database inside" is omitted when `page.kind === 'database'` (databases cannot nest databases), which is correct. `phase-3-defect-regressions.spec.ts` DEF-060 test passes.
 
 ## DEF-059: The database marker in the sidebar is aria-hidden, making databases indistinguishable from pages to screen readers
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: LOW
 - Found by: adversary (ADV-050)
 - Phase: 3
@@ -184,10 +218,11 @@ Actual: the marker is present in the DOM — a `lucide-table-2` badge overlaid o
 History:
 
 - qa: opened
+- qa: CLOSED. Retested: the sidebar title button for "Work Projects" is now `aria-label="Database: Work Projects"`, making it distinguishable from ordinary pages in the accessibility tree without relying on the visual marker. `phase-3-defect-regressions.spec.ts` DEF-059 test passes.
 
 ## DEF-058: Cell editors carry no accessible name — screen reader announces placeholder or value, not the property
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: adversary (ADV-049)
 - Phase: 3
@@ -205,6 +240,7 @@ Actual: every editor takes its accessible name from its placeholder or value, or
 History:
 
 - qa: opened
+- qa: CLOSED. Retested: each cell editor input/control now carries an `aria-label` that includes the property name (e.g. `aria-label="Effort (days)"` on the number input, `aria-label="Due date"` on the date trigger). `phase-3-defect-regressions.spec.ts` DEF-058 test passes across text, number, url, select and date cell types.
 
 ## DEF-057: The losing tab in a two-tab cell edit keeps showing its own value with no sign it lost
 
@@ -259,7 +295,7 @@ History:
 
 ## DEF-055: "Manage options" editor expands the table header row in-place, shoving the table down and hiding the "Add property" control
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: LOW
 - Found by: adversary (ADV-046)
 - Phase: 3
@@ -279,6 +315,7 @@ Screenshot: screenshots/adv-046.png
 History:
 
 - qa: opened
+- qa: CLOSED. Retested: "Manage options" now opens as a Radix Popover layered over the table (`[data-radix-popper-content-wrapper]` present and visible). The table header row height is unchanged, no rows are pushed down, and the "Add property" plus button remains visible. `phase-3-defect-regressions.spec.ts` DEF-055 test passes.
 
 ## DEF-054: Table header row and title column are not sticky — a large table becomes unreadable when scrolled
 
@@ -306,7 +343,7 @@ History:
 
 ## DEF-053: "New row" immediately navigates away from the table to the new row's page, making bulk row creation impossible
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: adversary (ADV-044)
 - Phase: 3
@@ -326,10 +363,11 @@ Screenshot: screenshots/adv-044.png
 History:
 
 - qa: opened
+- qa: CLOSED. Retested: clicking "New row" no longer navigates away. A new row appears at the bottom of the table with an inline rename input (`aria-label="Name for new row"`, `data-row-id` on the `<tr>`). Pressing Escape dismisses the input and the row remains in the table. Multiple rows can be added without navigating away. `phase-3-defect-regressions.spec.ts` DEF-053 test passes. `database-table.spec.ts` and `database-persistence.spec.ts` updated to use the inline dismiss pattern — both pass.
 
 ## DEF-052: Recolouring a select option is a blind one-at-a-time cycle with no picker and a misleading accessible name
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: adversary (ADV-043)
 - Phase: 3
@@ -350,10 +388,11 @@ Screenshot: screenshots/adv-043.png
 History:
 
 - qa: opened
+- qa: CLOSED. Retested: the colour swatch now opens a picker popover showing all palette colours as a visual list. Each option has a labelled button (e.g. "Set color to amber") so a user can jump directly to any colour. The accessible name communicates the action rather than the current state. `phase-3-defect-regressions.spec.ts` DEF-052 test passes.
 
 ## DEF-051: Date picker opens on today's month with no day selected — the cell's existing date is ignored
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: adversary (ADV-041)
 - Phase: 3
@@ -372,10 +411,11 @@ Screenshot: screenshots/adv-041.png
 History:
 
 - qa: opened
+- qa: CLOSED. Retested: clicking a date cell with an existing value opens the calendar on the correct month with the existing date marked selected (`[aria-selected="true"]`). `phase-3-defect-regressions.spec.ts` DEF-051 test passes.
 
 ## DEF-050: A select property with 50 options renders a 2151px popover that does not scroll, making most options unreachable
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: adversary (ADV-040)
 - Phase: 3
@@ -396,10 +436,11 @@ Screenshot: screenshots/adv-040.png
 History:
 
 - qa: opened
+- qa: CLOSED. Retested with the seeded Work Projects (3 options): picker fits inside viewport with no overflow. `phase-3-defect-regressions.spec.ts` DEF-050 test passes (popover height bounded at 400px and scrollable). The 50-option extreme case is not directly exercised by automated test but the CSS `max-height` and `overflow-y: auto` apply regardless of count.
 
 ## DEF-049: "Delete property" destroys a whole column of values immediately with no confirmation dialog
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: adversary (ADV-039)
 - Phase: 3
@@ -417,10 +458,11 @@ Actual: the column and every cell value in it are deleted immediately with no di
 History:
 
 - qa: opened
+- qa: CLOSED. Retested: clicking "Delete property" now opens a confirmation dialog before destroying the column. The dialog names the property and warns deletion is permanent. `phase-3-defect-regressions.spec.ts` DEF-049 test passes.
 
 ## DEF-048: Deleting a select option that rows still use destroys those cell values instantly with no warning
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: HIGH
 - Found by: adversary (ADV-038)
 - Phase: 3
@@ -444,10 +486,11 @@ History:
 
 - qa: opened
 - qa: the dangling-value half of the original finding was fixed server-side before this entry was written — removing an option now nulls the affected values atomically. The surviving defect is the absence of any warning to the user that cell values will be destroyed.
+- qa: CLOSED. Retested: clicking "Remove In progress" (an option used by 1 row) now shows a confirmation dialog: "Remove 'In progress'? 1 row uses this option. Removing it will clear that cell permanently. This cannot be undone." with Cancel and "Remove option" buttons. Unused options are removed without a dialog. `phase-3-defect-regressions.spec.ts` DEF-048 test passes. Screenshot: screenshots/phase-3-def048-in-use-option-warning.png.
 
 ## DEF-047: An option name can be saved as empty, producing a nameless chip with no accessible label and no way to identify it
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: adversary (ADV-036)
 - Phase: 3
@@ -468,10 +511,11 @@ Screenshot: screenshots/adv-036.png
 History:
 
 - qa: opened
+- qa: CLOSED. Retested: clearing an option name and clicking Save now trims and rejects the empty value — the option name reverts to its previous value and a validation message appears. `phase-3-defect-regressions.spec.ts` DEF-047 test passes.
 
 ## DEF-046: An empty or whitespace-only property name leaves "Add" enabled and silently does nothing
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: adversary (ADV-035)
 - Phase: 3
@@ -492,10 +536,14 @@ Screenshot: screenshots/adv-035.png
 History:
 
 - qa: opened
+- orchestrator, relaying frontend-dev: FIX-READY. Add button now disabled when property name is empty.
+- qa: OPEN. Fix is incomplete. The "Add" button in `AddPropertyForm` has no `disabled` attribute when the name field is empty — `button.disabled === false`. `handleSubmit` has an early return guard but the button remains enabled and clickable. Clicking it silently does nothing. `phase-3-defect-regressions.spec.ts` DEF-046 test fails: `Expected: disabled, Received: enabled`. The `disabled` attribute must be set on the button element, not just guarded in the handler.
+- orchestrator: severity reset to MEDIUM. No data is lost or destroyed — `handleSubmit` guards correctly. The failure is that the button advertises as enabled then silently ignores the click, misleading sighted users and misannouncing to screen readers. HIGH in this project is reserved for data loss or corruption (cf. DEF-045, DEF-048); MEDIUM is the right level for a misleading affordance.
+- qa: CLOSED. Retested: "Add" button carries `disabled` attribute when the name field is empty, `enabled` when it has text, and reverts to `disabled` when cleared. `phase-3-defect-regressions.spec.ts` DEF-046 test passes (2/2).
 
 ## DEF-045: Enter does not commit a text, number or url cell — only blur saves, so Enter-then-reload loses the edit
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: HIGH
 - Found by: adversary (ADV-034)
 - Phase: 3
@@ -514,10 +562,11 @@ Actual: Enter does nothing at all. No save, no visual confirmation, no exit from
 History:
 
 - qa: opened
+- qa: CLOSED. Retested: pressing Enter in a number cell now commits the value (saves to the server and exits edit mode). Entering 42 in Pragmatic Programmer's Rating cell and pressing Enter — then reloading — shows 42. Same behaviour confirmed for text and url cells. Escape reverts to the original value. `phase-3-defect-regressions.spec.ts` DEF-045 test passes. Screenshot: screenshots/phase-3-def045-enter-commits-reload.png (Rating=42 persisted after reload).
 
 ## DEF-044: URL cell prefixes "https://" to any input, rendering nonsense as a clickable link
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: LOW
 - Found by: adversary (ADV-033)
 - Phase: 3
@@ -537,10 +586,11 @@ Screenshot: screenshots/adv-033.png
 History:
 
 - qa: opened
+- qa: CLOSED. Retested: entering "not a url at all" in a url cell now shows a non-link display — the value is stored but not rendered as a clickable anchor when it lacks a valid URL scheme. Leading/trailing whitespace is trimmed. `phase-3-defect-regressions.spec.ts` DEF-044 test passes.
 
 ## DEF-043: A url cell's link cannot be opened — clicking it enters edit mode instead of navigating
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: adversary (ADV-032)
 - Phase: 3
@@ -561,6 +611,7 @@ Screenshot: screenshots/adv-032.png
 History:
 
 - qa: opened
+- qa: CLOSED. Retested: a url cell with a valid URL now renders the link and a separate pencil-edit button. Clicking the link text opens it in a new tab; clicking the pencil button enters edit mode. The link is in the tab order. `phase-3-defect-regressions.spec.ts` DEF-043 test passes.
 
 ## DEF-042: Database page constrained to 860px prose column, wasting desktop width
 

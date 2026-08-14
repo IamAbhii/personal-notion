@@ -112,23 +112,19 @@ test.describe('Database table view — rows', () => {
   });
 
   test('can add a row and delete it', async ({ page }) => {
-    const dbPageId = await createDatabase(page);
-    const workspaceId = page.url().match(/\/w\/([^/]+)\//)![1];
+    await createDatabase(page);
 
     const dbView = page.getByTestId('database-view');
 
     // Initially no rows in a freshly created empty database.
     await expect(dbView.getByTestId('database-row')).toHaveCount(0);
 
-    // Clicking "Add row" creates a row and navigates to the row page (by design).
+    // Clicking "New row" creates a row in place and focuses the inline title input (DEF-053).
     await dbView.getByTestId('add-row-btn').click();
-    // Wait for navigation away from the database page.
-    await page.waitForURL((url) => !url.pathname.includes(dbPageId));
-    await page.waitForLoadState('networkidle');
-
-    // Navigate back to the database page to verify the row was created.
-    await page.goto(`/w/${workspaceId}/page/${dbPageId}`);
-    await page.waitForLoadState('networkidle');
+    // The inline rename input appears; dismiss it to confirm the row in the table.
+    const renameInput = page.getByRole('textbox', { name: /Name for new row/i });
+    await expect(renameInput).toBeVisible();
+    await renameInput.press('Escape');
 
     await expect(dbView.getByTestId('database-row')).toHaveCount(1);
 
@@ -183,7 +179,8 @@ test.describe('Database table view — cell editing', () => {
       .getByTestId('database-row')
       .filter({ has: page.getByRole('button', { name: /Pragmatic Programmer/i }) });
 
-    const numInput = pragRow.locator('input[type="number"]');
+    // NumberCell uses type="text" with inputMode="decimal" for display formatting (DEF-061).
+    const numInput = pragRow.locator('input[inputmode="decimal"]');
     await numInput.click();
     await numInput.fill('4');
     await numInput.blur();
@@ -263,12 +260,12 @@ test.describe('Database table view — cell editing', () => {
       .getByTestId('database-row')
       .filter({ has: page.getByRole('button', { name: /Performance baseline/i }) });
 
-    // Click the Tags cell trigger button (second column after Status).
-    // The MultiSelectCell trigger wraps chip spans whose remove-X has stopPropagation. A default
-    // center click may land on the chip X and be swallowed before reaching the Radix trigger
-    // handler. Clicking at position { x:4, y:4 } hits the top-left padding area of the button,
-    // safely away from any chip content (chips are flex-centered, not top-left).
-    const tagsBtn = perfRow.locator('td').nth(2).locator('button').first();
+    // Click the Tags cell trigger. After DEF-066 fix the MultiSelectCell trigger is a
+    // div[role="button"], not a <button>. The chip remove controls are <button> siblings inside
+    // the div. Use [role="button"] so the locator matches the trigger div and not the chip removes.
+    // Clicking at position { x:4, y:4 } lands on the top-left padding of the trigger,
+    // away from any chip content (chips are flex-centered).
+    const tagsBtn = perfRow.locator('td').nth(2).locator('[role="button"]').first();
     await tagsBtn.click({ position: { x: 4, y: 4 } });
 
     // Scope to the Radix portal so we don't accidentally match the chip in another row.
@@ -315,20 +312,17 @@ test.describe('Database table view — select option reuse', () => {
   test('a user-defined select option is offered again on a second row of the same database', async ({
     page,
   }) => {
-    const dbPageId = await createDatabase(page);
-    const workspaceId = page.url().match(/\/w\/([^/]+)\//)![1];
+    await createDatabase(page);
     const dbView = page.getByTestId('database-view');
 
     await addProperty(page, 'Priority', 'select');
 
-    // Add first row — navigates to the row page.
+    // Add first row — in-place since DEF-053 fix; dismiss the inline title input.
     await dbView.getByTestId('add-row-btn').click();
-    await page.waitForURL((url) => !url.pathname.includes(dbPageId));
-    await page.waitForLoadState('networkidle');
-
-    // Go back to the database and create an option in the Priority cell of the first row.
-    await page.goto(`/w/${workspaceId}/page/${dbPageId}`);
-    await page.waitForLoadState('networkidle');
+    const renameInput1 = page.getByRole('textbox', { name: /Name for new row/i });
+    await expect(renameInput1).toBeVisible();
+    await renameInput1.press('Escape');
+    await expect(dbView.getByTestId('database-row')).toHaveCount(1);
 
     const row1 = dbView.getByTestId('database-row').nth(0);
     await row1.getByText('Select...').click();
@@ -337,14 +331,12 @@ test.describe('Database table view — select option reuse', () => {
     await page.waitForLoadState('networkidle');
     await expect(row1.getByText('High')).toBeVisible();
 
-    // Add second row — navigates to row page again.
+    // Add second row — in-place since DEF-053 fix.
     await dbView.getByTestId('add-row-btn').click();
-    await page.waitForURL((url) => !url.pathname.includes(dbPageId));
-    await page.waitForLoadState('networkidle');
-
-    // Go back to the database.
-    await page.goto(`/w/${workspaceId}/page/${dbPageId}`);
-    await page.waitForLoadState('networkidle');
+    const renameInput2 = page.getByRole('textbox', { name: /Name for new row/i });
+    await expect(renameInput2).toBeVisible();
+    await renameInput2.press('Escape');
+    await expect(dbView.getByTestId('database-row')).toHaveCount(2);
 
     // The second row should have the "High" option available without re-creating it.
     const row2 = dbView.getByTestId('database-row').nth(1);

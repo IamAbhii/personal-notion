@@ -437,7 +437,8 @@ function AddPropertyForm({ onAdd, onClose }: AddPropertyFormProps) {
         </button>
         <button
           type="button"
-          className="min-h-9 rounded-sm bg-blue px-3 py-1 text-xs font-medium text-white hover:opacity-90"
+          disabled={name.trim() === ''}
+          className="min-h-9 rounded-sm bg-blue px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
           onClick={handleSubmit}
         >
           Add
