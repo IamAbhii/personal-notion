@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Sidebar, type SidebarProps } from './Sidebar';
-import { fixturePages, makePage } from '../../test/fixtures';
+import { fixturePages, makePage, makeProperty } from '../../test/fixtures';
 import { useUiStore } from '../../stores/uiStore';
 import type { PageRecord } from '../../api/types';
 
@@ -525,24 +525,75 @@ describe('Sidebar database affordances (Phase 3)', () => {
     expect(screen.queryByRole('button', { name: 'Database: Journal' })).not.toBeInTheDocument();
   });
 
-  it('delete dialog for a database names its rows rather than nested pages (ADV-055)', async () => {
+  it('delete dialog names rows (not "pages") for a database (ADV-055)', async () => {
     const user = userEvent.setup();
     renderSidebar({ pages: [dbPage, rowPage] });
     await user.click(screen.getByRole('button', { name: 'Actions for Projects' }));
     await user.click(screen.getByRole('menuitem', { name: /Delete/ }));
     const dialog = await screen.findByRole('dialog');
-    // Should say "row" not "page" since the children of a database are rows.
     expect(dialog).toHaveTextContent('1 row');
     expect(dialog).not.toHaveTextContent('page nested inside it');
   });
 
-  it('delete dialog for a database with no rows says "no rows" (ADV-055)', async () => {
+  // DEF-064: four cases for the rows-and-properties clause.
+
+  it('delete dialog: both non-zero — names rows and properties together (DEF-064)', async () => {
     const user = userEvent.setup();
-    renderSidebar({ pages: [dbPage] });
+    const prop1 = makeProperty({
+      id: 'pr-1',
+      databasePageId: 'p-db',
+      name: 'Status',
+      type: 'select',
+    });
+    const prop2 = makeProperty({
+      id: 'pr-2',
+      databasePageId: 'p-db',
+      name: 'Priority',
+      type: 'text',
+    });
+    renderSidebar({ pages: [dbPage, rowPage], properties: [prop1, prop2] });
     await user.click(screen.getByRole('button', { name: 'Actions for Projects' }));
     await user.click(screen.getByRole('menuitem', { name: /Delete/ }));
     const dialog = await screen.findByRole('dialog');
-    expect(dialog).toHaveTextContent('no rows');
+    expect(dialog).toHaveTextContent('1 row and 2 properties inside it will also be deleted.');
+  });
+
+  it('delete dialog: no rows, some properties — mentions only properties (DEF-064)', async () => {
+    const user = userEvent.setup();
+    const prop = makeProperty({
+      id: 'pr-1',
+      databasePageId: 'p-db',
+      name: 'Status',
+      type: 'select',
+    });
+    // No rowPage passed — database is empty.
+    renderSidebar({ pages: [dbPage], properties: [prop] });
+    await user.click(screen.getByRole('button', { name: 'Actions for Projects' }));
+    await user.click(screen.getByRole('menuitem', { name: /Delete/ }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('1 property inside it will also be deleted.');
+    expect(dialog).not.toHaveTextContent('row');
+  });
+
+  it('delete dialog: some rows, no properties — mentions only rows (DEF-064)', async () => {
+    const user = userEvent.setup();
+    renderSidebar({ pages: [dbPage, rowPage], properties: [] });
+    await user.click(screen.getByRole('button', { name: 'Actions for Projects' }));
+    await user.click(screen.getByRole('menuitem', { name: /Delete/ }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('1 row inside it will also be deleted.');
+    expect(dialog).not.toHaveTextContent('propert');
+  });
+
+  it('delete dialog: both zero — omits the clause entirely (DEF-064)', async () => {
+    const user = userEvent.setup();
+    renderSidebar({ pages: [dbPage], properties: [] });
+    await user.click(screen.getByRole('button', { name: 'Actions for Projects' }));
+    await user.click(screen.getByRole('menuitem', { name: /Delete/ }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).not.toHaveTextContent('inside it will also be deleted');
+    expect(dialog).not.toHaveTextContent('row');
+    expect(dialog).not.toHaveTextContent('propert');
   });
 
   it('shows "Add a database inside" in the overflow menu for plain pages (ADV-051)', async () => {

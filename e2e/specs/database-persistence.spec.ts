@@ -58,7 +58,8 @@ test.describe('Cell edit persistence after reload — seeded databases', () => {
       .getByTestId('database-row')
       .filter({ has: page.getByRole('button', { name: /Pragmatic Programmer/i }) });
 
-    const numInput = pragRow.locator('input[type="number"]');
+    // NumberCell uses type="text" with inputMode="decimal" for display formatting (DEF-061).
+    const numInput = pragRow.locator('input[inputmode="decimal"]');
     await numInput.click();
     await numInput.fill('99');
     await numInput.blur();
@@ -72,7 +73,7 @@ test.describe('Cell edit persistence after reload — seeded databases', () => {
       .getByTestId('database-view')
       .getByTestId('database-row')
       .filter({ has: page.getByRole('button', { name: /Pragmatic Programmer/i }) });
-    await expect(reloadedRow.locator('input[type="number"]')).toHaveValue('99');
+    await expect(reloadedRow.locator('input[inputmode="decimal"]')).toHaveValue('99');
   });
 
   test('url cell value survives a page reload (Book Tracker — Link)', async ({ page }) => {
@@ -300,14 +301,23 @@ test.describe('Row page — properties panel and blocks', () => {
   });
 
   test('block added on the row page persists across reload', async ({ page }) => {
-    const { dbPageId, workspaceId } = await createDatabase(page);
+    const { workspaceId } = await createDatabase(page);
     const dbView = page.getByTestId('database-view');
 
-    // Add a row — navigates to the row page.
+    // Add a row — in-place since DEF-053 fix; dismiss the inline title input, then navigate
+    // to the row page by reading its data-row-id from the table row.
     await dbView.getByTestId('add-row-btn').click();
-    await page.waitForURL((url) => !url.pathname.includes(dbPageId));
+    const renameInput = page.getByRole('textbox', { name: /Name for new row/i });
+    await expect(renameInput).toBeVisible();
+    await renameInput.press('Escape');
+    await expect(dbView.getByTestId('database-row')).toHaveCount(1);
+
+    const rowPageId = await dbView.getByTestId('database-row').first().getAttribute('data-row-id');
+    expect(rowPageId).toBeTruthy();
+
+    // Navigate to the row page directly.
+    await page.goto(`/w/${workspaceId}/page/${rowPageId!}`);
     await page.waitForLoadState('networkidle');
-    const rowPageId = page.url().match(/\/page\/([^/]+)/)![1];
 
     // The block editor should be visible (possibly with an empty-state placeholder).
     const blockEditor = page.getByTestId('block-editor');

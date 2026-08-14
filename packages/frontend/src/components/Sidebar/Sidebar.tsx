@@ -9,7 +9,7 @@ import { DropdownMenu, DropdownMenuItem } from '../ui/DropdownMenu/DropdownMenu'
 import { ChevronRight, Ellipsis, Pencil, Plus, Table2, Trash2 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { useUiStoreShallow } from '../../stores/uiStore';
-import type { PageRecord } from '../../api/types';
+import type { PageRecord, PropertyRecord } from '../../api/types';
 
 export interface SidebarProps {
   workspaceName: string;
@@ -24,6 +24,12 @@ export interface SidebarProps {
   onCreateDatabase: (parentId: string | null) => void;
   onRenamePage: (page: PageRecord, title: string) => void;
   onDeletePage: (page: PageRecord) => void;
+  /**
+   * All properties in the workspace. Used to count properties on a database when composing the
+   * delete-confirmation dialog copy. Optional so tests that only exercise page behaviour do not
+   * need to supply it.
+   */
+  properties?: PropertyRecord[];
   /**
    * Optional ref forwarded from the shell so the drawer can receive programmatic focus when it
    * opens on mobile. Not used in tests; safe to omit.
@@ -56,6 +62,7 @@ export function Sidebar({
   onCreateDatabase,
   onRenamePage,
   onDeletePage,
+  properties = [],
   sidebarRef,
   onClose,
 }: SidebarProps) {
@@ -342,16 +349,22 @@ export function Sidebar({
   const nestedCount = nestedTitles.length;
 
   // For a database page, its immediate children are rows rather than sub-pages. Say "rows" rather
-  // than "pages" so the copy matches what the user sees in the table (ADV-055).
+  // than "pages" so the copy matches what the user sees in the table (ADV-055). Also name the
+  // property count so the user knows the schema (and all cell values) will be destroyed (DEF-064).
   const nestedSummary = (() => {
     if (!pendingDelete) return '';
     if (pendingDelete.kind === 'database') {
       const rowCount = pages.filter(
         (p) => p.parentId === pendingDelete.id && p.kind === 'row',
       ).length;
-      return rowCount === 0
-        ? 'The database contains no rows.'
-        : `${rowCount === 1 ? '1 row' : `${rowCount} rows`} inside it will also be deleted.`;
+      const propCount = properties.filter((pr) => pr.databasePageId === pendingDelete.id).length;
+      // Only name the non-zero counts. When both are zero the clause is omitted entirely — a
+      // sentence about "no rows and no properties" is worse than silence for an empty database.
+      const parts: string[] = [];
+      if (rowCount > 0) parts.push(rowCount === 1 ? '1 row' : `${rowCount} rows`);
+      if (propCount > 0) parts.push(propCount === 1 ? '1 property' : `${propCount} properties`);
+      if (parts.length === 0) return '';
+      return `${parts.join(' and ')} inside it will also be deleted.`;
     }
     return nestedCount === 0
       ? 'It has no nested pages.'

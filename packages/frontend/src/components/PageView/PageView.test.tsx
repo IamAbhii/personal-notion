@@ -187,4 +187,44 @@ describe('PageView', () => {
 
     expect(props.onSelectPage).toHaveBeenCalledWith('p-journal');
   });
+
+  it('does not render an empty icon tile when page.icon is empty (row pages)', () => {
+    // Row pages are seeded with icon: null. The header must show an "Add icon" affordance
+    // instead of a blank bordered tile so the UI does not look broken.
+    const rowPage = makePage({ id: 'p-row', title: 'My Row', kind: 'row', icon: '' });
+    render(
+      <PageView
+        page={rowPage}
+        breadcrumb={[rowPage]}
+        childCount={0}
+        onSelectPage={vi.fn()}
+        onRename={vi.fn()}
+        onChangeIcon={vi.fn()}
+      />,
+    );
+    // The icon button that shows the emoji must be absent.
+    expect(
+      screen.queryByRole('button', { name: 'Change the icon for My Row' }),
+    ).not.toBeInTheDocument();
+    // An "Add icon" affordance must be present so the picker is still reachable.
+    expect(screen.getByRole('button', { name: 'Add an icon for My Row' })).toBeInTheDocument();
+  });
+
+  it('renders the normal icon button when page.icon is set', () => {
+    // When an icon is present the full 76px tile must appear; the "Add icon" affordance must not.
+    render(
+      <PageView
+        page={lisbon}
+        breadcrumb={[lisbon]}
+        childCount={0}
+        onSelectPage={vi.fn()}
+        onRename={vi.fn()}
+        onChangeIcon={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Change the icon for Lisbon' })).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Add an icon for Lisbon' }),
+    ).not.toBeInTheDocument();
+  });
 });

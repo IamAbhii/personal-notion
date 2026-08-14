@@ -108,20 +108,33 @@ export function PageView({
             parsing the URL. Same convention as the sidebar rows. */}
         <header className="mt-2.5" data-testid="page-header" data-page-id={page.id}>
           <div className="relative inline-block">
-            {/* Icon button: visually 76px so it naturally exceeds the 48px touch minimum. The
-                hover transform + compound shadow are in the module CSS because Tailwind cannot
-                compose two shadow layers into a single shadow property. */}
-            <button
-              type="button"
-              className={cn(
-                'grid size-[76px] cursor-pointer place-items-center rounded-lg border border-border bg-surface font-emoji text-[44px] leading-none shadow-panel transition-[transform,box-shadow] duration-[120ms] ease-in-out hover:-translate-y-px motion-reduce:transition-none',
-                styles.icon,
-              )}
-              aria-label={`Change the icon for ${page.title}`}
-              onClick={() => setPickingIcon(true)}
-            >
-              <span aria-hidden="true">{page.icon}</span>
-            </button>
+            {page.icon ? (
+              /* Icon button: visually 76px so it naturally exceeds the 48px touch minimum. The
+                 hover transform + compound shadow are in the module CSS because Tailwind cannot
+                 compose two shadow layers into a single shadow property. */
+              <button
+                type="button"
+                className={cn(
+                  'grid size-[76px] cursor-pointer place-items-center rounded-lg border border-border bg-surface font-emoji text-[44px] leading-none shadow-panel transition-[transform,box-shadow] duration-[120ms] ease-in-out hover:-translate-y-px motion-reduce:transition-none',
+                  styles.icon,
+                )}
+                aria-label={`Change the icon for ${page.title}`}
+                onClick={() => setPickingIcon(true)}
+              >
+                <span aria-hidden="true">{page.icon}</span>
+              </button>
+            ) : (
+              /* When no icon is set (e.g. row pages), render a small affordance instead of an
+                 empty bordered tile. Always visible so it is reachable on touch. */
+              <button
+                type="button"
+                className="min-h-[48px] cursor-pointer rounded-md border border-dashed border-border px-3 py-2 text-sm text-text-muted hover:border-blue hover:text-blue-fg focus-visible:outline-2 focus-visible:outline-blue"
+                aria-label={`Add an icon for ${page.title}`}
+                onClick={() => setPickingIcon(true)}
+              >
+                Add icon
+              </button>
+            )}
             {isPickingIcon ? (
               <EmojiPickerPopover
                 onPick={(emoji) => onChangeIcon(emoji)}

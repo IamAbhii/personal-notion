@@ -101,6 +101,25 @@ describe('DatabaseView — add property', () => {
       expect.objectContaining({ name: 'Due date', type: expect.any(String) }),
     );
   });
+
+  it('Add button is disabled when the property name is empty (DEF-046)', async () => {
+    const user = userEvent.setup();
+    renderDB();
+    await user.click(screen.getByTestId('add-property-btn'));
+    // The Add button must carry the disabled attribute when the name field is empty.
+    const addBtn = screen.getByRole('button', { name: /^Add$/i });
+    expect(addBtn).toBeDisabled();
+  });
+
+  it('Add button is enabled once a name is typed (DEF-046)', async () => {
+    const user = userEvent.setup();
+    renderDB();
+    await user.click(screen.getByTestId('add-property-btn'));
+    const nameInput = screen.getByPlaceholderText('Property name');
+    await user.type(nameInput, 'Priority');
+    const addBtn = screen.getByRole('button', { name: /^Add$/i });
+    expect(addBtn).not.toBeDisabled();
+  });
 });
 
 describe('DatabaseView — delete row', () => {

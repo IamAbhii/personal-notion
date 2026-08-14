@@ -233,6 +233,7 @@ export function WorkspaceShell() {
               userName={me.user.name}
               userEmail={me.user.email}
               pages={pages}
+              properties={properties}
               currentPageId={sidebarCurrentPageId}
               onSelectPage={selectPage}
               onCreatePage={(parentId) => void createPage(parentId)}
