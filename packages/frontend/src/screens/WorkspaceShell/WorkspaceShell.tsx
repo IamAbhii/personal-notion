@@ -126,6 +126,10 @@ export function WorkspaceShell() {
     if (pageId) selectPage(pageId);
   };
 
+  // Creates a row page without navigating, returning its id so the table can rename it in place
+  // (ADV-044). Returns null when the write fails (the user has already been told).
+  const createRowInPlace = (databasePageId: string) => mutations.createPage(databasePageId, 'row');
+
   const deletePage = async (page: PageRecord) => {
     // If the open page is the one being deleted, or is nested inside it, the route would point at
     // nothing after the write, so leave for the workspace root first.
@@ -141,6 +145,13 @@ export function WorkspaceShell() {
   // Read the active theme once; tokens handle light/dark switching, so the Toaster's theme prop
   // is mainly for accessibility metadata rather than visual styling.
   const appTheme = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+
+  // When viewing a row page, the sidebar should highlight the parent database as current so the
+  // user always knows which database they are in (ADV-054). Row pages are not in the sidebar tree,
+  // so without this the current-page highlight disappears on the database page entirely.
+  const currentPage = pages.find((p) => p.id === pageParams.pageId);
+  const sidebarCurrentPageId =
+    currentPage?.kind === 'row' ? (currentPage.parentId ?? null) : (pageParams.pageId ?? null);
 
   return (
     <WorkspaceContext.Provider
@@ -159,6 +170,7 @@ export function WorkspaceShell() {
         createAndOpenPage: (parentId) => void createPage(parentId),
         createAndOpenDatabase: (parentId) => void createPage(parentId, 'database'),
         createAndOpenRow: (databasePageId) => void createRow(databasePageId),
+        createRowInPlace,
       }}
     >
       {/*
@@ -221,7 +233,7 @@ export function WorkspaceShell() {
               userName={me.user.name}
               userEmail={me.user.email}
               pages={pages}
-              currentPageId={pageParams.pageId ?? null}
+              currentPageId={sidebarCurrentPageId}
               onSelectPage={selectPage}
               onCreatePage={(parentId) => void createPage(parentId)}
               onCreateDatabase={(parentId) => void createPage(parentId, 'database')}

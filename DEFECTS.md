@@ -1,3 +1,567 @@
+## DEF-066: A multi-select chip's remove control is an interactive span nested inside a button
+
+- Status: OPEN
+- Severity: LOW
+- Found by: adversary (ADV-042)
+- Phase: 3
+
+Steps to reproduce:
+
+1. Launch the app: `npm start` then open http://localhost:8787.
+2. Navigate to "Book Tracker". Row 1 has a Topics cell with chip(s).
+3. Inspect the DOM of the remove control inside any chip: `span[role="button"][tabindex="0"][aria-label="Remove <option>"]`.
+4. Observe its parent element.
+
+Expected: the remove control is a sibling of the chip's label button, not nested inside it — nested interactive elements are invalid HTML and their event-handling behaviour is browser-defined.
+
+Actual: the remove control is a `<span role="button" tabindex="0">` whose immediate parent chain includes a `<button>` (the cell's open-picker button). `button button` is invalid HTML per the spec; interactive content is not permitted inside a `<button>` element. The span is independently focusable via Tab (reachable at Tab 23 from the page heading in Book Tracker) and announces as a button.
+
+The adversary observed that pressing Enter on the focused span opened the multi-select picker instead of removing the chip. On retest using both direct `.focus()` and natural Tab-key navigation, pressing Enter on the span correctly removed the chip (chip count dropped from 2 to 1, 0 popovers opened) — the specific symptom the adversary reported does not currently reproduce. However, the structural defect is real: behaviour that depends on which handler wins an event between a nested span and its parent button is fragile, and the correct fix is to make the chip label and its remove control siblings at the same DOM level rather than a nested interactive element.
+
+History:
+
+- qa: opened. Adversary's Enter-opens-picker symptom does not reproduce; defect scoped to the invalid HTML nesting that makes behaviour fragile.
+
+## DEF-065: New database and new row both receive the page document icon
+
+- Status: OPEN
+- Severity: LOW
+- Found by: adversary (ADV-056)
+- Phase: 3
+
+Steps to reproduce:
+
+1. Launch the app: `npm start` then open http://localhost:8787.
+2. Click "Add a top-level database" in the sidebar.
+3. Observe the new database's icon in the sidebar row and page header.
+4. Navigate to an existing database, click "New row", then navigate back to the table.
+5. Observe the icon prefix in the Title column for the new row.
+
+Expected: a database created via "Add a top-level database" receives a database-appropriate default icon (e.g. the 🗂️ used by the seeded "Work Projects"), so it is visually distinct from ordinary pages; new rows receive no icon (matching the seeded rows) or a row-appropriate one.
+
+Actual: the created database icon is `📄` — the same document icon a new blank page gets. In the sidebar it sits beside the seeded 🗂️ and 📖 icons, so the only thing marking it as a database is the small badge (which is also aria-hidden per DEF-059). New rows created via the "New row" button also receive `📄`, while the seeded rows have no icon, making the Title column inconsistent: some rows are prefixed with an icon and some are not, so titles in the same column start at different x positions.
+
+Screenshot: screenshots/adv-056.png
+
+History:
+
+- qa: opened
+
+## DEF-064: Delete-database confirmation dialog calls rows "pages" and omits the properties it will destroy
+
+- Status: OPEN
+- Severity: LOW
+- Found by: adversary (ADV-055)
+- Phase: 3
+
+Steps to reproduce:
+
+1. Launch the app: `npm start` then open http://localhost:8787.
+2. Hover over the "Work Projects" database row in the sidebar.
+3. Click its Delete control.
+4. Read the confirmation dialog.
+
+Expected: the dialog names the nested items as "rows" (matching how the product describes them in the table view and in the row-delete dialog), and warns that properties and all cell values will also be deleted — consistent with the row-delete dialog which says "…and all its property values. Deletion is permanent."
+
+Actual: the dialog reads "3 pages nested inside it will be deleted too: Accessibility audit, Performance baseline, Untitled. Deletion is permanent — there is no trash." The items are called "pages", not "rows". The dialog never mentions that the database's six properties and every value in the table will also be destroyed. The row-delete dialog does say "…and all its property values", so the two confirmation dialogs are inconsistent about the same class of data, and the more destructive one says less.
+
+Screenshot: screenshots/adv-055.png
+
+History:
+
+- qa: opened
+
+## DEF-063: On a row page, no sidebar tree entry is marked current
+
+- Status: OPEN
+- Severity: LOW
+- Found by: adversary (ADV-054)
+- Phase: 3
+
+Steps to reproduce:
+
+1. Launch the app: `npm start` then open http://localhost:8787.
+2. Navigate to "Work Projects" (a database page).
+3. Click the title of the first row to open its row page.
+4. Observe the sidebar tree.
+
+Expected: since row pages are deliberately excluded from the tree, the row's parent database ("Work Projects") is highlighted as current — it is the nearest ancestor in the tree and the breadcrumb already names it.
+
+Actual: no element in the sidebar tree carries `data-current="true"` on the row page. The amber highlight that marks your position everywhere else in the product goes out entirely. The breadcrumb still reads "Work Projects / <row title>", so the information is available; only the tree is blank.
+
+Screenshot: screenshots/adv-054.png
+
+History:
+
+- qa: opened
+
+## DEF-062: In dark theme the unchecked checkbox cell is a solid white square
+
+- Status: OPEN
+- Severity: LOW
+- Found by: adversary (ADV-053)
+- Phase: 3
+
+Steps to reproduce:
+
+1. Launch the app: `npm start` then open http://localhost:8787.
+2. Switch to dark theme (set `personal-space:theme = dark` in localStorage or via the theme toggle).
+3. Navigate to "Work Projects" and observe the "Done" column.
+
+Expected: the checkbox is styled to match the theme, as the to-do block checkboxes in the block editor are.
+
+Actual: the checkbox is a native `input[type=checkbox]` with `appearance: auto` and no theming (`background-color: rgba(0,0,0,0)`, `webkitAppearance: auto`). In dark theme the browser paints its OS default: a bright white filled square on a near-black row. Next to the checked state — a blue box with a white tick — the unchecked one reads as the more "active" of the two, which is backwards. The element will follow the OS rather than the product palette on any platform.
+
+Screenshot: screenshots/adv-053.png
+
+History:
+
+- qa: opened
+
+## DEF-061: Number cells render raw float precision with no formatting or rounding
+
+- Status: OPEN
+- Severity: LOW
+- Found by: adversary (ADV-052)
+- Phase: 3
+
+Steps to reproduce:
+
+1. Launch the app: `npm start` then open http://localhost:8787.
+2. Navigate to "Work Projects".
+3. In any number cell (e.g. "Effort (days)"), enter a value like `Math.random() * 1000` through the `value.set` op — e.g. `528.7752545877175`.
+4. Blur the input to save and observe the display.
+
+Expected: the number is formatted to a reasonable precision (e.g. two decimal places, or no trailing zeros), with thousands separators for large numbers.
+
+Actual: the number cell always renders as `input[type=number]` and the stored value appears verbatim in the input's `value` attribute — `528.7752545877175`, `92.68871997680739`, `7.123456789012345` — showing up to 16 significant digits in a narrow column, with no formatting and no thousands separators. A stored integer like `2` displays as `2` (reasonable), but any computation or API-set float produces a 16-digit number in a column typically under 100px wide.
+
+Screenshot: screenshots/adv-052.png
+
+History:
+
+- qa: opened
+
+## DEF-060: "Add a page inside" and "Add a database inside" are absent from the desktop row overlay
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-051)
+- Phase: 3
+
+Steps to reproduce:
+
+1. Launch the app: `npm start` then open http://localhost:8787 at 1280x800.
+2. Hover over any database row in the sidebar (e.g. "Work Projects").
+3. Observe the controls that appear on hover.
+
+Expected: the row action menu — the one containing "Rename", "Add a page inside X", "Add a database inside X" and "Delete X" — is accessible at desktop width; the phase contract explicitly asks for a "New database" entry "alongside today's page creation affordances (top-level and in the row action menu)".
+
+Actual: the row action menu lives in a `<span class="flex-none md:hidden">` and is not rendered at 1280px. The desktop overlay `[data-testid="page-row-desktop-actions"]` for the Work Projects database row contains only "Rename Work Projects" and "Delete Work Projects" — two buttons. There is no "Add a page inside" and no "Add a database inside" at any desktop viewport width. The only reachable creation affordances at desktop width are the two top-level buttons (Add a top-level page, Add a top-level database). Playwright's role query for "Actions for Work Projects" finds nothing at 1280px.
+
+Screenshot: screenshots/adv-051.png
+
+History:
+
+- qa: opened
+
+## DEF-059: The database marker in the sidebar is aria-hidden, making databases indistinguishable from pages to screen readers
+
+- Status: OPEN
+- Severity: LOW
+- Found by: adversary (ADV-050)
+- Phase: 3
+
+Steps to reproduce:
+
+1. Launch the app: `npm start` then open http://localhost:8787.
+2. Inspect the accessibility tree of the sidebar page tree, or read the DOM of the "Work Projects" row.
+
+Expected: the phase contract asks for "a distinct affordance marking a database row in the tree"; a marker that only exists visually is half of that.
+
+Actual: the marker is present in the DOM — a `lucide-table-2` badge overlaid on the page icon, `data-testid="database-marker"` — but its wrapping `<span>` carries `aria-hidden="true"`. No other text or attribute distinguishes the row. In the accessibility tree the entry is exactly `treeitem "Work Projects" > button "Work Projects"`, identical in shape to every ordinary page. A screen reader user navigating the tree cannot tell which entries open a table and which open a document.
+
+History:
+
+- qa: opened
+
+## DEF-058: Cell editors carry no accessible name — screen reader announces placeholder or value, not the property
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-049)
+- Phase: 3
+
+Steps to reproduce:
+
+1. Launch the app: `npm start` then open http://localhost:8787.
+2. Navigate to "Work Projects" or "Book Tracker".
+3. Inspect the accessibility name of each table cell editor with a screen reader or by reading `aria-label` / `aria-labelledby` attributes.
+
+Expected: each cell editor is named for its property and row, e.g. "Effort (days), Phase 3: databases and table view", so a non-visual user can tell which property a control edits.
+
+Actual: every editor takes its accessible name from its placeholder or value, or has none at all. A number cell is `spinbutton "0"` — the name is the placeholder "0", so all six number cells in a table announce identically as "0". A text cell is `textbox "Empty"`. An empty url cell is `textbox "https://example.com"`. A select cell button is named for the selected option ("In progress") or "Select..." when empty. The option picker and date picker open as `dialog` with no accessible name. Nowhere does the property name appear in the accessible name. The column header cells themselves are fine (`columnheader "Status options"`).
+
+History:
+
+- qa: opened
+
+## DEF-057: The losing tab in a two-tab cell edit keeps showing its own value with no sign it lost
+
+- Status: OPEN
+- Severity: LOW
+- Found by: adversary (ADV-048)
+- Phase: 3
+
+Steps to reproduce:
+
+1. Launch the app: `npm start` then open http://localhost:8787 in two separate browser tabs.
+2. In both tabs navigate to "Work Projects".
+3. In tab 1, click the "Effort (days)" cell of row 1, set it to 111, and blur to save.
+4. In tab 2, click the same cell, set it to 222, and blur to save a moment later.
+5. Watch tab 1 for 4+ seconds without interacting.
+
+Expected: the last write wins on the server (it does), and the losing tab reconciles — at least eventually — or clearly marks the cell as potentially stale.
+
+Actual: the server converges on 222 correctly. Tab 1 goes on displaying 111 indefinitely (still 111 after 4 seconds), with nothing to indicate it is stale. There appears to be no background poll. Two windows open side by side disagree about a cell's value with no cue as to which is right.
+
+Screenshot: screenshots/adv-048.png
+
+History:
+
+- qa: opened
+- orchestrator: accepted, deferred to Phase 6, which owns the sync queue and cross-client invalidation. The write path already detects the conflict correctly; what is missing is live invalidation, which is that phase's work.
+
+## DEF-056: A row page keeps rendering a deleted row indefinitely, then silently discards a cell edit on transition to NOT FOUND
+
+- Status: OPEN
+- Severity: LOW
+- Found by: adversary (ADV-047)
+- Phase: 3
+
+Steps to reproduce:
+
+1. Launch the app: `npm start` then open http://localhost:8787.
+2. Navigate to "Work Projects", click the first row's title to open its row page (tab 1).
+3. In a second browser tab, open "Work Projects", use the row's actions menu, choose "Delete row" and confirm "Delete permanently".
+4. Watch tab 1: wait 3–6 seconds without interacting.
+
+Expected: tab 1 notices the row is gone and shows the NOT FOUND state it already has for a missing page.
+
+Actual: tab 1 keeps rendering the deleted row in full — title, the entire properties panel with its values, and all its blocks — for 3+ seconds with nothing marking it as gone. Typing into a cell and blurring appears to succeed; the write is rejected, the client refetches, and the page then turns into "NOT FOUND / This page no longer exists" with no notice explaining that the typed value was just discarded.
+
+Screenshot: screenshots/adv-047.png
+
+History:
+
+- qa: opened
+- orchestrator: accepted, deferred to Phase 6, which owns the sync queue and cross-client invalidation. The write path already detects the conflict correctly; what is missing is live invalidation, which is that phase's work.
+
+## DEF-055: "Manage options" editor expands the table header row in-place, shoving the table down and hiding the "Add property" control
+
+- Status: OPEN
+- Severity: LOW
+- Found by: adversary (ADV-046)
+- Phase: 3
+
+Steps to reproduce:
+
+1. Launch the app: `npm start` then open http://localhost:8787 at 1280x800.
+2. Navigate to "Work Projects".
+3. Click the "Status" column header, choose "Manage options".
+
+Expected: a popover layered over the table, like the cell pickers and the column header menu itself.
+
+Actual: the editor renders inside the `<th>`, so the entire header row expands to approximately 270px. The Status column widens, every table row is pushed down by that amount, columns to the right shift sideways and the Spec column may be clipped at the viewport edge, and the "Add property" plus button leaves the screen entirely — you cannot add a property while an option editor is open. The rest of the table remains fully interactive underneath (the editor is not a modal), so a cell picker in a row can be opened while a header editor is mid-edit.
+
+Screenshot: screenshots/adv-046.png
+
+History:
+
+- qa: opened
+
+## DEF-054: Table header row and title column are not sticky — a large table becomes unreadable when scrolled
+
+- Status: OPEN
+- Severity: LOW
+- Found by: adversary (ADV-045)
+- Phase: 3
+
+Steps to reproduce:
+
+1. Launch the app: `npm start` then open http://localhost:8787 at 1280x800.
+2. Navigate to a database with 20+ properties and 50+ rows (or scroll down 2000px in any database with enough rows to push the header off screen).
+3. Scroll down so the header row is off-screen; then scroll the table right by 3000px.
+
+Expected: the `<thead>` stays visible when scrolling vertically; the Title column stays visible when scrolling horizontally.
+
+Actual: the `<thead>` has `position: static`; after scrolling 2000px it is at y=−518, out of the viewport with no way to tell which column a cell belongs to. Scrolling the table to the right carries the Title column away, so the visible cells belong to unidentifiable rows. The table renders without errors (all 50 rows and 22 columns rendered, first paint ~3.5s), but becomes unnavigable at scale.
+
+Screenshot: screenshots/adv-045.png
+
+History:
+
+- qa: opened
+- orchestrator: accepted, deferred to Phase 4, where the view switcher and wider tables land and sticky headers can be solved once for table, board and list.
+
+## DEF-053: "New row" immediately navigates away from the table to the new row's page, making bulk row creation impossible
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-044)
+- Phase: 3
+
+Steps to reproduce:
+
+1. Launch the app: `npm start` then open http://localhost:8787.
+2. Navigate to "Work Projects".
+3. Click "New row".
+
+Expected: a new empty row appears at the bottom of the table with its title ready to type, so several rows can be added without navigating away.
+
+Actual: the click creates the row and immediately navigates to that row's own page (`document.activeElement` is `BODY` there — nothing is focused). Adding five rows requires five navigations away and five trips back. On a brand-new empty database, it is worse: the destination shows "This page is empty" with no properties panel and no indication that it is a database row, so the click looks as if it created a stray page. Five rapid clicks each create a row, so no data is lost; it is the flow that breaks down.
+
+Screenshot: screenshots/adv-044.png
+
+History:
+
+- qa: opened
+
+## DEF-052: Recolouring a select option is a blind one-at-a-time cycle with no picker and a misleading accessible name
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-043)
+- Phase: 3
+
+Steps to reproduce:
+
+1. Launch the app: `npm start` then open http://localhost:8787.
+2. Navigate to "Work Projects", click the "Status" column header, choose "Manage options".
+3. Click the circular colour swatch to the left of the "Backlog" option.
+4. Read the button's `aria-label` before and after clicking.
+
+Expected: a colour picker showing the six palette colours as a visual list, so the user can jump directly to any colour.
+
+Actual: there is no picker. The swatch is a cycle button that advances gray → amber → blue → purple → teal → rose → gray on each click, with no popover, no list and no preview of what comes next. Setting rose from gray requires five clicks of guesswork. The accessible name is the current colour ("Color: gray"), not the action — a screen reader user is told a state and never that pressing it changes anything. In dark theme the six swatches are painted at 20% alpha over the dark panel with a gray border; gray, blue and teal all resolve to near-identical dark circles.
+
+Screenshot: screenshots/adv-043.png
+
+History:
+
+- qa: opened
+
+## DEF-051: Date picker opens on today's month with no day selected — the cell's existing date is ignored
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-041)
+- Phase: 3
+
+Steps to reproduce:
+
+1. Launch the app: `npm start` then open http://localhost:8787.
+2. Navigate to "Work Projects" and click the "Due date" cell of row 1 (seeded value: 15 Sept 2026; today is August 2026).
+
+Expected: the calendar opens on September 2026 with the 15th marked as selected, so the current value is visible and a nearby date is one click away.
+
+Actual: the calendar opens on August 2026 and no day is marked selected — `[aria-selected="true"]` and `[data-selected="true"]` inside the popover both return 0 matches; only "today" is emphasised. The editor gives no visual feedback about what the cell currently holds. Nudging a date from 15 September to 16 September requires first noticing you are in the wrong month. There is also no month/year jump, so a date in the past or far future is many clicks away; and there is no text input for dates.
+
+Screenshot: screenshots/adv-041.png
+
+History:
+
+- qa: opened
+
+## DEF-050: A select property with 50 options renders a 2151px popover that does not scroll, making most options unreachable
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-040)
+- Phase: 3
+
+Steps to reproduce:
+
+1. Launch the app: `npm start` then open http://localhost:8787.
+2. Set the "Work Projects" Status property to 50 options via the `property.update` op (50 is the contract's `MAX_OPTIONS_PER_PROPERTY`).
+3. Reload and navigate to "Work Projects".
+4. Click any Status cell at 1280x800.
+
+Expected: the option picker scrolls internally, capping its height to fit the viewport.
+
+Actual: the picker is 201px wide and 2151px tall with no `max-height` and no internal scroll (`overflowY: visible`). Its last option appears at y=2465 in the viewport. The document itself does not scroll that far, so approximately 30 of the 50 options are permanently unreachable by any means at 1280x800. "Manage options" with 50 options has the same shape: the header row grows to ~1926px, pushing the table off the bottom of the screen. This is not an abusive input — 50 is the documented maximum.
+
+Screenshot: screenshots/adv-040.png
+
+History:
+
+- qa: opened
+
+## DEF-049: "Delete property" destroys a whole column of values immediately with no confirmation dialog
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-039)
+- Phase: 3
+
+Steps to reproduce:
+
+1. Launch the app: `npm start` then open http://localhost:8787.
+2. Navigate to "Work Projects".
+3. Click the "Effort (days)" column header, then click "Delete property".
+
+Expected: a confirmation dialog — consistent with the row-delete dialog ("Delete… This will permanently delete the row, its content, and all its property values. Deletion is permanent — there is no trash.") and the page-delete dialog (names nested pages) — before the column and all its values are removed.
+
+Actual: the column and every cell value in it are deleted immediately with no dialog, no undo and no notice. One misclick in a menu whose neighbouring item is the harmless "Rename" destroys data for every row in the database (3 rows in the seed, potentially hundreds in real use). The cascade is correct (no orphaned values remain), which is exactly why the deletion is irreversible.
+
+History:
+
+- qa: opened
+
+## DEF-048: Deleting a select option that rows still use destroys those cell values instantly with no warning
+
+- Status: OPEN
+- Severity: HIGH
+- Found by: adversary (ADV-038)
+- Phase: 3
+
+Steps to reproduce:
+
+1. Launch the app: `npm start` then open http://localhost:8787.
+2. Navigate to "Work Projects". Note that row 1 has Status "In progress".
+3. Click the "Status" column header, choose "Manage options", click "Remove In progress", click Save.
+4. Observe row 1's Status cell — it now reads "Select..." with no notice.
+
+Expected: either a warning naming the affected rows before the deletion is committed ("1 row uses 'In progress' — removing this option will clear those cells"), or at minimum a notice after the fact explaining that values were cleared. The action is irreversible; the user should know it is happening.
+
+Actual: no confirmation and no warning that any row uses the option. After saving, the affected row's Status cell shows "Select..." and the stored value in the snapshot is null — silently cleared in the same atomic op. There is no notice, no undo, and no way back. Phase 4's grouping and filtering read these values, so a row silently cleared this way becomes invisible to any filter that looks for "In progress".
+
+Note: the adversary's original symptom — that the deleted option's ID remained as a dangling value in the snapshot — does not reproduce. Backend-dev's fix (landed while this finding was being reproduced) now clears the values for the removed option atomically on the server, so the database is left consistent. What remains is the missing warning: the data destruction happens correctly and completely, but silently.
+
+Screenshot: screenshots/adv-038.png
+
+History:
+
+- qa: opened
+- qa: the dangling-value half of the original finding was fixed server-side before this entry was written — removing an option now nulls the affected values atomically. The surviving defect is the absence of any warning to the user that cell values will be destroyed.
+
+## DEF-047: An option name can be saved as empty, producing a nameless chip with no accessible label and no way to identify it
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-036)
+- Phase: 3
+
+Steps to reproduce:
+
+1. Launch the app: `npm start` then open http://localhost:8787.
+2. Navigate to "Work Projects", click the "Status" column header, choose "Manage options".
+3. Clear the "Backlog" text box entirely and click Save.
+4. Observe the Work Projects table and open the Status picker on any row that had Backlog.
+
+Expected: an empty option name is rejected or trimmed back to its previous value, consistent with how blank page titles and blank property names are handled.
+
+Actual: the server accepts it — the snapshot shows `{"name":"","color":"gray"}` in the options array. The row's Status cell renders an empty gray pill whose `<button>` has no text and no accessible name, so a screen reader announces an unlabelled button. In the option picker the same option sits between other named options with no distinguishable label. The value is still set, so the row is in a state where the user can see a colour but no label; the only way back is to guess which blank pill is which in the manage-options editor.
+
+Screenshot: screenshots/adv-036.png
+
+History:
+
+- qa: opened
+
+## DEF-046: An empty or whitespace-only property name leaves "Add" enabled and silently does nothing
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-035)
+- Phase: 3
+
+Steps to reproduce:
+
+1. Launch the app: `npm start` then open http://localhost:8787.
+2. Navigate to "Work Projects", click "Add property".
+3. Leave the name box empty and click "Add". Then type five spaces and click "Add" again.
+4. Separately, open a column header menu, choose "Rename", clear the input and press Enter.
+
+Expected: either a disabled "Add" button with a hint, or a validation message — the same treatment that blanking a page title gets ("A page needs a name, so the old one was kept").
+
+Actual: the "Add" button is enabled in both cases. Clicking it does nothing observable: no property is created, the popover stays open with the same content, and no notice, inline error or toast appears anywhere on the page. Renaming a property to blank silently keeps the old name with no message. The contrast is stark: a 120-character property name produces a clear server-error notice, so feedback exists for one invalid name and is entirely absent for another. The option editor has the identical gap: "Add" is enabled for an empty option name and the option is dropped without explanation.
+
+Screenshot: screenshots/adv-035.png
+
+History:
+
+- qa: opened
+
+## DEF-045: Enter does not commit a text, number or url cell — only blur saves, so Enter-then-reload loses the edit
+
+- Status: OPEN
+- Severity: HIGH
+- Found by: adversary (ADV-034)
+- Phase: 3
+
+Steps to reproduce:
+
+1. Launch the app: `npm start` then open http://localhost:8787.
+2. Navigate to "Work Projects", click the "Effort (days)" cell of row 1, type `42`, then press Enter.
+3. Wait 2–3 seconds (do not click elsewhere).
+4. Reload the page.
+
+Expected: Enter in a single-line cell editor commits the value — consistent with the rest of the product (Enter commits the page rename; Enter in the option editor's "New option" box creates the option).
+
+Actual: Enter does nothing at all. No save, no visual confirmation, no exit from edit mode. The input remains open and the stored value is unchanged in the snapshot after Enter. After reloading, the cell shows the original value (5) not 42. The same holds for text cells and url cells. A user who types a value, presses Enter because that is what Enter does everywhere else in this app, then navigates away with the keyboard or reloads the tab, loses the edit silently. There is no debounce fallback — blur is the only save trigger.
+
+History:
+
+- qa: opened
+
+## DEF-044: URL cell prefixes "https://" to any input, rendering nonsense as a clickable link
+
+- Status: OPEN
+- Severity: LOW
+- Found by: adversary (ADV-033)
+- Phase: 3
+
+Steps to reproduce:
+
+1. Launch the app: `npm start` then open http://localhost:8787.
+2. Navigate to "Book Tracker", click the "Link" cell of any row, type `not a url at all`, and blur.
+3. Observe the displayed anchor in the cell.
+
+Expected: the cell either validates the input lightly (refusing non-URL text) or at minimum renders without a clickable link wrapper when the value is not a URL.
+
+Actual: every value is stored verbatim and rendered as an anchor whose `href` is the value prefixed with `https://` (unless it already starts with `http`). `"not a url at all"` renders as `href="https://not%20a%20url%20at%20all/"`. Other examples: `javascript:alert(1)` → `https://javascript:alert(1)`, `data:text/html,<h1>x</h1>` → `https://data:text/html,<h1>x</h1>`, `#` → `https://#`, `  spaces.com  ` → `https://  spaces.com  ` (spaces preserved in href). The blind prefix neutralises the `javascript:` and `data:` schemes, so this is not an injection; what is left is that the cell shows a blue underlined link that cannot resolve and never trims leading/trailing whitespace.
+
+Screenshot: screenshots/adv-033.png
+
+History:
+
+- qa: opened
+
+## DEF-043: A url cell's link cannot be opened — clicking it enters edit mode instead of navigating
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-032)
+- Phase: 3
+
+Steps to reproduce:
+
+1. Launch the app: `npm start` then open http://localhost:8787.
+2. Navigate to "Book Tracker". Row 1 has a Link cell showing an underlined anchor to `https://bookshop.org/p/books/the-design-of-everyday-things`.
+3. Left-click the link text.
+4. Attempt a keyboard path: Tab from the page title through the row and press Enter when focused on the Link cell.
+
+Expected: clicking the anchor opens the URL in a new tab (as its markup advertises: `target="_blank"`, `rel="noopener noreferrer"`); a keyboard user can Tab to the anchor and press Enter to open it.
+
+Actual: no new tab ever opens. The click lands on the cell, the cell swaps the anchor for a text input, and the link's navigation never fires. By keyboard it is worse: Tab focus goes straight from the multi-select chip to the url `INPUT` — the anchor never appears in the tab order. The mouse-down focuses the cell, the re-render replaces the anchor with an input, and the mouse-up lands on the input instead of the anchor. So the url property renders a link that is purely decorative: there is no gesture, mouse or keyboard, that opens it from the table or the row page.
+
+Screenshot: screenshots/adv-032.png
+
+History:
+
+- qa: opened
+
 ## DEF-042: Database page constrained to 860px prose column, wasting desktop width
 
 - Status: CLOSED

@@ -26,6 +26,11 @@ export interface WorkspaceContextValue {
   createAndOpenDatabase: (parentId: string | null) => void;
   /** Creates a row inside a database and opens its row page. */
   createAndOpenRow: (databasePageId: string) => void;
+  /**
+   * Creates a row inside a database without navigating away from the table. Returns the new row's
+   * id so the table can switch the title cell into inline rename mode (ADV-044).
+   */
+  createRowInPlace: (databasePageId: string) => Promise<string | null>;
 }
 
 /**

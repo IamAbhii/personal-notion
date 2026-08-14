@@ -175,6 +175,9 @@ export function Sidebar({
                   'flex min-h-12 min-w-0 flex-1 cursor-pointer items-center border-0 bg-transparent p-0 text-left text-sm font-medium',
                   isCurrent && 'font-[650]',
                 )}
+                // Database pages carry an aria-label that announces their kind because the visual
+                // database-marker badge is inside an aria-hidden container (ADV-050).
+                aria-label={page.kind === 'database' ? `Database: ${page.title}` : page.title}
                 data-testid="page-row-title"
                 onClick={() => handleSelectPage(page.id)}
               >
@@ -337,10 +340,23 @@ export function Sidebar({
       )
     : [];
   const nestedCount = nestedTitles.length;
-  const nestedSummary =
-    nestedCount === 0
+
+  // For a database page, its immediate children are rows rather than sub-pages. Say "rows" rather
+  // than "pages" so the copy matches what the user sees in the table (ADV-055).
+  const nestedSummary = (() => {
+    if (!pendingDelete) return '';
+    if (pendingDelete.kind === 'database') {
+      const rowCount = pages.filter(
+        (p) => p.parentId === pendingDelete.id && p.kind === 'row',
+      ).length;
+      return rowCount === 0
+        ? 'The database contains no rows.'
+        : `${rowCount === 1 ? '1 row' : `${rowCount} rows`} inside it will also be deleted.`;
+    }
+    return nestedCount === 0
       ? 'It has no nested pages.'
       : `${nestedCount === 1 ? 'One page nested inside it' : `${nestedCount} pages nested inside it`} will be deleted too: ${nestedTitles.slice(0, 3).join(', ')}${nestedCount > 3 ? `, and ${nestedCount - 3} more` : ''}.`;
+  })();
 
   return (
     <aside

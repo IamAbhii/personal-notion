@@ -1,11 +1,12 @@
-import { useMemo, useState } from 'react';
-import { ChevronDown, Ellipsis, Plus, Trash2 } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
+import { ChevronDown, Plus, Trash2 } from 'lucide-react';
 import { CellEditor } from '../CellEditor/CellEditor';
+import { Popover } from '../ui/Popover/Popover';
 import { DropdownMenu, DropdownMenuItem } from '../ui/DropdownMenu/DropdownMenu';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { cn } from '../../lib/cn';
-import { optionColorClass } from '../../lib/optionColors';
 import { OPTION_COLORS } from '../../api/types';
+import type { OptionColor } from '../../api/types';
 import type {
   PageRecord,
   PropertyRecord,
@@ -37,7 +38,11 @@ export interface DatabaseViewProps {
   /** All property values across all rows of this database. */
   values: PropertyValueRecord[];
   onSelectRow: (rowPageId: string) => void;
-  onCreateRow: () => void;
+  /**
+   * Creates a row and returns its id (or null on failure) so the table can switch the title cell
+   * into inline rename mode without navigating away (ADV-044).
+   */
+  onCreateRow: () => Promise<string | null>;
   onDeleteRow: (row: PageRecord) => void;
   onCreateProperty: (args: { name: string; type: PropertyType; options?: SelectOption[] }) => void;
   onUpdateProperty: (
@@ -46,6 +51,188 @@ export interface DatabaseViewProps {
   ) => void;
   onDeleteProperty: (property: PropertyRecord) => void;
   onSetValue: (args: { rowPageId: string; propertyId: string; value: string | null }) => void;
+  /** Renames a row in-place; called after the inline title input commits (ADV-044). */
+  onRenameRow?: (row: PageRecord, title: string) => void;
+}
+
+// ---------- Color swatch classes (higher opacity for the picker so swatches are distinguishable
+//            in dark theme — the chip classes use bg-amber/20 which is nearly invisible; ADV-043) ----------
+
+const COLOR_SWATCH_CLASS: Record<OptionColor, string> = {
+  gray: 'bg-border',
+  amber: 'bg-amber/70',
+  blue: 'bg-blue/70',
+  purple: 'bg-purple/70',
+  teal: 'bg-teal/70',
+  rose: 'bg-rose/70',
+};
+
+// ---------- Options editor ----------
+
+interface OptionsEditorProps {
+  property: PropertyRecord;
+  onSave: (options: SelectOption[]) => void;
+  onClose: () => void;
+  /**
+   * How many rows currently use each option id. Before removing an option that is in use the
+   * editor shows a confirmation dialog (DEF-048).
+   */
+  optionUseCounts?: Map<string, number>;
+}
+
+/** Floating editor for managing select/multiSelect options: add, rename, recolor, remove. */
+function OptionsEditor({ property, onSave, onClose, optionUseCounts }: OptionsEditorProps) {
+  const [options, setOptions] = useState<SelectOption[]>(() => [...property.options]);
+  const [newName, setNewName] = useState('');
+  // Id of the option pending removal confirmation (DEF-048).
+  const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
+  // Whether the color picker is open for a given option id.
+  const [pickerOpenId, setPickerOpenId] = useState<string | null>(null);
+
+  const addOption = () => {
+    const name = newName.trim();
+    if (!name) return;
+    const color = OPTION_COLORS[options.length % OPTION_COLORS.length] ?? 'gray';
+    setOptions((prev) => [...prev, { id: crypto.randomUUID(), name, color }]);
+    setNewName('');
+  };
+
+  const updateOption = (id: string, changes: Partial<Omit<SelectOption, 'id'>>) => {
+    setOptions((prev) => prev.map((o) => (o.id === id ? { ...o, ...changes } : o)));
+  };
+
+  // Called after the user either confirms removal or when the option is unused.
+  const removeOption = (id: string) => {
+    setOptions((prev) => prev.filter((o) => o.id !== id));
+    setPendingRemoveId(null);
+  };
+
+  const requestRemove = (opt: SelectOption) => {
+    const useCount = optionUseCounts?.get(opt.id) ?? 0;
+    if (useCount > 0) {
+      // Defer removal behind a confirmation dialog so the user knows cells will be cleared (DEF-048).
+      setPendingRemoveId(opt.id);
+    } else {
+      removeOption(opt.id);
+    }
+  };
+
+  const pendingOpt = pendingRemoveId ? options.find((o) => o.id === pendingRemoveId) : null;
+  const pendingUseCount = pendingRemoveId ? (optionUseCounts?.get(pendingRemoveId) ?? 0) : 0;
+
+  return (
+    <>
+      <div className="flex min-w-[240px] flex-col gap-1 p-2">
+        <p className="px-1 text-xs font-medium text-text-muted">Manage options</p>
+        {options.map((opt) => (
+          <div key={opt.id} className="flex items-center gap-1.5">
+            {/* Color picker: shows all 6 colors as swatches (ADV-043). Each swatch uses a higher
+                opacity so they are distinguishable in dark theme. */}
+            <Popover
+              open={pickerOpenId === opt.id}
+              onOpenChange={(v) => setPickerOpenId(v ? opt.id : null)}
+              trigger={
+                <button
+                  type="button"
+                  aria-label={`Pick color for ${opt.name}`}
+                  className={cn(
+                    'size-5 min-w-5 cursor-pointer rounded-full border-2 border-border/50 transition-transform hover:scale-110',
+                    COLOR_SWATCH_CLASS[opt.color],
+                  )}
+                />
+              }
+            >
+              <div className="flex gap-1 p-1.5">
+                {OPTION_COLORS.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    aria-label={c}
+                    className={cn(
+                      'size-6 cursor-pointer rounded-full border-2 transition-transform hover:scale-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue',
+                      COLOR_SWATCH_CLASS[c],
+                      opt.color === c ? 'scale-110 border-text' : 'border-transparent',
+                    )}
+                    onClick={() => {
+                      updateOption(opt.id, { color: c });
+                      setPickerOpenId(null);
+                    }}
+                  />
+                ))}
+              </div>
+            </Popover>
+            <input
+              type="text"
+              className="min-h-8 flex-1 rounded-sm border border-border bg-transparent px-2 py-0.5 text-xs focus:border-blue focus:outline-none"
+              value={opt.name}
+              onChange={(e) => updateOption(opt.id, { name: e.target.value })}
+            />
+            <button
+              type="button"
+              aria-label={`Remove ${opt.name}`}
+              className="flex size-7 cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent text-text-muted hover:bg-danger/10 hover:text-danger"
+              onClick={() => requestRemove(opt)}
+            >
+              <Trash2 size={12} aria-hidden />
+            </button>
+          </div>
+        ))}
+        <div className="mt-0.5 flex items-center gap-1 border-t border-border pt-1">
+          <input
+            type="text"
+            className="min-h-9 flex-1 rounded-sm border border-border bg-transparent px-2 py-1 text-xs placeholder:text-text-muted/60 focus:border-blue focus:outline-none"
+            placeholder="New option..."
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                addOption();
+              }
+            }}
+          />
+          {/* Disabled when the input is empty so the user has a clear signal before clicking (ADV-035). */}
+          <button
+            type="button"
+            disabled={newName.trim() === ''}
+            className="min-h-9 rounded-sm bg-blue/10 px-2 py-1 text-xs font-medium text-blue-fg hover:bg-blue/20 disabled:cursor-not-allowed disabled:opacity-40"
+            onClick={addOption}
+          >
+            Add
+          </button>
+        </div>
+        <div className="mt-0.5 flex items-center justify-end gap-1.5 border-t border-border pt-1">
+          <button
+            type="button"
+            className="min-h-9 rounded-sm px-3 py-1 text-xs text-text-muted hover:bg-surface-hover"
+            onClick={onClose}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="min-h-9 rounded-sm bg-blue px-3 py-1 text-xs font-medium text-white hover:opacity-90"
+            onClick={() => onSave(options)}
+          >
+            Save
+          </button>
+        </div>
+      </div>
+
+      {pendingOpt ? (
+        <ConfirmDialog
+          title={`Remove "${pendingOpt.name}"?`}
+          lines={[
+            `${pendingUseCount} ${pendingUseCount === 1 ? 'row uses' : 'rows use'} this option. Removing it will clear ${pendingUseCount === 1 ? 'that cell' : 'those cells'} permanently.`,
+            'This cannot be undone.',
+          ]}
+          confirmLabel="Remove option"
+          onConfirm={() => removeOption(pendingOpt.id)}
+          onCancel={() => setPendingRemoveId(null)}
+        />
+      ) : null}
+    </>
+  );
 }
 
 // ---------- Property header menu ----------
@@ -55,18 +242,27 @@ interface PropertyHeaderMenuProps {
   onRename: (name: string) => void;
   onDelete: () => void;
   onManageOptions?: (options: SelectOption[]) => void;
+  /** How many rows use each option id (passed through for the OptionsEditor confirm guard). */
+  optionUseCounts?: Map<string, number>;
 }
 
+/**
+ * The column header button and its context menu. The menu floats in a Popover so that the
+ * OptionsEditor panel does not expand the `<th>` element when the user opens it (ADV-046).
+ */
 function PropertyHeaderMenu({
   property,
   onRename,
   onDelete,
   onManageOptions,
+  optionUseCounts,
 }: PropertyHeaderMenuProps) {
+  const [open, setOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [nameInput, setNameInput] = useState(property.name);
   const [managingOptions, setManagingOptions] = useState(false);
 
+  // Inline rename input renders in the <th> (not the popover) to keep it stable while typing.
   if (renaming) {
     return (
       <div className="flex items-center gap-1 px-2 py-1">
@@ -95,21 +291,14 @@ function PropertyHeaderMenu({
     );
   }
 
-  if (managingOptions && onManageOptions) {
-    return (
-      <OptionsEditor
-        property={property}
-        onSave={(options) => {
-          onManageOptions(options);
-          setManagingOptions(false);
-        }}
-        onClose={() => setManagingOptions(false)}
-      />
-    );
-  }
-
   return (
-    <DropdownMenu
+    <Popover
+      open={open}
+      onOpenChange={(v) => {
+        setOpen(v);
+        // Close the options editor when the popover closes so it resets on next open.
+        if (!v) setManagingOptions(false);
+      }}
       trigger={
         <button
           type="button"
@@ -120,127 +309,59 @@ function PropertyHeaderMenu({
           <ChevronDown size={10} className="flex-none opacity-50" aria-hidden />
         </button>
       }
-      align="start"
     >
-      <DropdownMenuItem onSelect={() => setTimeout(() => setRenaming(true), 0)}>
-        Rename
-      </DropdownMenuItem>
-      {property.type === 'select' || property.type === 'multiSelect' ? (
-        <DropdownMenuItem onSelect={() => setTimeout(() => setManagingOptions(true), 0)}>
-          Manage options
-        </DropdownMenuItem>
-      ) : null}
-      <DropdownMenuItem variant="danger" onSelect={onDelete}>
-        <Trash2 size={14} aria-hidden />
-        Delete property
-      </DropdownMenuItem>
-    </DropdownMenu>
-  );
-}
-
-// ---------- Options editor ----------
-
-interface OptionsEditorProps {
-  property: PropertyRecord;
-  onSave: (options: SelectOption[]) => void;
-  onClose: () => void;
-}
-
-/** Inline editor for managing select/multiSelect options: add, rename, recolor, remove. */
-function OptionsEditor({ property, onSave, onClose }: OptionsEditorProps) {
-  const [options, setOptions] = useState<SelectOption[]>(() => [...property.options]);
-  const [newName, setNewName] = useState('');
-
-  const addOption = () => {
-    const name = newName.trim();
-    if (!name) return;
-    const color = OPTION_COLORS[options.length % OPTION_COLORS.length] ?? 'gray';
-    setOptions((prev) => [...prev, { id: crypto.randomUUID(), name, color }]);
-    setNewName('');
-  };
-
-  const updateOption = (id: string, changes: Partial<Omit<SelectOption, 'id'>>) => {
-    setOptions((prev) => prev.map((o) => (o.id === id ? { ...o, ...changes } : o)));
-  };
-
-  const removeOption = (id: string) => {
-    setOptions((prev) => prev.filter((o) => o.id !== id));
-  };
-
-  return (
-    <div className="flex min-w-[240px] flex-col gap-1 p-2">
-      <p className="px-1 text-xs font-medium text-text-muted">Manage options</p>
-      {options.map((opt) => (
-        <div key={opt.id} className="flex items-center gap-1.5">
-          {/* Color picker: cycles through the palette */}
-          <button
-            type="button"
-            aria-label={`Color: ${opt.color}`}
-            className={cn(
-              'size-5 min-w-5 cursor-pointer rounded-full border-2 border-border/50 transition-transform hover:scale-110',
-              optionColorClass(opt.color),
-            )}
-            onClick={() => {
-              const idx = OPTION_COLORS.indexOf(opt.color);
-              const next = OPTION_COLORS[(idx + 1) % OPTION_COLORS.length] ?? 'gray';
-              updateOption(opt.id, { color: next });
-            }}
-          />
-          <input
-            type="text"
-            className="min-h-8 flex-1 rounded-sm border border-border bg-transparent px-2 py-0.5 text-xs focus:border-blue focus:outline-none"
-            value={opt.name}
-            onChange={(e) => updateOption(opt.id, { name: e.target.value })}
-          />
-          <button
-            type="button"
-            aria-label={`Remove ${opt.name}`}
-            className="flex size-7 cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent text-text-muted hover:bg-danger/10 hover:text-danger"
-            onClick={() => removeOption(opt.id)}
-          >
-            <Trash2 size={12} aria-hidden />
-          </button>
-        </div>
-      ))}
-      <div className="mt-0.5 flex items-center gap-1 border-t border-border pt-1">
-        <input
-          type="text"
-          className="min-h-9 flex-1 rounded-sm border border-border bg-transparent px-2 py-1 text-xs placeholder:text-text-muted/60 focus:border-blue focus:outline-none"
-          placeholder="New option..."
-          value={newName}
-          onChange={(e) => setNewName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              addOption();
-            }
+      {/* The popover content switches between the menu-items view and the OptionsEditor. This
+          keeps OptionsEditor floating over the table rather than expanding the <th> (ADV-046). */}
+      {managingOptions && onManageOptions ? (
+        <OptionsEditor
+          property={property}
+          optionUseCounts={optionUseCounts}
+          onSave={(options) => {
+            onManageOptions(options);
+            setManagingOptions(false);
+            setOpen(false);
+          }}
+          onClose={() => {
+            setManagingOptions(false);
+            setOpen(false);
           }}
         />
-        <button
-          type="button"
-          className="min-h-9 rounded-sm bg-blue/10 px-2 py-1 text-xs font-medium text-blue-fg hover:bg-blue/20"
-          onClick={addOption}
-        >
-          Add
-        </button>
-      </div>
-      <div className="mt-0.5 flex items-center justify-end gap-1.5 border-t border-border pt-1">
-        <button
-          type="button"
-          className="min-h-9 rounded-sm px-3 py-1 text-xs text-text-muted hover:bg-surface-hover"
-          onClick={onClose}
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          className="min-h-9 rounded-sm bg-blue px-3 py-1 text-xs font-medium text-white hover:opacity-90"
-          onClick={() => onSave(options)}
-        >
-          Save
-        </button>
-      </div>
-    </div>
+      ) : (
+        <div className="flex min-w-[160px] flex-col gap-0.5 p-1">
+          <button
+            type="button"
+            className="flex min-h-10 w-full items-center rounded-sm px-2.5 py-1.5 text-sm text-text hover:bg-surface-hover"
+            onClick={() => {
+              setOpen(false);
+              // Defer so focus returns before the input mounts (same pattern as the sidebar).
+              setTimeout(() => setRenaming(true), 0);
+            }}
+          >
+            Rename
+          </button>
+          {property.type === 'select' || property.type === 'multiSelect' ? (
+            <button
+              type="button"
+              className="flex min-h-10 w-full items-center rounded-sm px-2.5 py-1.5 text-sm text-text hover:bg-surface-hover"
+              onClick={() => setManagingOptions(true)}
+            >
+              Manage options
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="flex min-h-10 w-full items-center gap-2 rounded-sm px-2.5 py-1.5 text-sm text-danger hover:bg-danger/10"
+            onClick={() => {
+              setOpen(false);
+              onDelete();
+            }}
+          >
+            <Trash2 size={14} aria-hidden />
+            Delete property
+          </button>
+        </div>
+      )}
+    </Popover>
   );
 }
 
@@ -351,9 +472,13 @@ export function DatabaseView({
   onUpdateProperty,
   onDeleteProperty,
   onSetValue,
+  onRenameRow,
 }: DatabaseViewProps) {
   const [pendingDeleteRow, setPendingDeleteRow] = useState<PageRecord | null>(null);
+  const [pendingDeleteProperty, setPendingDeleteProperty] = useState<PropertyRecord | null>(null);
   const [addingProperty, setAddingProperty] = useState(false);
+  // Tracks which row has its title in inline-rename mode after being created in place (ADV-044).
+  const [renamingRowId, setRenamingRowId] = useState<string | null>(null);
 
   // Build a lookup: rowPageId → propertyId → raw JSON value string
   const valuesMap = useMemo(() => {
@@ -364,6 +489,46 @@ export function DatabaseView({
     }
     return map;
   }, [values]);
+
+  // For each property, build a Map<optionId, useCount> so the OptionsEditor can guard destructive
+  // removals with a confirmation when rows still hold that value (DEF-048).
+  const optionUseCountsByProperty = useMemo(() => {
+    const result = new Map<string, Map<string, number>>();
+    for (const prop of properties) {
+      if (prop.type !== 'select' && prop.type !== 'multiSelect') continue;
+      const counts = new Map<string, number>();
+      for (const row of rowPages) {
+        const raw = valuesMap.get(row.id)?.get(prop.id) ?? null;
+        if (!raw) continue;
+        try {
+          if (prop.type === 'select') {
+            const id = JSON.parse(raw) as string;
+            counts.set(id, (counts.get(id) ?? 0) + 1);
+          } else {
+            const ids = JSON.parse(raw) as string[];
+            for (const id of ids) counts.set(id, (counts.get(id) ?? 0) + 1);
+          }
+        } catch {
+          // Malformed value: skip rather than crashing the table.
+        }
+      }
+      result.set(prop.id, counts);
+    }
+    return result;
+  }, [properties, rowPages, valuesMap]);
+
+  // Ref for the rename input in inline-row-create mode, so we can focus it programmatically.
+  const renameInputRef = useRef<HTMLInputElement>(null);
+
+  const handleCreateRow = async () => {
+    const rowId = await onCreateRow();
+    if (rowId) {
+      setRenamingRowId(rowId);
+      // The input mounts after the snapshot re-reads (onCreateRow invalidates the query), so
+      // autoFocus handles the focus; this ref is a belt-and-suspenders fallback.
+      requestAnimationFrame(() => renameInputRef.current?.focus());
+    }
+  };
 
   return (
     <div className="w-full overflow-x-auto" data-testid="database-view">
@@ -384,8 +549,9 @@ export function DatabaseView({
               <th key={prop.id} className="min-w-[120px] border-r border-border">
                 <PropertyHeaderMenu
                   property={prop}
+                  optionUseCounts={optionUseCountsByProperty.get(prop.id)}
                   onRename={(name) => onUpdateProperty(prop, { name })}
-                  onDelete={() => onDeleteProperty(prop)}
+                  onDelete={() => setPendingDeleteProperty(prop)}
                   onManageOptions={
                     prop.type === 'select' || prop.type === 'multiSelect'
                       ? (options) => onUpdateProperty(prop, { options })
@@ -442,17 +608,42 @@ export function DatabaseView({
               {/* Title cell — max-w-0 prevents a long title from expanding the column beyond
                    the TH's min-w-[160px]; overflow-hidden clips the render at the column edge. */}
               <td className="max-w-0 overflow-hidden border-r border-border p-0">
-                <button
-                  type="button"
-                  className="flex min-h-[40px] w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-sm font-medium text-text hover:text-blue-fg"
-                  onClick={() => onSelectRow(row.id)}
-                  data-testid="row-title-cell"
-                >
-                  <span className="font-emoji text-xs" aria-hidden>
-                    {row.icon}
-                  </span>
-                  <span className="truncate">{row.title}</span>
-                </button>
+                {row.id === renamingRowId ? (
+                  // Inline rename input: shown immediately after in-place row creation (ADV-044).
+                  <input
+                    ref={renameInputRef}
+                    type="text"
+                    autoFocus
+                    aria-label={`Name for new row`}
+                    className="flex min-h-[40px] w-full border-0 border-b-2 border-blue bg-surface/60 px-3 py-2 text-sm font-medium text-text focus:outline-none"
+                    defaultValue={row.title}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === 'Escape') {
+                        e.preventDefault();
+                        const title = (e.currentTarget as HTMLInputElement).value.trim();
+                        if (title && title !== row.title) onRenameRow?.(row, title);
+                        setRenamingRowId(null);
+                      }
+                    }}
+                    onBlur={(e) => {
+                      const title = e.currentTarget.value.trim();
+                      if (title && title !== row.title) onRenameRow?.(row, title);
+                      setRenamingRowId(null);
+                    }}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    className="flex min-h-[40px] w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-sm font-medium text-text hover:text-blue-fg"
+                    onClick={() => onSelectRow(row.id)}
+                    data-testid="row-title-cell"
+                  >
+                    <span className="font-emoji text-xs" aria-hidden>
+                      {row.icon}
+                    </span>
+                    <span className="truncate">{row.title}</span>
+                  </button>
+                )}
               </td>
               {/* One cell per property — max-w-0 prevents any cell (e.g. a URL column with a long
                    value) from widening the column past the TH's min-w-[120px] (DEF-042). */}
@@ -469,7 +660,8 @@ export function DatabaseView({
                       }
                       onUpdateOptions={(p, options) => {
                         onUpdateProperty(p, { options });
-                        // Return the last option as the newly created one (appended by the caller).
+                        // Return the last option — the caller appended the new one — so SelectCell
+                        // can select it immediately.
                         return options[options.length - 1] ?? null;
                       }}
                     />
@@ -485,7 +677,9 @@ export function DatabaseView({
                       className="flex min-h-10 min-w-10 items-center justify-center rounded-sm border-0 bg-transparent text-transparent hover:text-text-muted"
                       aria-label={`Actions for ${row.title}`}
                     >
-                      <Ellipsis size={14} aria-hidden />
+                      <span aria-hidden className="text-inherit">
+                        •••
+                      </span>
                     </button>
                   }
                   align="end"
@@ -508,12 +702,12 @@ export function DatabaseView({
         </tbody>
       </table>
 
-      {/* Add row */}
+      {/* Add row — creates in place without navigating (ADV-044). */}
       <button
         type="button"
         className="flex min-h-12 w-full items-center gap-2 border-b border-border px-3 text-sm text-text-muted hover:bg-surface-hover hover:text-text"
         data-testid="add-row-btn"
-        onClick={onCreateRow}
+        onClick={() => void handleCreateRow()}
       >
         <Plus size={14} aria-hidden />
         New row
@@ -533,6 +727,23 @@ export function DatabaseView({
             onDeleteRow(row);
           }}
           onCancel={() => setPendingDeleteRow(null)}
+        />
+      ) : null}
+
+      {pendingDeleteProperty ? (
+        <ConfirmDialog
+          title={`Delete property "${pendingDeleteProperty.name}"?`}
+          lines={[
+            `This will permanently remove the "${pendingDeleteProperty.name}" column and all its values across every row.`,
+            'Deletion is permanent — there is no trash.',
+          ]}
+          confirmLabel="Delete permanently"
+          onConfirm={() => {
+            const prop = pendingDeleteProperty;
+            setPendingDeleteProperty(null);
+            onDeleteProperty(prop);
+          }}
+          onCancel={() => setPendingDeleteProperty(null)}
         />
       ) : null}
     </div>

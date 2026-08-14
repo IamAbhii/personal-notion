@@ -82,8 +82,10 @@ type PropertyState = {
   sortKey: string;
 };
 
-// What the applier needs per value: just the version, keyed by `${rowPageId}:${propertyId}`.
-type ValueState = { version: number };
+// What the applier needs per value: the version and the stored JSON string. The value is needed so
+// that a property.update removing option ids can clean up dangling select/multiSelect references
+// in memory and emit the right upsert statements in the same atomic batch.
+type ValueState = { version: number; value: string | null };
 
 // Applies ops to a workspace and returns one result per op, in the order they were given.
 // Ops are re-ordered to client_seq before applying, because a later op may depend on an earlier one
@@ -136,7 +138,10 @@ export async function applyOps(db: Db, ctx: Ctx, ops: Op[]): Promise<SyncOutcome
   );
   // Value state is keyed by the derived id `${rowPageId}:${propertyId}`.
   const valueState = new Map<string, ValueState>(
-    valueRows.map((row) => [`${row.rowPageId}:${row.propertyId}`, { version: row.version }]),
+    valueRows.map((row) => [
+      `${row.rowPageId}:${row.propertyId}`,
+      { version: row.version, value: row.value },
+    ]),
   );
 
   const now = Date.now();
@@ -426,16 +431,19 @@ export async function applyOps(db: Db, ctx: Ctx, ops: Op[]): Promise<SyncOutcome
         continue;
       }
       const sortKey = suppliedKey ?? nextPropertyKey(propertyState, databasePageId);
+      // Trim the name and each option name on write: "  Status  " and "Status" must not coexist,
+      // and leading/trailing whitespace has no meaning in a column header or chip label.
+      const trimmedOptions = options?.map((o) => ({ ...o, name: o.name.trim() }));
       const row = buildPropertyRow(
         ctx,
         {
           id: op.entityId,
           databasePageId,
-          name,
+          name: name.trim(),
           // payloadRejection already confirmed this is one of the seven PropertyType values, so
           // the cast is safe rather than defensive.
           type: type as PropertyType,
-          options: options as SelectOption[] | undefined,
+          options: trimmedOptions as SelectOption[] | undefined,
         },
         sortKey,
         now,
@@ -459,11 +467,12 @@ export async function applyOps(db: Db, ctx: Ctx, ops: Op[]): Promise<SyncOutcome
         continue;
       }
       const { name, options, sortKey } = op.payload;
-      // Validate that new options don't reference unknown colors (already checked by payloadRejection)
-      // and that the options are valid for the current type.
+      // Trim the name and option names on write, consistent with property.create.
+      const trimmedName = name !== undefined ? name.trim() : undefined;
+      const trimmedOptions = options?.map((o) => ({ ...o, name: o.name.trim() }));
       const patch: PropertyPatch = {
-        ...(name !== undefined ? { name } : {}),
-        ...(options !== undefined ? { options: options as SelectOption[] } : {}),
+        ...(trimmedName !== undefined ? { name: trimmedName } : {}),
+        ...(trimmedOptions !== undefined ? { options: trimmedOptions as SelectOption[] } : {}),
         ...(sortKey !== undefined ? { sortKey } : {}),
       };
       // Future: reject on mismatch to enable optimistic concurrency. Same last-write-wins policy as
@@ -478,13 +487,43 @@ export async function applyOps(db: Db, ctx: Ctx, ops: Op[]): Promise<SyncOutcome
       }
       dataStatements.push(updatePropertyStatement(db, ctx, op.entityId, patch, now));
       const nextVersion = current.version + 1;
+      const updatedOptions =
+        trimmedOptions !== undefined ? (trimmedOptions as SelectOption[]) : current.options;
       propertyState.set(op.entityId, {
         version: nextVersion,
         databasePageId: current.databasePageId,
         type: current.type,
-        options: options !== undefined ? (options as SelectOption[]) : current.options,
+        options: updatedOptions,
         sortKey: sortKey ?? current.sortKey,
       });
+
+      // When options are changed on a select or multiSelect property, remove any cell values that
+      // reference option ids no longer present in the new list. This prevents dangling references
+      // that the UI cannot display or clear. The same atomic batch carries both the property update
+      // and the value cleanups, so the data is always consistent.
+      // Future: this could be extended to warn the client which rows were affected.
+      if (
+        trimmedOptions !== undefined &&
+        (current.type === 'select' || current.type === 'multiSelect')
+      ) {
+        const newOptionIds = new Set(trimmedOptions.map((o) => o.id));
+        const removedIds = new Set(
+          current.options.filter((o) => !newOptionIds.has(o.id)).map((o) => o.id),
+        );
+        if (removedIds.size > 0) {
+          clearDanglingOptionValues(
+            db,
+            ctx,
+            op.entityId,
+            current.type,
+            removedIds,
+            valueState,
+            dataStatements,
+            now,
+          );
+        }
+      }
+
       accept(op, nextVersion);
       continue;
     }
@@ -540,7 +579,7 @@ export async function applyOps(db: Db, ctx: Ctx, ops: Op[]): Promise<SyncOutcome
       dataStatements.push(
         upsertValueStatement(db, ctx, rowPageId, propertyId, value, nextVersion, now),
       );
-      valueState.set(entityId, { version: nextVersion });
+      valueState.set(entityId, { version: nextVersion, value });
       // Future: reject on mismatch to enable optimistic concurrency. Same policy as other entity types.
       if (typeof op.baseVersion === 'number' && existing && op.baseVersion !== existing.version) {
         versionMismatches.push({
@@ -712,6 +751,56 @@ function createsCycle(state: Map<string, PageState>, pageId: string, newParentId
     cursor = state.get(cursor)?.parentId ?? null;
   }
   return false;
+}
+
+// Finds all value rows for a given property whose stored option id(s) reference any of the removed
+// ids, and emits upsert statements to clear or filter them in the same batch as the property update.
+// For select: any value equal to a removed id becomes null.
+// For multiSelect: removed ids are dropped from the array; an array that empties becomes null.
+// The in-memory valueState is updated so later ops in the same chunk see the corrected state.
+function clearDanglingOptionValues(
+  db: Db,
+  ctx: Ctx,
+  propertyId: string,
+  type: string,
+  removedIds: Set<string>,
+  valueState: Map<string, ValueState>,
+  dataStatements: Statement[],
+  now: number,
+): void {
+  for (const [key, vs] of valueState) {
+    if (vs.value === null) continue;
+    // Key format is `${rowPageId}:${propertyId}`; UUIDs never contain ':'.
+    const colonIdx = key.indexOf(':');
+    if (colonIdx === -1 || key.slice(colonIdx + 1) !== propertyId) continue;
+    const rowPageId = key.slice(0, colonIdx);
+
+    let newValue: string | null;
+    try {
+      const parsed: unknown = JSON.parse(vs.value);
+      if (type === 'select') {
+        // A select value is a plain option id string; clear it if it is a removed id.
+        if (typeof parsed !== 'string' || !removedIds.has(parsed)) continue;
+        newValue = null;
+      } else {
+        // multiSelect: filter the removed ids from the array.
+        if (!Array.isArray(parsed)) continue;
+        const kept = parsed.filter(
+          (id): id is string => typeof id === 'string' && !removedIds.has(id),
+        );
+        if (kept.length === parsed.length) continue; // nothing removed, skip
+        newValue = kept.length === 0 ? null : JSON.stringify(kept);
+      }
+    } catch {
+      continue; // malformed stored value; leave it alone
+    }
+
+    const nextVersion = vs.version + 1;
+    dataStatements.push(
+      upsertValueStatement(db, ctx, rowPageId, propertyId, newValue, nextVersion, now),
+    );
+    valueState.set(key, { version: nextVersion, value: newValue });
+  }
 }
 
 // Checks that a JSON-encoded value matches the expected property type. Returns a rejection reason

@@ -22,7 +22,7 @@ export function PageScreen() {
     propertyMutations,
     selectPage,
     notify,
-    createAndOpenRow,
+    createRowInPlace,
   } = useWorkspace();
 
   const page = pages.find((candidate) => candidate.id === pageId);
@@ -70,8 +70,9 @@ export function PageScreen() {
           properties={dbProperties}
           values={dbValues}
           onSelectRow={selectPage}
-          onCreateRow={() => createAndOpenRow(page.id)}
+          onCreateRow={() => createRowInPlace(page.id)}
           onDeleteRow={(row) => void mutations.deletePage(row)}
+          onRenameRow={(row, title) => void mutations.updatePage(row, { title })}
           onCreateProperty={(args) =>
             void propertyMutations.createProperty({
               databasePageId: page.id,

@@ -1,11 +1,12 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { DayPicker } from 'react-day-picker';
-import { X } from 'lucide-react';
+import { Pencil, X } from 'lucide-react';
 import { Popover } from '../ui/Popover/Popover';
 import { cn } from '../../lib/cn';
 import { optionColorClass } from '../../lib/optionColors';
 import { OPTION_COLORS } from '../../api/types';
 import type { PropertyRecord, PropertyType, SelectOption } from '../../api/types';
+import styles from './CellEditor.module.css';
 
 // Cell editors: one per property type. Each receives the raw JSON-string value (or null) and
 // calls onSave with the new JSON-encoded value, or null to clear.
@@ -90,6 +91,35 @@ function ensureScheme(url: string): string {
   return /^https?:\/\//i.test(url) ? url : `https://${url}`;
 }
 
+/**
+ * Returns true only when the stored value looks like a navigable URL. Bare text with spaces or
+ * no TLD is not linkified, so a non-URL value is displayed as plain text rather than a broken
+ * link (ADV-033).
+ */
+function isLikelyUrl(url: string): boolean {
+  const trimmed = url.trim();
+  if (!trimmed) return false;
+  // Strings with spaces are not URLs.
+  if (/\s/.test(trimmed)) return false;
+  try {
+    const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+    const parsed = new URL(withScheme);
+    // Require at least one dot in the hostname so bare words are not treated as URLs.
+    return parsed.hostname.includes('.');
+  } catch {
+    return false;
+  }
+}
+
+/** Formats a stored number for display with at most 10 significant figures (ADV-052). */
+function formatNumberForDisplay(raw: string | null): string {
+  const n = parseValue<number>(raw);
+  if (n === undefined) return '';
+  // Integer values render without decimal places; floats are rounded to 10 significant figures
+  // to avoid printing raw 64-bit float noise (e.g. 528.7752545877175 → 528.7752546).
+  return Number.isInteger(n) ? n.toString() : parseFloat(n.toPrecision(10)).toString();
+}
+
 // ---------- Base classes ----------
 
 const inputBase =
@@ -97,15 +127,40 @@ const inputBase =
 
 // ---------- Text cell ----------
 
-function TextCell({ value, onSave }: { value: string | null; onSave: (v: string | null) => void }) {
+function TextCell({
+  value,
+  onSave,
+  label,
+}: {
+  value: string | null;
+  onSave: (v: string | null) => void;
+  label: string;
+}) {
   const [draft, setDraft] = useState(() => parseValue<string>(value) ?? '');
+  // Track the value at the time the user focused so Escape can revert correctly (ADV-034).
+  const revertTo = useRef(draft);
+
   return (
     <input
       type="text"
+      aria-label={label}
       className={inputBase}
       value={draft}
       placeholder="Empty"
       onChange={(e) => setDraft(e.target.value)}
+      onFocus={() => {
+        revertTo.current = parseValue<string>(value) ?? '';
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          onSave(encodeText(draft));
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          setDraft(revertTo.current);
+        }
+      }}
       onBlur={() => onSave(encodeText(draft))}
     />
   );
@@ -116,22 +171,53 @@ function TextCell({ value, onSave }: { value: string | null; onSave: (v: string 
 function NumberCell({
   value,
   onSave,
+  label,
 }: {
   value: string | null;
   onSave: (v: string | null) => void;
+  label: string;
 }) {
-  const [draft, setDraft] = useState(() => {
-    const n = parseValue<number>(value);
-    return n !== undefined ? String(n) : '';
-  });
+  const [focused, setFocused] = useState(false);
+  const [draft, setDraft] = useState('');
+  // Track the value at focus time for Escape revert (ADV-034).
+  const revertTo = useRef('');
+
+  // When not focused, show the formatted stored value; when focused, show the draft string.
+  const displayValue = focused ? draft : formatNumberForDisplay(value);
+
   return (
     <input
-      type="number"
+      // type="text" with inputMode="decimal" lets us control displayed formatting (ADV-052).
+      type="text"
+      inputMode="decimal"
+      aria-label={label}
       className={inputBase}
-      value={draft}
+      value={displayValue}
       placeholder="0"
       onChange={(e) => setDraft(e.target.value)}
-      onBlur={() => onSave(encodeNumber(draft))}
+      onFocus={() => {
+        const n = parseValue<number>(value);
+        const raw = n !== undefined ? String(n) : '';
+        revertTo.current = raw;
+        setDraft(raw);
+        setFocused(true);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          setFocused(false);
+          onSave(encodeNumber(draft));
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          setFocused(false);
+          setDraft(revertTo.current);
+        }
+      }}
+      onBlur={() => {
+        setFocused(false);
+        onSave(encodeNumber(draft));
+      }}
     />
   );
 }
@@ -143,9 +229,10 @@ interface SelectCellProps {
   options: SelectOption[];
   onSave: (v: string | null) => void;
   onCreateOption: (name: string) => SelectOption | null;
+  label: string;
 }
 
-function SelectCell({ value, options, onSave, onCreateOption }: SelectCellProps) {
+function SelectCell({ value, options, onSave, onCreateOption, label }: SelectCellProps) {
   const [open, setOpen] = useState(false);
   const [newName, setNewName] = useState('');
   const selectedId = parseValue<string>(value);
@@ -167,6 +254,8 @@ function SelectCell({ value, options, onSave, onCreateOption }: SelectCellProps)
     setNewName('');
   };
 
+  const accessibleLabel = selected ? `${label}: ${selected.name}` : `${label}: Empty`;
+
   return (
     <Popover
       open={open}
@@ -174,6 +263,7 @@ function SelectCell({ value, options, onSave, onCreateOption }: SelectCellProps)
       trigger={
         <button
           type="button"
+          aria-label={accessibleLabel}
           className="flex min-h-[40px] w-full cursor-pointer items-center rounded-sm border border-transparent px-2 py-1.5 text-sm hover:border-blue/40 hover:bg-surface focus:border-blue focus:bg-surface focus:outline-none"
         >
           {selected ? (
@@ -191,34 +281,37 @@ function SelectCell({ value, options, onSave, onCreateOption }: SelectCellProps)
         </button>
       }
     >
+      {/* max-h caps the list so 50 options do not render a 2000px popover (ADV-040). */}
       <div className="flex min-w-[180px] flex-col gap-0.5 p-1">
-        {selected ? (
-          <button
-            type="button"
-            className="flex min-h-10 items-center rounded-sm px-2.5 py-1.5 text-sm text-text-muted hover:bg-surface-hover"
-            onClick={() => pick(null)}
-          >
-            <X size={12} className="mr-2 flex-none" aria-hidden />
-            Clear
-          </button>
-        ) : null}
-        {options.map((opt) => (
-          <button
-            key={opt.id}
-            type="button"
-            className="flex min-h-10 items-center rounded-sm px-2.5 py-1.5 text-sm hover:bg-surface-hover"
-            onClick={() => pick(opt.id)}
-          >
-            <span
-              className={cn(
-                'rounded-full px-2 py-0.5 text-xs font-medium',
-                optionColorClass(opt.color),
-              )}
+        <div className="max-h-[320px] overflow-y-auto">
+          {selected ? (
+            <button
+              type="button"
+              className="flex min-h-10 w-full items-center rounded-sm px-2.5 py-1.5 text-sm text-text-muted hover:bg-surface-hover"
+              onClick={() => pick(null)}
             >
-              {opt.name}
-            </span>
-          </button>
-        ))}
+              <X size={12} className="mr-2 flex-none" aria-hidden />
+              Clear
+            </button>
+          ) : null}
+          {options.map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              className="flex min-h-10 w-full items-center rounded-sm px-2.5 py-1.5 text-sm hover:bg-surface-hover"
+              onClick={() => pick(opt.id)}
+            >
+              <span
+                className={cn(
+                  'rounded-full px-2 py-0.5 text-xs font-medium',
+                  optionColorClass(opt.color),
+                )}
+              >
+                {opt.name}
+              </span>
+            </button>
+          ))}
+        </div>
         <div className="mt-0.5 flex items-center gap-1 border-t border-border pt-1">
           <input
             type="text"
@@ -233,9 +326,11 @@ function SelectCell({ value, options, onSave, onCreateOption }: SelectCellProps)
               }
             }}
           />
+          {/* Disabled when input is empty to give feedback (ADV-035/036). */}
           <button
             type="button"
-            className="min-h-9 rounded-sm bg-blue/10 px-2 py-1 text-xs font-medium text-blue-fg hover:bg-blue/20"
+            disabled={newName.trim() === ''}
+            className="min-h-9 rounded-sm bg-blue/10 px-2 py-1 text-xs font-medium text-blue-fg hover:bg-blue/20 disabled:cursor-not-allowed disabled:opacity-40"
             onClick={handleCreate}
           >
             Add
@@ -253,9 +348,10 @@ interface MultiSelectCellProps {
   options: SelectOption[];
   onSave: (v: string | null) => void;
   onCreateOption: (name: string) => SelectOption | null;
+  label: string;
 }
 
-function MultiSelectCell({ value, options, onSave, onCreateOption }: MultiSelectCellProps) {
+function MultiSelectCell({ value, options, onSave, onCreateOption, label }: MultiSelectCellProps) {
   const [open, setOpen] = useState(false);
   const [newName, setNewName] = useState('');
   const selectedIds = parseValue<string[]>(value) ?? [];
@@ -285,14 +381,32 @@ function MultiSelectCell({ value, options, onSave, onCreateOption }: MultiSelect
     .map((id) => options.find((o) => o.id === id))
     .filter(Boolean) as SelectOption[];
 
+  const chipsLabel =
+    selectedOptions.length > 0
+      ? `${label}: ${selectedOptions.map((o) => o.name).join(', ')}`
+      : `${label}: Empty`;
+
+  // The cell area is a div, not a button, so chip remove buttons are siblings rather than nested
+  // interactive elements (ADV-042). Radix Popover.Trigger asChild transfers its click/keydown
+  // onto this div; stopPropagation on chip remove buttons prevents the popover from opening
+  // when the user clicks to remove a chip.
   return (
     <Popover
       open={open}
       onOpenChange={setOpen}
       trigger={
-        <button
-          type="button"
+        <div
+          role="button"
+          tabIndex={0}
+          aria-label={chipsLabel}
+          aria-expanded={open}
           className="flex min-h-[40px] w-full cursor-pointer flex-wrap items-center gap-1 rounded-sm border border-transparent px-2 py-1.5 text-sm hover:border-blue/40 hover:bg-surface focus:border-blue focus:bg-surface focus:outline-none"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              setOpen((prev) => !prev);
+            }
+          }}
         >
           {selectedOptions.length > 0 ? (
             selectedOptions.map((opt) => (
@@ -303,63 +417,68 @@ function MultiSelectCell({ value, options, onSave, onCreateOption }: MultiSelect
                   optionColorClass(opt.color),
                 )}
               >
-                {opt.name}
-                <span
-                  role="button"
+                <span>{opt.name}</span>
+                {/* Real button, sibling of the chip text span — not nested inside the Popover
+                    trigger button — so Enter activates remove, not the picker (ADV-042). */}
+                <button
+                  type="button"
                   aria-label={`Remove ${opt.name}`}
-                  tabIndex={0}
                   className="cursor-pointer rounded-full p-0.5 hover:bg-black/10"
                   onClick={(e) => {
                     e.stopPropagation();
                     remove(opt.id);
                   }}
                   onKeyDown={(e) => {
+                    // Prevent the keydown from bubbling to the Popover trigger div.
+                    e.stopPropagation();
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();
-                      e.stopPropagation();
                       remove(opt.id);
                     }
                   }}
                 >
                   <X size={10} aria-hidden />
-                </span>
+                </button>
               </span>
             ))
           ) : (
             <span className="text-text-muted/60">Select...</span>
           )}
-        </button>
+        </div>
       }
     >
+      {/* max-h caps the list so 50 options do not render a 2000px popover (ADV-040). */}
       <div className="flex min-w-[200px] flex-col gap-0.5 p-1">
-        {options.map((opt) => {
-          const isSelected = selectedIds.includes(opt.id);
-          return (
-            <button
-              key={opt.id}
-              type="button"
-              className={cn(
-                'flex min-h-10 items-center rounded-sm px-2.5 py-1.5 text-sm hover:bg-surface-hover',
-                isSelected && 'bg-surface-hover',
-              )}
-              onClick={() => toggle(opt.id)}
-            >
-              <span
+        <div className="max-h-[320px] overflow-y-auto">
+          {options.map((opt) => {
+            const isSelected = selectedIds.includes(opt.id);
+            return (
+              <button
+                key={opt.id}
+                type="button"
                 className={cn(
-                  'rounded-full px-2 py-0.5 text-xs font-medium',
-                  optionColorClass(opt.color),
+                  'flex min-h-10 w-full items-center rounded-sm px-2.5 py-1.5 text-sm hover:bg-surface-hover',
+                  isSelected && 'bg-surface-hover',
                 )}
+                onClick={() => toggle(opt.id)}
               >
-                {opt.name}
-              </span>
-              {isSelected ? (
-                <span className="ml-auto text-xs text-text-muted" aria-hidden>
-                  ✓
+                <span
+                  className={cn(
+                    'rounded-full px-2 py-0.5 text-xs font-medium',
+                    optionColorClass(opt.color),
+                  )}
+                >
+                  {opt.name}
                 </span>
-              ) : null}
-            </button>
-          );
-        })}
+                {isSelected ? (
+                  <span className="ml-auto text-xs text-text-muted" aria-hidden>
+                    ✓
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
         <div className="mt-0.5 flex items-center gap-1 border-t border-border pt-1">
           <input
             type="text"
@@ -374,9 +493,11 @@ function MultiSelectCell({ value, options, onSave, onCreateOption }: MultiSelect
               }
             }}
           />
+          {/* Disabled when input is empty to give feedback (ADV-035/036). */}
           <button
             type="button"
-            className="min-h-9 rounded-sm bg-blue/10 px-2 py-1 text-xs font-medium text-blue-fg hover:bg-blue/20"
+            disabled={newName.trim() === ''}
+            className="min-h-9 rounded-sm bg-blue/10 px-2 py-1 text-xs font-medium text-blue-fg hover:bg-blue/20 disabled:cursor-not-allowed disabled:opacity-40"
             onClick={handleCreate}
           >
             Add
@@ -389,7 +510,15 @@ function MultiSelectCell({ value, options, onSave, onCreateOption }: MultiSelect
 
 // ---------- Date cell ----------
 
-function DateCell({ value, onSave }: { value: string | null; onSave: (v: string | null) => void }) {
+function DateCell({
+  value,
+  onSave,
+  label,
+}: {
+  value: string | null;
+  onSave: (v: string | null) => void;
+  label: string;
+}) {
   const [open, setOpen] = useState(false);
   const selected = parseDateString(value);
   const display = formatDate(value);
@@ -399,6 +528,8 @@ function DateCell({ value, onSave }: { value: string | null; onSave: (v: string 
     if (date) setOpen(false);
   };
 
+  const accessibleLabel = display ? `${label}: ${display}` : `${label}: Empty`;
+
   return (
     <Popover
       open={open}
@@ -406,6 +537,7 @@ function DateCell({ value, onSave }: { value: string | null; onSave: (v: string 
       trigger={
         <button
           type="button"
+          aria-label={accessibleLabel}
           className="flex min-h-[40px] w-full cursor-pointer items-center justify-between rounded-sm border border-transparent px-2 py-1.5 text-sm hover:border-blue/40 hover:bg-surface focus:border-blue focus:bg-surface focus:outline-none"
         >
           {display ? (
@@ -429,11 +561,13 @@ function DateCell({ value, onSave }: { value: string | null; onSave: (v: string 
         </button>
       }
     >
-      {/* DayPicker styled with project tokens via classNames. No default CSS import needed. */}
+      {/* DayPicker styled with project tokens via classNames. No default CSS import needed.
+          defaultMonth opens on the stored date's month so the user sees the current value (ADV-041). */}
       <div className="p-2">
         <DayPicker
           mode="single"
           selected={selected}
+          defaultMonth={selected}
           onSelect={handleSelect}
           classNames={{
             root: 'text-sm',
@@ -466,9 +600,11 @@ function DateCell({ value, onSave }: { value: string | null; onSave: (v: string 
 function CheckboxCell({
   value,
   onSave,
+  label,
 }: {
   value: string | null;
   onSave: (v: string | null) => void;
+  label: string;
 }) {
   const checked = parseValue<boolean>(value) ?? false;
   // relative makes this label the containing block for the sr-only span (position:absolute in
@@ -476,9 +612,16 @@ function CheckboxCell({
   // overflowing the document when the checkbox column is scrolled off the right edge of the viewport.
   return (
     <label className="relative flex min-h-[40px] cursor-pointer items-center px-2">
+      {/* appearance-none + token-based classes: the native unchecked checkbox renders white in dark
+          theme (ADV-053). The module provides the checked background-image (checkmark SVG) which
+          cannot be expressed as a Tailwind utility. */}
       <input
         type="checkbox"
-        className="size-4 cursor-pointer accent-blue"
+        aria-label={label}
+        className={cn(
+          'size-4 cursor-pointer rounded-sm border-2 border-text-muted/50 bg-surface checked:border-blue checked:bg-blue focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue',
+          styles.checkbox,
+        )}
         checked={checked}
         onChange={(e) => onSave(encodeCheckbox(e.target.checked))}
       />
@@ -489,40 +632,99 @@ function CheckboxCell({
 
 // ---------- URL cell ----------
 
-function UrlCell({ value, onSave }: { value: string | null; onSave: (v: string | null) => void }) {
-  const [focused, setFocused] = useState(false);
+function UrlCell({
+  value,
+  onSave,
+  label,
+}: {
+  value: string | null;
+  onSave: (v: string | null) => void;
+  label: string;
+}) {
+  const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(() => parseValue<string>(value) ?? '');
-  const raw = parseValue<string>(value) ?? '';
-  const href = ensureScheme(raw);
+  // Track value at edit-start so Escape can revert to it (ADV-034).
+  const revertTo = useRef(draft);
 
-  if (!focused && raw) {
-    // min-w-0 lets the anchor shrink below its URL text width so the table column stays
-    // at the TH-defined minimum rather than expanding to fit the raw URL (DEF-042).
+  const raw = parseValue<string>(value) ?? '';
+
+  // View mode with a stored value: show anchor (if URL-like) or plain text, plus an edit button.
+  // The anchor is NOT given onFocus that switches to edit mode, so clicking/tabbing to it follows
+  // the link as expected (ADV-032).
+  if (!editing && raw) {
+    const likelyUrl = isLikelyUrl(raw);
     return (
-      <a
-        href={href}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="flex min-h-[40px] min-w-0 items-center overflow-hidden px-2 py-1.5 text-sm text-blue-fg underline hover:opacity-80"
-        onClick={(e) => e.stopPropagation()}
-        onFocus={() => setFocused(true)}
-      >
-        <span className="truncate">{raw}</span>
-      </a>
+      <div className="group/url flex min-h-[40px] min-w-0 items-center gap-1 px-2 py-1.5">
+        {likelyUrl ? (
+          <a
+            href={ensureScheme(raw)}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={`${label}: ${raw}`}
+            className="min-w-0 flex-1 overflow-hidden text-sm text-blue-fg underline hover:opacity-80"
+            // stopPropagation: prevent any ancestor click handler from swallowing the navigation.
+            onClick={(e) => e.stopPropagation()}
+          >
+            <span className="block truncate">{raw}</span>
+          </a>
+        ) : (
+          // Non-URL value: display as plain text without linking it (ADV-033).
+          <span
+            className="min-w-0 flex-1 overflow-hidden text-sm text-text"
+            aria-label={`${label}: ${raw}`}
+          >
+            <span className="block truncate">{raw}</span>
+          </span>
+        )}
+        {/* Explicit edit button so the anchor remains followable (ADV-032). Always visible at
+            narrow viewports so touch users can reach it; hidden at md+ until the row is hovered
+            or focused, to avoid visual clutter in the table. */}
+        <button
+          type="button"
+          aria-label={`Edit ${label}`}
+          className="flex-none cursor-pointer rounded-sm p-1 text-text-muted opacity-100 hover:text-text focus:opacity-100 md:opacity-0 md:group-hover/url:opacity-100"
+          onClick={() => {
+            revertTo.current = raw;
+            setDraft(raw);
+            setEditing(true);
+          }}
+        >
+          <Pencil size={12} aria-hidden />
+        </button>
+      </div>
     );
   }
 
+  // Edit mode (or no stored value): show the input.
   return (
     <input
       type="url"
+      aria-label={label}
       className={inputBase}
       value={draft}
+      // autoFocus only when switching from view mode; without it the input would steal focus on
+      // every mount (e.g. when the cell first renders empty).
+      autoFocus={editing}
       placeholder="https://example.com"
-      autoFocus={focused}
       onChange={(e) => setDraft(e.target.value)}
-      onFocus={() => setFocused(true)}
+      onFocus={() => {
+        // Sync the revert target to the latest stored value each time the input is focused.
+        revertTo.current = parseValue<string>(value) ?? '';
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          setEditing(false);
+          onSave(encodeUrl(draft));
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          setEditing(false);
+          setDraft(revertTo.current);
+        }
+      }}
       onBlur={() => {
-        setFocused(false);
+        setEditing(false);
         onSave(encodeUrl(draft));
       }}
     />
@@ -571,9 +773,10 @@ export function CellEditor({
   );
 
   const type: PropertyType = property.type;
+  const label = property.name;
 
-  if (type === 'text') return <TextCell value={value} onSave={onSave} />;
-  if (type === 'number') return <NumberCell value={value} onSave={onSave} />;
+  if (type === 'text') return <TextCell value={value} onSave={onSave} label={label} />;
+  if (type === 'number') return <NumberCell value={value} onSave={onSave} label={label} />;
   if (type === 'select') {
     return (
       <SelectCell
@@ -581,6 +784,7 @@ export function CellEditor({
         options={property.options}
         onSave={onSave}
         onCreateOption={makeOption}
+        label={label}
       />
     );
   }
@@ -591,12 +795,13 @@ export function CellEditor({
         options={property.options}
         onSave={onSave}
         onCreateOption={makeOption}
+        label={label}
       />
     );
   }
-  if (type === 'date') return <DateCell value={value} onSave={onSave} />;
-  if (type === 'checkbox') return <CheckboxCell value={value} onSave={onSave} />;
-  if (type === 'url') return <UrlCell value={value} onSave={onSave} />;
+  if (type === 'date') return <DateCell value={value} onSave={onSave} label={label} />;
+  if (type === 'checkbox') return <CheckboxCell value={value} onSave={onSave} label={label} />;
+  if (type === 'url') return <UrlCell value={value} onSave={onSave} label={label} />;
 
   // Unknown type: render nothing, so a future type addition degrades gracefully.
   return null;
