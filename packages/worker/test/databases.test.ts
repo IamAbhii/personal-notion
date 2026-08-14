@@ -469,6 +469,381 @@ describe('property.update', () => {
   });
 });
 
+// ── empty and whitespace-only names (ADV-035, ADV-036) ───────────────────────
+
+describe('empty and whitespace-only name rejection', () => {
+  it('rejects a property.create with an empty name', async () => {
+    const owner = await createAccount();
+    const dbId = await createDatabase(owner);
+    const body = await syncBody(owner, [
+      makeOp(owner.workspaceId, 'property.create', crypto.randomUUID(), {
+        databasePageId: dbId,
+        name: '',
+        type: 'text',
+      }),
+    ]);
+    expect(body.results[0]?.status).toBe('rejected');
+    expect(body.results[0]?.reason).toMatch(/name must not be empty/);
+  });
+
+  it('rejects a property.create with a whitespace-only name', async () => {
+    const owner = await createAccount();
+    const dbId = await createDatabase(owner);
+    const body = await syncBody(owner, [
+      makeOp(owner.workspaceId, 'property.create', crypto.randomUUID(), {
+        databasePageId: dbId,
+        name: '   ',
+        type: 'text',
+      }),
+    ]);
+    expect(body.results[0]?.status).toBe('rejected');
+    expect(body.results[0]?.reason).toMatch(/name must not be empty/);
+  });
+
+  it('rejects a property.update with an empty name', async () => {
+    const owner = await createAccount();
+    const dbId = await createDatabase(owner);
+    const propId = await createProperty(owner, dbId, { name: 'Status', type: 'text' });
+    const body = await syncBody(owner, [
+      makeOp(owner.workspaceId, 'property.update', propId, { name: '' }),
+    ]);
+    expect(body.results[0]?.status).toBe('rejected');
+    expect(body.results[0]?.reason).toMatch(/name must not be empty/);
+  });
+
+  it('rejects a property.update with a whitespace-only name', async () => {
+    const owner = await createAccount();
+    const dbId = await createDatabase(owner);
+    const propId = await createProperty(owner, dbId, { name: 'Status', type: 'text' });
+    const body = await syncBody(owner, [
+      makeOp(owner.workspaceId, 'property.update', propId, { name: '  \t  ' }),
+    ]);
+    expect(body.results[0]?.status).toBe('rejected');
+    expect(body.results[0]?.reason).toMatch(/name must not be empty/);
+  });
+
+  it('rejects a property.create with an empty option name', async () => {
+    const owner = await createAccount();
+    const dbId = await createDatabase(owner);
+    const body = await syncBody(owner, [
+      makeOp(owner.workspaceId, 'property.create', crypto.randomUUID(), {
+        databasePageId: dbId,
+        name: 'Status',
+        type: 'select',
+        options: [{ id: 'o1', name: '', color: 'blue' }],
+      }),
+    ]);
+    expect(body.results[0]?.status).toBe('rejected');
+    expect(body.results[0]?.reason).toMatch(/option name must not be empty/);
+  });
+
+  it('rejects a property.update with a whitespace-only option name', async () => {
+    const owner = await createAccount();
+    const dbId = await createDatabase(owner);
+    const propId = await createProperty(owner, dbId, {
+      name: 'Status',
+      type: 'select',
+      propOptions: [{ id: 'o1', name: 'Active', color: 'blue' }],
+    });
+    const body = await syncBody(owner, [
+      makeOp(owner.workspaceId, 'property.update', propId, {
+        options: [{ id: 'o1', name: '   ', color: 'blue' }],
+      }),
+    ]);
+    expect(body.results[0]?.status).toBe('rejected');
+    expect(body.results[0]?.reason).toMatch(/option name must not be empty/);
+  });
+
+  it('trims leading and trailing whitespace from a property name on write', async () => {
+    const owner = await createAccount();
+    const dbId = await createDatabase(owner);
+    const propId = await createProperty(owner, dbId, { name: '  Effort  ', type: 'number' });
+    const props = await listProperties(owner.db, owner.ctx);
+    expect(props.find((p) => p.id === propId)?.name).toBe('Effort');
+  });
+
+  it('trims leading and trailing whitespace from an option name on write', async () => {
+    const owner = await createAccount();
+    const dbId = await createDatabase(owner);
+    const propId = crypto.randomUUID();
+    await syncBody(owner, [
+      makeOp(owner.workspaceId, 'property.create', propId, {
+        databasePageId: dbId,
+        name: 'Status',
+        type: 'select',
+        options: [{ id: 'o1', name: '  Active  ', color: 'blue' }],
+      }),
+    ]);
+    const props = await listProperties(owner.db, owner.ctx);
+    const stored = JSON.parse(props.find((p) => p.id === propId)!.options!) as Array<{
+      name: string;
+    }>;
+    expect(stored[0]?.name).toBe('Active');
+  });
+});
+
+// ── option-removal cascade (ADV-038) ─────────────────────────────────────────
+
+describe('option removal cleans up dangling cell values', () => {
+  it('clears a select value when its option is removed', async () => {
+    const owner = await createAccount();
+    const dbId = await createDatabase(owner);
+    const optId = crypto.randomUUID();
+    const propId = crypto.randomUUID();
+    await syncBody(owner, [
+      makeOp(owner.workspaceId, 'property.create', propId, {
+        databasePageId: dbId,
+        name: 'Status',
+        type: 'select',
+        options: [
+          { id: optId, name: 'Active', color: 'blue' },
+          { id: 'keep', name: 'Done', color: 'teal' },
+        ],
+      }),
+    ]);
+    const rowId = await createRow(owner, dbId);
+    // Set the select value to the option that will be removed.
+    await syncBody(owner, [
+      makeOp(owner.workspaceId, 'value.set', `${rowId}:${propId}`, {
+        rowPageId: rowId,
+        propertyId: propId,
+        value: JSON.stringify(optId),
+      }),
+    ]);
+
+    // Remove the option the row uses.
+    await syncBody(owner, [
+      makeOp(owner.workspaceId, 'property.update', propId, {
+        options: [{ id: 'keep', name: 'Done', color: 'teal' }],
+      }),
+    ]);
+
+    const values = await listValues(owner.db, owner.ctx);
+    expect(values[0]?.value).toBeNull();
+  });
+
+  it('bumps the version of a select value cleared by an option removal', async () => {
+    const owner = await createAccount();
+    const dbId = await createDatabase(owner);
+    const optId = crypto.randomUUID();
+    const propId = crypto.randomUUID();
+    await syncBody(owner, [
+      makeOp(owner.workspaceId, 'property.create', propId, {
+        databasePageId: dbId,
+        name: 'Status',
+        type: 'select',
+        options: [{ id: optId, name: 'Active', color: 'blue' }],
+      }),
+    ]);
+    const rowId = await createRow(owner, dbId);
+    await syncBody(owner, [
+      makeOp(owner.workspaceId, 'value.set', `${rowId}:${propId}`, {
+        rowPageId: rowId,
+        propertyId: propId,
+        value: JSON.stringify(optId),
+      }),
+    ]);
+    // Version is 1 after the initial set.
+
+    await syncBody(owner, [makeOp(owner.workspaceId, 'property.update', propId, { options: [] })]);
+
+    const values = await listValues(owner.db, owner.ctx);
+    expect(values[0]?.version).toBe(2);
+  });
+
+  it('leaves a select value alone when a different option is removed', async () => {
+    const owner = await createAccount();
+    const dbId = await createDatabase(owner);
+    const keptOptId = crypto.randomUUID();
+    const removedOptId = crypto.randomUUID();
+    const propId = crypto.randomUUID();
+    await syncBody(owner, [
+      makeOp(owner.workspaceId, 'property.create', propId, {
+        databasePageId: dbId,
+        name: 'Status',
+        type: 'select',
+        options: [
+          { id: keptOptId, name: 'Active', color: 'blue' },
+          { id: removedOptId, name: 'Archived', color: 'gray' },
+        ],
+      }),
+    ]);
+    const rowId = await createRow(owner, dbId);
+    await syncBody(owner, [
+      makeOp(owner.workspaceId, 'value.set', `${rowId}:${propId}`, {
+        rowPageId: rowId,
+        propertyId: propId,
+        value: JSON.stringify(keptOptId),
+      }),
+    ]);
+
+    // Remove the option the row does NOT use.
+    await syncBody(owner, [
+      makeOp(owner.workspaceId, 'property.update', propId, {
+        options: [{ id: keptOptId, name: 'Active', color: 'blue' }],
+      }),
+    ]);
+
+    const values = await listValues(owner.db, owner.ctx);
+    expect(values[0]?.value).toBe(JSON.stringify(keptOptId));
+    expect(values[0]?.version).toBe(1); // unchanged
+  });
+
+  it('does not clear a value when an option is renamed (same id)', async () => {
+    const owner = await createAccount();
+    const dbId = await createDatabase(owner);
+    const optId = crypto.randomUUID();
+    const propId = crypto.randomUUID();
+    await syncBody(owner, [
+      makeOp(owner.workspaceId, 'property.create', propId, {
+        databasePageId: dbId,
+        name: 'Status',
+        type: 'select',
+        options: [{ id: optId, name: 'Active', color: 'blue' }],
+      }),
+    ]);
+    const rowId = await createRow(owner, dbId);
+    await syncBody(owner, [
+      makeOp(owner.workspaceId, 'value.set', `${rowId}:${propId}`, {
+        rowPageId: rowId,
+        propertyId: propId,
+        value: JSON.stringify(optId),
+      }),
+    ]);
+
+    // Rename the option — same id, different name.
+    await syncBody(owner, [
+      makeOp(owner.workspaceId, 'property.update', propId, {
+        options: [{ id: optId, name: 'In Progress', color: 'amber' }],
+      }),
+    ]);
+
+    const values = await listValues(owner.db, owner.ctx);
+    expect(values[0]?.value).toBe(JSON.stringify(optId));
+    expect(values[0]?.version).toBe(1); // unchanged
+  });
+
+  it('drops removed ids from a multiSelect value and keeps the rest', async () => {
+    const owner = await createAccount();
+    const dbId = await createDatabase(owner);
+    const opt1 = crypto.randomUUID();
+    const opt2 = crypto.randomUUID();
+    const opt3 = crypto.randomUUID();
+    const propId = crypto.randomUUID();
+    await syncBody(owner, [
+      makeOp(owner.workspaceId, 'property.create', propId, {
+        databasePageId: dbId,
+        name: 'Tags',
+        type: 'multiSelect',
+        options: [
+          { id: opt1, name: 'A', color: 'blue' },
+          { id: opt2, name: 'B', color: 'teal' },
+          { id: opt3, name: 'C', color: 'rose' },
+        ],
+      }),
+    ]);
+    const rowId = await createRow(owner, dbId);
+    await syncBody(owner, [
+      makeOp(owner.workspaceId, 'value.set', `${rowId}:${propId}`, {
+        rowPageId: rowId,
+        propertyId: propId,
+        value: JSON.stringify([opt1, opt2, opt3]),
+      }),
+    ]);
+
+    // Remove opt2 only.
+    await syncBody(owner, [
+      makeOp(owner.workspaceId, 'property.update', propId, {
+        options: [
+          { id: opt1, name: 'A', color: 'blue' },
+          { id: opt3, name: 'C', color: 'rose' },
+        ],
+      }),
+    ]);
+
+    const values = await listValues(owner.db, owner.ctx);
+    const parsed = JSON.parse(values[0]!.value!) as string[];
+    expect(parsed).toEqual([opt1, opt3]);
+    expect(values[0]?.version).toBe(2);
+  });
+
+  it('sets a multiSelect value to null when its last option is removed', async () => {
+    const owner = await createAccount();
+    const dbId = await createDatabase(owner);
+    const onlyOpt = crypto.randomUUID();
+    const propId = crypto.randomUUID();
+    await syncBody(owner, [
+      makeOp(owner.workspaceId, 'property.create', propId, {
+        databasePageId: dbId,
+        name: 'Tags',
+        type: 'multiSelect',
+        options: [{ id: onlyOpt, name: 'Solo', color: 'purple' }],
+      }),
+    ]);
+    const rowId = await createRow(owner, dbId);
+    await syncBody(owner, [
+      makeOp(owner.workspaceId, 'value.set', `${rowId}:${propId}`, {
+        rowPageId: rowId,
+        propertyId: propId,
+        value: JSON.stringify([onlyOpt]),
+      }),
+    ]);
+
+    // Remove the only option.
+    await syncBody(owner, [makeOp(owner.workspaceId, 'property.update', propId, { options: [] })]);
+
+    const values = await listValues(owner.db, owner.ctx);
+    expect(values[0]?.value).toBeNull();
+    expect(values[0]?.version).toBe(2);
+  });
+
+  it('only clears values for the property whose options changed, not other properties', async () => {
+    const owner = await createAccount();
+    const dbId = await createDatabase(owner);
+    const optA = crypto.randomUUID();
+    const propSelect = crypto.randomUUID();
+    const propText = crypto.randomUUID();
+    await syncBody(owner, [
+      makeOp(owner.workspaceId, 'property.create', propSelect, {
+        databasePageId: dbId,
+        name: 'Status',
+        type: 'select',
+        options: [{ id: optA, name: 'Active', color: 'blue' }],
+      }),
+      makeOp(owner.workspaceId, 'property.create', propText, {
+        databasePageId: dbId,
+        name: 'Notes',
+        type: 'text',
+      }),
+    ]);
+    const rowId = await createRow(owner, dbId);
+    // Set both values.
+    await syncBody(owner, [
+      makeOp(owner.workspaceId, 'value.set', `${rowId}:${propSelect}`, {
+        rowPageId: rowId,
+        propertyId: propSelect,
+        value: JSON.stringify(optA),
+      }),
+      makeOp(owner.workspaceId, 'value.set', `${rowId}:${propText}`, {
+        rowPageId: rowId,
+        propertyId: propText,
+        value: JSON.stringify('some note'),
+      }),
+    ]);
+
+    // Remove the option from the select property.
+    await syncBody(owner, [
+      makeOp(owner.workspaceId, 'property.update', propSelect, { options: [] }),
+    ]);
+
+    const values = await listValues(owner.db, owner.ctx);
+    const selectVal = values.find((v) => v.propertyId === propSelect);
+    const textVal = values.find((v) => v.propertyId === propText);
+    expect(selectVal?.value).toBeNull(); // cleared
+    expect(textVal?.value).toBe(JSON.stringify('some note')); // untouched
+  });
+});
+
 // ── property.delete ──────────────────────────────────────────────────────────
 
 describe('property.delete', () => {

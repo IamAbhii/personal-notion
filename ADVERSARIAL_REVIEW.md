@@ -833,3 +833,591 @@ pushing content down, and the alternatives are worse - clamping the h1 would hid
 user typed, and scrolling the header away would leave the page unlabelled. The user who writes a
 500-character title has asked for a 500-character heading. Reconsider only if a real user does this by
 accident rather than an adversary doing it deliberately.
+
+## ADV-032: A url cell's link can never be opened - clicking it or focusing it turns it into an input
+
+- Session: phase-3 gate
+- Suggested severity: MEDIUM
+
+What I did: launched the app, opened "Book Tracker" from the sidebar, and tried to follow the Link
+cell of the first row ("bookshop.org/p/books/the-design-of-everyday-things"), which renders as an
+underlined anchor with `href="https://bookshop.org/..."`, `target="_blank"` and
+`rel="noopener noreferrer"`. Tried a left click directly on the link text, then a keyboard-only run
+(Tab from the page title through the row).
+
+Expected: clicking the link opens the URL in a new tab, as its own markup advertises; a keyboard user
+can reach the anchor and press Enter to open it.
+
+Actual: no tab ever opens. The click lands on the cell, the cell swaps the anchor for a text input,
+and the anchor's navigation never happens (`context.on('page')` counted 0 new pages; the URL stayed on
+the same route). By keyboard it is worse: tabbing through the row never lands on the anchor at all -
+focus goes straight from the multi-select chip to an `INPUT` for the Link cell, so the anchor does not
+exist in the tab order. The mouse-down appears to focus the cell, re-render it as an input, and the
+mouse-up then lands on the input rather than the anchor. So the url property renders a link that is
+decorative: there is no gesture, mouse or keyboard, that opens it from the table. The row page has the
+same behaviour.
+
+Screenshot: screenshots/adv-032.png
+
+Disposition: ACCEPTED -> DEF-043
+
+## ADV-033: A url cell prefixes "https://" to literally anything, producing links to nonsense
+
+- Session: phase-3 gate
+- Suggested severity: LOW
+
+What I did: launched the app, opened "Book Tracker", and typed each of these into the Link cell of a
+row, blurring after each: `javascript:alert(1)`, `data:text/html,<h1>x</h1>`, `//evil.com`,
+`ftp://files.example.com`, `not a url at all`, `  spaces.com  `, `#`, `HTTP://Example.COM`,
+`http://user:pass@evil.com`, `мойсайт.рф`.
+
+Expected: something that either validates lightly or at least does not present garbage as a link -
+and at minimum trims surrounding whitespace.
+
+Actual: every value is stored verbatim and rendered as an anchor whose href is the value with
+`https://` glued on unless it already begins with `http`. The resulting hrefs include
+`https://javascript:alert(1)`, `https://data:text/html,<h1>x</h1>`, `https://not a url at all`,
+`https://ftp://files.example.com`, `https://#` and `https://  spaces.com  ` (leading and trailing
+spaces preserved inside the href). `//evil.com` becomes `https:////evil.com`. The good news is that
+the blind prefix neutralises the `javascript:` and `data:` schemes, so this is not an injection; what
+is left is that the cell will happily show a blue underlined link that cannot resolve, and never
+trims. `HTTP://Example.COM` is passed through unprefixed, so the scheme check is case-sensitive in one
+direction only. The contract says a url is not rejected for shape, so the storage is intended - the
+surprise is the rendering, which asserts "this is a link" for input that plainly is not one.
+
+Screenshot: screenshots/adv-033.png
+
+Disposition: ACCEPTED -> DEF-044
+
+## ADV-034: Enter does not commit a text, number or url cell - only blur saves, so Enter-then-reload loses the edit
+
+- Session: phase-3 gate
+- Suggested severity: MEDIUM
+
+What I did: launched the app, opened "Work Projects", clicked the "Effort (days)" cell of the first
+row, replaced 5 with 42, pressed Enter, waited, then reloaded the page. Repeated the same with the
+Notes text cell in "Book Tracker" and with a url cell.
+
+Expected: Enter in a single-line cell editor commits the value (the pattern the rest of the product
+uses - Enter commits the page rename, and Enter in the option editor's "New option" box creates the
+option).
+
+Actual: Enter does nothing at all. No save, no visual confirmation, no exit from edit mode. Polling
+the snapshot showed the stored value still `5` two and a half seconds after Enter, and still `5` after
+a further 1.5s; it only became `42` once focus left the input. So after pressing Enter and reloading,
+the cell is back to 5 and the edit is gone. The same holds for text cells (stored value unchanged
+after Enter, written on blur) and url cells. A user who types a value, presses Enter because that is
+what Enter does everywhere else in this app, and then navigates with the browser's reload or closes
+the tab, loses the edit silently. There is also no debounce fallback, so blur is the only trigger.
+
+Disposition: ACCEPTED -> DEF-045
+
+## ADV-035: An empty or whitespace-only property name leaves "Add" enabled and does nothing at all, with no message
+
+- Session: phase-3 gate
+- Suggested severity: MEDIUM
+
+What I did: launched the app, opened "Work Projects", clicked "Add property", left the name box
+empty, and clicked "Add". Then typed five spaces and clicked "Add" again. Separately, opened a
+column's header menu, chose "Rename", cleared the input and pressed Enter.
+
+Expected: either a disabled "Add" button with a hint, or a validation message - the same treatment
+that blanking a page title gets, which shows the notice "A page needs a name, so the old one was
+kept."
+
+Actual: the "Add" button is enabled in both cases. Clicking it does nothing observable: no property is
+created, the popover stays open with the same content, and no notice, inline error or toast appears
+anywhere on the page. The user is left clicking a live-looking button that never responds and is given
+no reason. Renaming a property to blank behaves the same way - the header silently keeps the old name
+with no message. The contrast is stark because over-length names are handled well: a 120-character
+property name produces "...dropped by the server: name must be at most 100 characters. The workspace
+has been refreshed." So feedback exists for one invalid name and is entirely absent for another. The
+option editor has the identical hole: "Add" is enabled for an empty or whitespace-only option name and
+the option is dropped without explanation.
+
+Screenshot: screenshots/adv-035.png
+
+Disposition: ACCEPTED -> DEF-046
+
+## ADV-036: An option's name can be saved as empty, producing a nameless chip with no accessible name and no way to clear it
+
+- Session: phase-3 gate
+- Suggested severity: MEDIUM
+
+What I did: launched the app, opened "Work Projects", opened the Status column's menu, chose "Manage
+options", cleared the "Backlog" text box entirely, and clicked Save. Then looked at row 2
+("Accessibility audit"), which had Backlog selected, and opened its Status picker.
+
+Expected: an option name is rejected or trimmed back to its previous value the way a blank page title
+and a blank property name are.
+
+Actual: the server accepts it - the snapshot shows `{"name":"","color":"gray"}`. The row's cell now
+renders an empty gray pill: a `<button>` whose only child is a `<span>` with no text, so its
+accessible name is empty and a screen reader announces an unlabelled button. In the option picker the
+option is likewise a `button` with no accessible name, sitting between "In progress" and "Done", so it
+is unidentifiable and unreachable by name. The value is still set, so the row is in a state where the
+user can see a colour but no label, and the only way back is to guess which blank pill is which in the
+manage-options editor. Reproduced twice.
+
+Screenshot: screenshots/adv-036.png (cell), screenshots/adv-036b.png (picker)
+
+Disposition: ACCEPTED -> DEF-047
+
+## ADV-037: Two properties can share a name, and two options can share a name, with nothing to tell them apart
+
+- Session: phase-3 gate
+- Suggested severity: LOW
+
+What I did: launched the app, opened "Work Projects", used "Add property" twice with the name
+"Status" and type Select. Separately, in the Status column's manage-options editor, added a second
+option also called "Backlog" and saved.
+
+Expected: not certain the contract forbids it - but some signal, since the columns and the chips are
+then indistinguishable.
+
+Actual: the table ends up with three columns headed "Status", each with its own independent values and
+its own "Status options" menu; the accessible names of the three header buttons are identical, so a
+keyboard or screen reader user has no way to pick the right one, and Playwright's own role queries hit
+a strict-mode violation on them. The duplicate option likewise persists ("Backlog" twice in the
+picker) and the picker gives no hint which is which; whichever the user clicks writes a different
+option id, so two rows that look identically tagged are not. Recorded because it surprised me that a
+duplicate name is not even nudged against, while a 101-character name is refused.
+
+Screenshot: screenshots/adv-037.png
+
+Disposition: REJECTED - duplicate property names and duplicate option names are permitted by design. REQUIREMENTS.md does not forbid them and comparable tools allow them; a uniqueness rule would block the legitimate case of two similarly named properties on one database.
+
+## ADV-038: Deleting a select option that rows still use silently leaves a dangling value the user cannot clear
+
+- Session: phase-3 gate
+- Suggested severity: MEDIUM
+
+What I did: launched the app, opened "Work Projects", noted that row 1 has Status "In progress",
+opened the Status column menu, chose "Manage options", clicked the bin next to "In progress" and
+clicked Save. Then looked at row 1 and opened its Status picker. Reproduced a second time by
+replacing a property's whole option list.
+
+Actual: no confirmation and no warning that a row uses the option. After the save, row 1's Status cell
+reads "Select..." as though empty - but the snapshot still holds
+`value: "\"da9cbe94-...\""` for that cell, pointing at an option that no longer exists. The stale
+value survives a reload. Worse, because the cell now looks empty the picker no longer offers its
+"Clear" control, so there is no way for the user to remove the dangling value except by setting some
+other option. Phase 4's grouping and filtering read these values, so a row that displays as empty but
+stores a deleted option id is a trap waiting there. Expected either a warning naming the affected
+rows, or the values for the removed option cleared as part of the same op.
+
+Screenshot: screenshots/adv-038.png
+
+Disposition: ACCEPTED -> DEF-048
+
+## ADV-039: "Delete property" destroys a whole column of values with one click and no confirmation
+
+- Session: phase-3 gate
+- Suggested severity: MEDIUM
+
+What I did: launched the app, opened "Work Projects", opened the "Effort (days)" header menu and
+clicked "Delete property". Then deleted all six properties the same way.
+
+Expected: the same confirmation the product already insists on elsewhere. Deleting a single row shows
+"Delete ... This will permanently delete the row, its content, and all its property values. Deletion
+is permanent - there is no trash." Deleting a page shows a dialog naming its nested pages.
+
+Actual: the column and every cell value in it are gone immediately, no dialog, no undo, no notice. One
+misclick in a menu whose neighbouring item is the harmless "Rename" destroys the data for every row in
+the database - three rows in the seed, but fifty or five hundred in real use. Deleting all six
+properties in six clicks left the table with nothing but a Title column. The cascade itself is correct
+(no orphaned values remained), which is exactly why the deletion is irreversible.
+
+Disposition: ACCEPTED -> DEF-049
+
+## ADV-040: A select with 50 options - the documented maximum - renders a 2151px popover that does not scroll, so most options are unreachable
+
+- Session: phase-3 gate
+- Suggested severity: MEDIUM
+
+What I did: launched the app, gave the "Work Projects" Status property 50 options (the contract's
+`MAX_OPTIONS_PER_PROPERTY`) through the product's own `property.update` op, reloaded, and clicked a
+Status cell at 1280x800. Then opened the same column's "Manage options".
+
+Expected: the popover scrolls internally, as the block editor's slash menu does (ADV-030 records that
+menu capping at `max-height: 316px` with `overflow-y: auto`).
+
+Actual: the popover is 201px wide and **2151px tall** with no max-height and no internal scroll. Its
+last option sits at y=2524 in the viewport. The document itself is only 1582px tall, so scrolling the
+page to its very end still leaves that option at y=1742 - far below the 800px viewport. Roughly the
+first twenty options are reachable and the remaining thirty cannot be selected by any means at this
+viewport. "Manage options" is the same shape: the table header row grows to 1926px tall, pushing the
+entire table off the bottom of the screen. This is not an abusive input - it is the maximum the
+product's own validation permits.
+
+Screenshot: screenshots/adv-040.png (picker), screenshots/adv-040b.png (manage options)
+
+Disposition: ACCEPTED -> DEF-050
+
+## ADV-041: The date picker ignores the cell's existing date - it opens on today's month with nothing selected
+
+- Session: phase-3 gate
+- Suggested severity: MEDIUM
+
+What I did: launched the app, opened "Work Projects" and clicked the "Due date" cell of row 1, which
+displays "15 Sept 2026". Today is 14 August 2026.
+
+Expected: the calendar opens on September 2026 with the 15th marked as the selected day, so the
+current value is visible and a nearby date is one click away.
+
+Actual: the calendar opens on **August 2026** and no day is marked selected at all (a count of
+`[aria-selected="true"]`, `[data-selected="true"]` and `.rdp-selected` inside the popover returns 0);
+only "today" is emphasised. So the editor gives no feedback about what the cell currently holds, and
+nudging a date from 15 September to 16 September requires noticing that you are in the wrong month
+first. There is also no month or year jump control, only single-step previous/next arrows, so a date
+in 1990 is about 435 clicks away and a date far in the future is unreachable in practice; and there is
+no way to type a date, so hand-entry, locale formats and out-of-range years cannot be tested at all
+through the UI.
+
+Screenshot: screenshots/adv-041.png
+
+Disposition: ACCEPTED -> DEF-051
+
+## ADV-042: A multi-select chip's remove control cannot be activated by keyboard - Enter opens the picker instead
+
+- Session: phase-3 gate
+- Suggested severity: MEDIUM
+
+What I did: launched the app, opened "Book Tracker", focused the "Remove Design" control on the
+Topics chip of row 1 with the keyboard, and pressed Enter.
+
+Expected: the chip is removed, as it is when clicked with the mouse.
+
+Actual: the chip is not removed - the stored value is unchanged - and the multi-select picker popover
+opens instead. The control is a `<span role="button" tabindex="0">` nested **inside** the cell's real
+`<button>`, so it is focusable and announces as a button, but it has no key handler of its own and the
+keystroke activates the parent. A keyboard user can reach a control that does nothing and gets an
+unrelated popover as the response. Nested interactive elements are also invalid HTML
+(`button button` matches once per chip). By contrast the date cell's "Clear date" control is a real
+nested `<button>` and Enter on it correctly clears the date without opening the picker, so the two
+cell editors disagree with each other.
+
+Screenshot: screenshots/adv-042.png
+
+Disposition: ACCEPTED -> DEF-066
+
+## ADV-043: Recolouring an option is a blind cycle button, and in dark theme the colour swatches are indistinguishable
+
+- Session: phase-3 gate
+- Suggested severity: MEDIUM
+
+What I did: launched the app, opened "Work Projects" > Status > "Manage options", and clicked the
+circular swatch to the left of an option name eight times, reading its `aria-label` each time. Then
+repeated the whole thing in dark theme.
+
+Expected: a colour picker showing the six palette colours, as "recolor" in the phase contract
+suggests.
+
+Actual: there is no picker. The swatch is a cycle button that advances gray -> amber -> blue -> purple
+-> teal -> rose -> gray on each click, with no popover, no list and no preview of what comes next
+(checked: 0 elements with role menu, dialog or listbox open at any point). Setting rose from gray is
+five clicks of guesswork. Its accessible name is the _current_ colour ("Color: gray"), not the action,
+so a screen reader user is told a state and never that pressing it changes anything or what to. In
+dark theme this is compounded: the swatch paints the option colour at 20% alpha
+(`oklab(... / 0.2)`) over the dark panel with a gray border, and gray, blue and teal all resolve to
+near-identical dark circles - I could not tell them apart by eye in the screenshot and had to read the
+computed styles. Recolouring in dark theme is effectively guess-and-check.
+
+Screenshot: screenshots/adv-043.png
+
+Disposition: ACCEPTED -> DEF-052
+
+## ADV-044: "New row" navigates away from the table to the new row's page, and focuses nothing there
+
+- Session: phase-3 gate
+- Suggested severity: MEDIUM
+
+What I did: launched the app, opened "Work Projects", clicked "New row". Then went back and clicked
+"New row" five more times in quick succession. Also did it on a freshly created empty database.
+
+Expected: a new empty row appears at the bottom of the table with its title ready to type, so several
+rows can be added in a row. That is what the affordance's position (a footer under the last row, next
+to a plus) implies.
+
+Actual: the click creates the row and immediately navigates to that row's own page. `document.activeElement`
+is `BODY` there - nothing is focused, so the user has to find and click the "Untitled" title before
+typing. Adding five rows therefore means five navigations away and five trips back through the
+breadcrumb or sidebar. On a brand-new empty database it is worse: you land on a page showing "This
+page is empty", with no properties panel (the database has none yet) and nothing to identify it as a
+database row except a breadcrumb reading "Untitled / Untitled", so the "New row" click looks as if it
+created a stray page. Five rapid clicks did each create a row, so nothing is lost - it is the flow
+that breaks down.
+
+Screenshot: screenshots/adv-044.png
+
+Disposition: ACCEPTED -> DEF-053
+
+## ADV-045: Neither the table header nor the title column stays put when scrolling, so a large table becomes unreadable
+
+- Session: phase-3 gate
+- Suggested severity: LOW
+
+What I did: launched the app, built a "Stress DB" with 20 properties (one of each type, cycling) and
+50 rows through the product's own ops, opened it at 1280x800, then scrolled down 2000px and separately
+scrolled the table right by 3000px.
+
+Expected: at these sizes something anchors the reader - a sticky header row, or a frozen title column,
+or both.
+
+Actual: neither. Scrolling down puts the `thead` at y=-566, so with 50 rows there is no way to tell
+which column a cell belongs to; the multi-select column makes some rows 170px tall, so only four or
+five rows fit a screen and the header is gone almost immediately. Scrolling right (the table is 4577px
+wide and lives in a `w-full overflow-x-auto` container 956px wide) carries the Title column away, so
+the visible cells belong to unidentifiable rows - the screenshot shows five rows of "https://example.com"
+and "Select..." with nothing to say whose they are. Rendering itself held up: all 50 rows and 22
+columns rendered, no console errors, first paint about 3.5s.
+
+Screenshot: screenshots/adv-045.png (header gone), screenshots/adv-045b.png (title column gone)
+
+Disposition: ACCEPTED -> DEF-054 (deferred to Phase 4, where the view switcher lands and sticky headers can be solved once for table, board and list)
+
+## ADV-046: "Manage options" expands the header row in place, shoving the table down and the "Add property" control off-screen
+
+- Session: phase-3 gate
+- Suggested severity: LOW
+
+What I did: launched the app, opened "Work Projects", opened the Status header menu and chose "Manage
+options" at 1280x800.
+
+Expected: a popover layered over the table, like the cell pickers and the header menu itself.
+
+Actual: the editor is rendered inside the `<th>`, so the whole header row grows to about 260px, the
+Status column widens, every row is pushed down by that amount, and the columns to the right shift
+sideways - the Spec column is clipped at the viewport edge and the "Add property" plus button leaves
+the screen entirely, so you cannot add a property while an option editor is open. The rest of the page
+also stays fully interactive underneath (the editor is not a modal), so it is possible to open a cell
+picker in a row while a header editor is mid-edit. With four options it is merely disorienting; with
+50 it is the failure in ADV-040.
+
+Screenshot: screenshots/adv-046.png
+
+Disposition: ACCEPTED -> DEF-055
+
+## ADV-047: A row page keeps rendering a row that has been deleted, and only flips to NOT FOUND when the user tries to write
+
+- Session: phase-3 gate
+- Suggested severity: LOW
+
+What I did: launched the app, opened the row page for "Phase 3: databases and table view" in one tab.
+In a second tab opened "Work Projects", used the row's actions menu, chose "Delete row" and confirmed
+"Delete permanently". Then watched the first tab, waited six seconds, and finally edited a cell in it.
+
+Expected: the open tab notices and shows the NOT FOUND state it already has for a missing page.
+
+Actual: the first tab keeps rendering the deleted row in full - title, the entire properties panel
+with its values, and all its blocks - indefinitely (still there after six seconds, `h1` unchanged).
+Nothing marks it as gone. Typing 77 into the Effort cell and blurring appears to work; the write is
+rejected, the client refetches, and the page then turns into "NOT FOUND / This page no longer exists"
+with **no notice at all** explaining that the value the user just typed was thrown away - which is odd
+given that a value rejected for length does produce a clear notice ("Saving the cell value was dropped
+by the server: ... The workspace has been refreshed."). A reload also shows NOT FOUND correctly. May
+well be the intended "no realtime" behaviour, but the silent discard of the typed value on the way to
+NOT FOUND is the part I would not have expected.
+
+Screenshot: screenshots/adv-047.png
+
+Disposition: ACCEPTED -> DEF-056 (deferred to Phase 6, which owns the sync queue and cross-client invalidation)
+
+## ADV-048: Two tabs editing the same cell - the losing tab keeps showing its own value forever, with no sign it lost
+
+- Session: phase-3 gate
+- Suggested severity: LOW
+
+What I did: launched the app, opened "Work Projects" in two tabs. In tab 1 set the "Effort (days)"
+cell of row 1 to 111 and blurred; in tab 2 set the same cell to 222 and blurred, a moment later.
+
+Expected: last write wins on the server (it does), and the losing tab reconciles at some point, or at
+least is not left presenting a value that is no longer true.
+
+Actual: the server converges on 222, correctly, through the composite `rowPageId:propertyId` key - no
+duplicate cells, no errors. But tab 1 goes on displaying 111 indefinitely (still 111 after a further
+four seconds), with nothing to indicate it is stale. There appears to be no background poll: an
+earlier probe showed a property deletion reaching the other tab only after that tab was clicked in.
+Two windows side by side therefore disagree about a cell's value with no cue as to which is right.
+Possibly intended for an offline-first product; recording it because a user with two windows open will
+read the wrong number and never know.
+
+Screenshot: screenshots/adv-048.png
+
+Disposition: ACCEPTED -> DEF-057 (deferred to Phase 6, which owns the sync queue and cross-client invalidation)
+
+## ADV-049: Cell editors carry no accessible name - a screen reader hears "0" and "Empty" instead of the property
+
+- Session: phase-3 gate
+- Suggested severity: MEDIUM
+
+What I did: launched the app, opened "Work Projects" and "Book Tracker" and read the accessibility
+tree of the table, then of the row page.
+
+Expected: each cell editor named for its property and row, since a table cell's context is not
+conveyed by a bare control.
+
+Actual: every editor takes its accessible name from its placeholder or from its value, or has none at
+all. A number cell is `spinbutton "0"` - the name is the placeholder "0", so all six number cells in
+a table announce identically as "0". A text cell is `textbox "Empty"`. An empty url cell is
+`textbox "https://example.com"`. A select cell is a `button` whose name is the selected option
+("In progress"), and when empty it is `button` with the name "Select..."; when the option name is
+blank (ADV-036) it has no name whatsoever. The option picker and the date picker open as
+`dialog` with no accessible name. The multi-select cell's name is the concatenation of its chips and
+their remove buttons ("Frontend Remove Frontend Backend Remove Backend"). Nowhere in any of this does
+the property name appear, so a non-visual user moving through the table cannot tell which property a
+control edits. The header cells themselves are fine (`columnheader "Status options"`).
+
+Disposition: ACCEPTED -> DEF-058
+
+## ADV-050: The sidebar's database marker is aria-hidden, so a database is indistinguishable from a page to a screen reader
+
+- Session: phase-3 gate
+- Suggested severity: LOW
+
+What I did: launched the app and read the accessibility tree of the sidebar page tree, then the DOM of
+the "Work Projects" tree row.
+
+Expected: the phase contract asks for "a distinct affordance marking a database row in the tree"; a
+marker that only exists visually is half of that.
+
+Actual: the marker is there in the DOM - a small `lucide-table-2` badge overlaid on the page icon,
+`data-testid="database-marker"` - but it sits inside a wrapper carrying `aria-hidden="true"`, and no
+other text or attribute distinguishes the row. In the accessibility tree the entry is exactly
+`treeitem "Work Projects" > button "Work Projects"`, identical in shape to every ordinary page. So a
+screen reader or keyboard user navigating the tree cannot tell which entries open a table and which
+open a document, and finds out only after activating one.
+
+Disposition: ACCEPTED -> DEF-059
+
+## ADV-051: At desktop width the sidebar row overlay offers only Rename and Delete - "Add a database inside" is mobile-only
+
+- Session: phase-3 gate
+- Suggested severity: MEDIUM
+
+What I did: launched the app at 1280x800, hovered every kind of sidebar tree row (an ordinary page, a
+page with children, a database) and read the revealed controls and the DOM.
+
+Expected: the phase contract asks for a "New database" entry "alongside today's page creation
+affordances (top-level and in the row action menu)". The top-level one is there and works ("Add a
+top-level database").
+
+Actual: the row action _menu_ - the one that contains "Rename", "Add a page inside X", "Add a database
+inside X" and "Delete X" - lives in a `<span class="flex-none md:hidden">` and is therefore not
+rendered at all at 1280px. What appears on hover at desktop width is a different element,
+`data-testid="page-row-desktop-actions"`, containing exactly two buttons: "Rename X" and "Delete X".
+So at every desktop viewport there is no way to create a nested page or a nested database from a tree
+row; the only reachable creation affordances are the two top-level ones. Playwright's role query for
+"Actions for Work Projects" finds nothing at 1280px while the element exists in the DOM, which is how
+I noticed. This may predate Phase 3 (the overlay was touched by DEF-035/036), but the phase's own
+"New database in the row action menu" requirement is unreachable on desktop because of it.
+
+Screenshot: screenshots/adv-051.png
+
+Disposition: ACCEPTED -> DEF-060
+
+## ADV-052: Number cells print raw float precision - "528.7752545877175" in a column 200px wide
+
+- Session: phase-3 gate
+- Suggested severity: LOW
+
+What I did: launched the app, built a database whose number cells hold values like `Math.random()*1000`
+through the product's own `value.set` op, and viewed the table. Separately typed
+`0.1000000000000000055511151231257827`, `1e400`, `NaN`, `Infinity`, `1,234`, `+5`, `0x1F`, `--3`,
+`٣٤` and thirty nines into a number cell.
+
+Actual: the cell renders whatever the stored double stringifies to, so a column shows
+"528.7752545877175", "92.68871997680739", "952.3667130446294" side by side - 16 significant digits in
+a narrow column, with no formatting and no thousands separators. The input abuse itself was handled
+safely by the native number input: `1e400`, `NaN`, `Infinity`, `--3` and `٣٤` are refused as you type
+(the input goes empty), `+5` becomes 5, `1,234` becomes 1234, `12abc` becomes 12, `0x1F` becomes 01
+and `  7  ` becomes 7, so no non-finite value ever reached the server. `-0` is typed and stored as
+`-0`. Recording only the display: a number property with no formatting is going to look broken the
+first time someone stores a computed value.
+
+Screenshot: screenshots/adv-052.png
+
+Disposition: ACCEPTED -> DEF-061
+
+## ADV-053: In dark theme an unchecked checkbox cell is a solid white square
+
+- Session: phase-3 gate
+- Suggested severity: LOW
+
+What I did: launched the app in dark theme (`personal-space:theme = dark`), opened "Work Projects" and
+looked at the "Done" column, then captured the cell on its own and read its computed styles.
+
+Expected: a checkbox styled for the theme, like the to-do checkboxes in the block editor.
+
+Actual: the checkbox is a native `input[type=checkbox]` with `appearance: auto` and no theming, so in
+dark theme the browser paints its default: a bright white filled square on a near-black row. Next to
+the checked state - a blue box with a white tick - the unchecked one reads as the more "active" of the
+two, which is backwards. In light theme it is unremarkable. The computed style confirms the element is
+unstyled (`background-color: rgba(0,0,0,0)`, `appearance: auto`), so it will follow the OS rather than
+the product palette on any platform.
+
+Screenshot: screenshots/adv-053.png
+
+Disposition: ACCEPTED -> DEF-062
+
+## ADV-054: On a row page nothing in the sidebar is marked current, so the tree loses the reader's place
+
+- Session: phase-3 gate
+- Suggested severity: LOW
+
+What I did: launched the app, opened "Work Projects", clicked a row title to open its row page, and
+looked for the current-page highlight in the sidebar.
+
+Expected: since row pages are deliberately excluded from the tree, the row's parent database would be
+marked current - it is the nearest thing in the tree and the breadcrumb already names it.
+
+Actual: no element in the tree carries `data-current="true"` at all (the query returns an empty list),
+so the amber highlight that marks your position everywhere else in the product simply goes out. On a
+long tree scrolled away from the database, the sidebar gives no indication of where you are. The
+breadcrumb still reads "Work Projects / <row>", so the information exists; it is only the tree that
+goes blank.
+
+Screenshot: screenshots/adv-054.png
+
+Disposition: ACCEPTED -> DEF-063
+
+## ADV-055: The delete-database dialog calls rows "pages" and does not mention the properties it will destroy
+
+- Session: phase-3 gate
+- Suggested severity: LOW
+
+What I did: launched the app, opened a row page of "Work Projects", hovered the database in the
+sidebar and clicked its Delete control.
+
+Actual: the dialog reads: `Delete "Work Projects"? 3 pages nested inside it will be deleted too: Phase
+3: databases and table view, Accessibility audit, Performance baseline. Deletion is permanent - there
+is no trash.` The cascade it performs is correct and complete (database, three rows, their blocks, six
+properties, all values - I checked the snapshot afterwards and found no orphans), and it correctly
+returned me to Home rather than leaving me on a dead row. But the wording describes the rows as
+"pages", which is not how the user met them, and it never mentions that the six properties and every
+value in the table go with it - which the row-delete dialog does say ("...and all its property
+values"). The two dialogs are inconsistent about the same class of data, and the more destructive one
+says less.
+
+Screenshot: screenshots/adv-055.png
+
+Disposition: ACCEPTED -> DEF-064
+
+## ADV-056: A new database and a new row are both given a page icon, so rows in one table are indented differently
+
+- Session: phase-3 gate
+- Suggested severity: LOW
+
+What I did: launched the app, clicked "Add a top-level database", then opened "Work Projects" and
+clicked "New row", then went back to the table.
+
+Actual: the created database is `{"kind":"database","icon":"📄","title":"Untitled"}` - a document icon
+for a table, next to the seed's 🗂️ and 📖, and the same icon an ordinary new page gets, so the only
+thing marking it as a database in the sidebar is the small badge from ADV-050. New rows get the same
+📄, while the seeded rows have no icon at all, so the Title column ends up with some rows prefixed by
+an icon and some not, and their titles start at different x positions in the same column. Small, but
+it is the kind of thing that makes a table look untidy from the first row a user adds.
+
+Screenshot: screenshots/adv-056.png
+
+Disposition: ACCEPTED -> DEF-065

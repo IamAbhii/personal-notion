@@ -510,4 +510,45 @@ describe('Sidebar database affordances (Phase 3)', () => {
     expect(screen.queryByTestId('page-add-child')).not.toBeInTheDocument();
     expect(screen.queryByTestId('page-add-database-child')).not.toBeInTheDocument();
   });
+
+  it('database page title button has an accessible label that announces "Database:" (ADV-050)', () => {
+    renderSidebar({ pages: [dbPage] });
+    // The database-marker badge is inside an aria-hidden container, so the accessible name for
+    // the page title button must include the kind so screen readers are not left guessing.
+    expect(screen.getByRole('button', { name: 'Database: Projects' })).toBeInTheDocument();
+  });
+
+  it('plain page title button has no "Database:" prefix (ADV-050)', () => {
+    renderSidebar({ pages: fixturePages });
+    // Plain pages should not have the database prefix.
+    expect(screen.getByRole('button', { name: 'Journal' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Database: Journal' })).not.toBeInTheDocument();
+  });
+
+  it('delete dialog for a database names its rows rather than nested pages (ADV-055)', async () => {
+    const user = userEvent.setup();
+    renderSidebar({ pages: [dbPage, rowPage] });
+    await user.click(screen.getByRole('button', { name: 'Actions for Projects' }));
+    await user.click(screen.getByRole('menuitem', { name: /Delete/ }));
+    const dialog = await screen.findByRole('dialog');
+    // Should say "row" not "page" since the children of a database are rows.
+    expect(dialog).toHaveTextContent('1 row');
+    expect(dialog).not.toHaveTextContent('page nested inside it');
+  });
+
+  it('delete dialog for a database with no rows says "no rows" (ADV-055)', async () => {
+    const user = userEvent.setup();
+    renderSidebar({ pages: [dbPage] });
+    await user.click(screen.getByRole('button', { name: 'Actions for Projects' }));
+    await user.click(screen.getByRole('menuitem', { name: /Delete/ }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('no rows');
+  });
+
+  it('shows "Add a database inside" in the overflow menu for plain pages (ADV-051)', async () => {
+    const user = userEvent.setup();
+    renderSidebar({ pages: fixturePages });
+    await user.click(screen.getByRole('button', { name: 'Actions for Journal' }));
+    expect(screen.getByTestId('page-add-database-child')).toBeInTheDocument();
+  });
 });

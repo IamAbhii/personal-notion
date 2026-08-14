@@ -290,6 +290,7 @@ function propertyRejection(op: PropertyWriteOp): string | null {
 
   if (op.type === 'property.create') {
     const { name, type, options, sortKey } = op.payload;
+    if (name.trim() === '') return 'name must not be empty';
     if (name.length > MAX_PROPERTY_NAME_LENGTH) {
       return `name must be at most ${MAX_PROPERTY_NAME_LENGTH} characters`;
     }
@@ -306,6 +307,7 @@ function propertyRejection(op: PropertyWriteOp): string | null {
 
   // property.update
   const { name, options, sortKey } = op.payload;
+  if (name !== undefined && name.trim() === '') return 'name must not be empty';
   if (name !== undefined && name.length > MAX_PROPERTY_NAME_LENGTH) {
     return `name must be at most ${MAX_PROPERTY_NAME_LENGTH} characters`;
   }
@@ -328,6 +330,7 @@ function validateOptions(
   }
   const seenIds = new Set<string>();
   for (const opt of options) {
+    if (opt.name.trim() === '') return 'option name must not be empty';
     if (opt.name.length > MAX_OPTION_NAME_LENGTH) {
       return `option name must be at most ${MAX_OPTION_NAME_LENGTH} characters`;
     }

@@ -18,14 +18,16 @@ export function listValues(db: Db, ctx: Ctx): Promise<PropertyValueRow[]> {
     .orderBy(propertyValues.rowPageId, propertyValues.propertyId);
 }
 
-// The skeleton the sync applier needs to decide every value.set op in memory: the composite key and
-// the current version, so append vs update can be projected without a per-op DB read.
+// The skeleton the sync applier needs to decide every value.set op in memory: the composite key,
+// the current version, and the stored value. The value is needed so the applier can clean up
+// dangling option references when a property.update removes select/multiSelect option ids.
 export function listValueStates(db: Db, ctx: Ctx) {
   return db
     .select({
       rowPageId: propertyValues.rowPageId,
       propertyId: propertyValues.propertyId,
       version: propertyValues.version,
+      value: propertyValues.value,
     })
     .from(propertyValues)
     .where(eq(propertyValues.workspaceId, ctx.workspaceId));

@@ -10,6 +10,8 @@ import type { PageKind, PageRecord, PageUpdatePayload } from '../api/types';
 /** The default look of a freshly created page, before the user names it or picks an icon. */
 export const DEFAULT_PAGE_TITLE = 'Untitled';
 export const DEFAULT_PAGE_ICON = '\u{1F4C4}';
+/** Default icon for a freshly created database: card-index dividers (ADV-056). */
+export const DEFAULT_DATABASE_ICON = '\u{1F5C3}';
 
 export interface PageMutations {
   /**
@@ -70,7 +72,9 @@ export function usePageMutations(
           pageId,
           parentId,
           title: DEFAULT_PAGE_TITLE,
-          icon: DEFAULT_PAGE_ICON,
+          // Databases get their own distinctive icon so the sidebar type marker is not the only
+          // signal that something is a database rather than a plain page (ADV-056).
+          icon: kind === 'database' ? DEFAULT_DATABASE_ICON : DEFAULT_PAGE_ICON,
           sortKey,
           kind,
         });
