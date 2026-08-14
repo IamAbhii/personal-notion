@@ -1,3 +1,61 @@
+## DEF-042: Database page constrained to 860px prose column, wasting desktop width
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: qa
+- Phase: 3
+
+Steps to reproduce:
+
+1. Launch the app: `npm start` then open http://localhost:8787 at a 1280x800 viewport.
+2. Sign in (auth is disabled in local dev; the app loads directly).
+3. Click "Work Projects" in the sidebar (a seeded database page with six properties).
+4. Observe the table view.
+
+Expected: a database page uses the available content width so that a seeded database with six
+property columns displays all of them without horizontal scrolling at 1280x800.
+
+Actual: the table is capped at approximately 748px of usable width by the `max-w-[860px]` prose
+constraint applied to every page kind in `PageScreen.tsx` (line 32) and `PageView.tsx` (line 95).
+At 1280x800 the content area has roughly 990px available, but only five of the seven header columns
+(Title, Status, Tags, Due date, Done) are visible; Effort (days) and Spec are off-screen and require
+horizontal scrolling while empty space sits outside the 860px column. DOM header inventory
+confirmed all seven slots present: `["Title","Status","Tags","Due date","Done","Effort (days)","Spec",""]`.
+
+Screenshot: screenshots/phase-3-database-table-view.png
+(image shows five columns with the right two clipped — this is precisely the symptom)
+
+Note: this is distinct from DEF-041. DEF-041 is the document scrolling sideways at 320px (a
+containment bug at phone width). This defect is a layout-choice mismatch: the 860px prose max-width
+is appropriate for text pages but wrong for table pages, where the columns are the content. A fix
+for either defect does not fix the other, and they must be closed on separate evidence.
+
+History:
+
+- qa: opened
+
+## DEF-041: Database table overflows the document horizontally at 320px viewport width
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: qa
+- Phase: 3
+
+Steps to reproduce:
+
+1. Launch the app: `npm start` then open http://localhost:8787.
+2. Navigate to the "Work Projects" database (or any database with 3+ property columns).
+3. Narrow the browser viewport to 320px width (or use a 320px mobile emulation).
+4. Observe the document scroll area.
+
+Expected: The table scrolls horizontally within the `database-view` wrapper (which has `overflow-x-auto`). The document itself does not overflow — `document.documentElement.scrollWidth` equals `clientWidth`.
+Actual: The document overflows horizontally (`scrollWidth=705, clientWidth=320`). The table columns extend outside the viewport without any scroll containment. Column content is clipped at the right edge with no way to scroll to it via the document's scroll, and no horizontal scroll indicator is visible.
+Screenshot: screenshots/def-041.png
+
+History:
+
+- qa: opened — confirmed by `database-mobile.spec.ts` "no horizontal overflow at 320px via setViewportSize" test and by a programmatic screenshot at 320x640 with Pixel 5 emulation.
+
 ## DEF-040: Notice toast never auto-dismisses
 
 - Status: CLOSED
@@ -580,7 +638,7 @@ History:
 
 ## DEF-021: Typing more than 10000 characters silently clamps with no notice
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: LOW
 - Found by: qa
 - Phase: 2
@@ -599,6 +657,7 @@ Screenshot: (none)
 History:
 
 - qa: found during DEF-014 retest. Input method (keyboard.type) does not fire paste event, so it bypasses the paste handler and its notice. The clamp still works (exactly 10000 stored), but silently. Filed as LOW-severity finding for Phase 3 — the paste notice covers the common case, but this path exists.
+- qa: CLOSED — Phase 3 retest (`def-021-retest.spec.ts`) confirms the fix. Filled 9,990 chars via `fill()` then typed 20 more via `keyboard.type`; the notice `[data-testid="notice"]` appeared, contained no word "pasted", and matched `/10.?000/` and `/block/i`. The generic `onChange` handler now fires the notice for both paste and keyboard input.
 
 ## DEF-014: Pasting more than 10000 characters silently discards the excess with no feedback
 
