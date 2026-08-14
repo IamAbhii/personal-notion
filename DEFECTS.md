@@ -1,6 +1,6 @@
 ## DEF-042: Database page constrained to 860px prose column, wasting desktop width
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: qa
 - Phase: 3
@@ -33,10 +33,19 @@ for either defect does not fix the other, and they must be closed on separate ev
 History:
 
 - qa: opened
+- orchestrator, relaying frontend-dev: FIX-READY. `max-w-[860px]` is now conditional on page kind
+  in `PageView.tsx`: database pages use full content width, prose and row pages keep the 860px
+  reading measure.
+- qa: CLOSED. Retested at 1280x800: `mainClientWidth=988`, `dbViewClientWidth=956`,
+  `tableScrollWidth=956`, table scroll inside wrapper `false` — all 7 columns (Title + 6 properties)
+  fit in one frame with no horizontal scroll. `database-create.spec.ts` "seeded Work Projects renders
+  all six property columns" and "seeded Book Tracker renders all six property columns" both pass.
+  Row page confirmed still at `mainClientWidth=860`. Screenshot overwritten with the fixed view at
+  `screenshots/phase-3-database-table-view.png`.
 
 ## DEF-041: Database table overflows the document horizontally at 320px viewport width
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: qa
 - Phase: 3
@@ -55,6 +64,13 @@ Screenshot: screenshots/def-041.png
 History:
 
 - qa: opened — confirmed by `database-mobile.spec.ts` "no horizontal overflow at 320px via setViewportSize" test and by a programmatic screenshot at 320x640 with Pixel 5 emulation.
+- orchestrator, relaying frontend-dev: FIX-READY. Root cause was `sr-only` (position:absolute) on
+  the accessibility span inside `CheckboxCell` escaping to the initial containing block with no
+  positioned ancestor, painting ~704px into document coordinates. Fix adds `relative` to the label.
+- qa: CLOSED. Retested: `database-mobile.spec.ts` test 6 ("no horizontal overflow at 320px on the
+  Work Projects database page") passes — `document.documentElement.scrollWidth === clientWidth` at
+  320px width. All 6 tests in the spec pass. Regression: table cell editing and persistence specs
+  also pass (22 tests). No new overflow introduced.
 
 ## DEF-040: Notice toast never auto-dismisses
 

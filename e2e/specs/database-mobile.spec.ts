@@ -1,18 +1,19 @@
 /**
  * Phase 3 — mobile layout and touch target checks for the database surfaces.
  *
- * Mobile-specific tests (those that use tap() or check touch targets) run only in the
- * mobile-chrome project (Pixel 5, 393x851). They are skipped in the desktop chromium project via
- * test.skip({ isMobile }) — isMobile is true only when the project preset is a mobile device.
+ * All tests run in the chromium project. Tests that need the mobile responsive layout
+ * (hamburger menu, narrow column widths) set the viewport explicitly via
+ * page.setViewportSize at the start of their describe group — no mobile-device project
+ * is required.
  *
- * The 320px overflow test creates its own narrow viewport via page.setViewportSize and can run in
- * any project.
+ * tap() is not used here: the assertions are about layout and navigation, not touch
+ * events, so click() is the right driver and works in the desktop chromium project.
  */
 
 import { test, expect } from '@playwright/test';
 import { resetWorkspace } from '../fixtures/reset-workspace';
 
-test.describe('Database surfaces — 320px overflow', () => {
+test.describe('Database surfaces — 320px overflow (home page)', () => {
   test.beforeEach(async ({ page }) => {
     await resetWorkspace(page);
   });
@@ -35,12 +36,11 @@ test.describe('Database surfaces — 320px overflow', () => {
   });
 });
 
-test.describe('Database surfaces — mobile touch', () => {
-  // Skip this whole group in the desktop chromium project. isMobile is true only in the
-  // mobile-chrome project (Pixel 5 device preset).
-  test.skip(({ isMobile }) => !isMobile, 'Mobile-only tests — run in mobile-chrome project');
-
+test.describe('Database surfaces — mobile layout (393px viewport)', () => {
+  // Set a phone-width viewport for every test in this group so the responsive layout
+  // activates (hamburger menu, collapsed sidebar). 393x851 matches Pixel 5.
   test.beforeEach(async ({ page }) => {
+    await page.setViewportSize({ width: 393, height: 851 });
     await resetWorkspace(page);
   });
 
@@ -51,7 +51,7 @@ test.describe('Database surfaces — mobile touch', () => {
     // On mobile the sidebar is a drawer. The toggle has aria-label="Open navigation".
     const menuBtn = page.getByRole('button', { name: 'Open navigation' });
     await expect(menuBtn).toBeVisible();
-    await menuBtn.tap();
+    await menuBtn.click();
     await page.waitForLoadState('networkidle');
 
     // After opening, the sidebar should be visible.
@@ -59,22 +59,24 @@ test.describe('Database surfaces — mobile touch', () => {
     await expect(sidebar).toBeVisible();
   });
 
-  test('can create a database by tapping the "New database" button on mobile', async ({ page }) => {
+  test('can create a database by clicking the "New database" button on mobile', async ({
+    page,
+  }) => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
 
     // Open the sidebar drawer.
     const menuBtn = page.getByRole('button', { name: 'Open navigation' });
     await expect(menuBtn).toBeVisible();
-    await menuBtn.tap();
+    await menuBtn.click();
     await page.waitForLoadState('networkidle');
 
     const before = page.url().match(/\/page\/([^/]+)/)?.[1];
 
-    // Tap "New database" in the sidebar footer.
+    // Click "New database" in the sidebar footer.
     const newDbBtn = page.getByTestId('new-database-bottom');
     await expect(newDbBtn).toBeVisible();
-    await newDbBtn.tap();
+    await newDbBtn.click();
 
     await page.waitForURL(
       (url) => {
@@ -95,7 +97,7 @@ test.describe('Database surfaces — mobile touch', () => {
     // Open sidebar.
     const menuBtn = page.getByRole('button', { name: 'Open navigation' });
     await expect(menuBtn).toBeVisible();
-    await menuBtn.tap();
+    await menuBtn.click();
     await page.waitForLoadState('networkidle');
 
     const pageTitles = page.getByTestId('sidebar').getByTestId('page-row-title');
@@ -121,7 +123,7 @@ test.describe('Database surfaces — mobile touch', () => {
     // Open sidebar and navigate to Work Projects.
     const menuBtn = page.getByRole('button', { name: 'Open navigation' });
     await expect(menuBtn).toBeVisible();
-    await menuBtn.tap();
+    await menuBtn.click();
     await page.waitForLoadState('networkidle');
 
     const workProjectsLink = page
@@ -129,7 +131,7 @@ test.describe('Database surfaces — mobile touch', () => {
       .getByTestId('page-row-title')
       .filter({ hasText: 'Work Projects' });
     await expect(workProjectsLink).toBeVisible({ timeout: 5000 });
-    await workProjectsLink.tap();
+    await workProjectsLink.click();
     await page.waitForLoadState('networkidle');
 
     await expect(page.getByTestId('database-view')).toBeVisible();
@@ -140,14 +142,14 @@ test.describe('Database surfaces — mobile touch', () => {
     expect(box!.height).toBeGreaterThanOrEqual(48);
   });
 
-  test('no horizontal overflow at 320px via setViewportSize', async ({ page }) => {
+  test('no horizontal overflow at 320px on the Work Projects database page', async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
 
     // Navigate to a database page so the table view is rendered.
     const menuBtn = page.getByRole('button', { name: 'Open navigation' });
     await expect(menuBtn).toBeVisible();
-    await menuBtn.tap();
+    await menuBtn.click();
     await page.waitForLoadState('networkidle');
 
     const workProjectsLink = page
@@ -155,7 +157,7 @@ test.describe('Database surfaces — mobile touch', () => {
       .getByTestId('page-row-title')
       .filter({ hasText: 'Work Projects' });
     await expect(workProjectsLink).toBeVisible({ timeout: 5000 });
-    await workProjectsLink.tap();
+    await workProjectsLink.click();
     await page.waitForLoadState('networkidle');
 
     await expect(page.getByTestId('database-view')).toBeVisible();
@@ -169,8 +171,7 @@ test.describe('Database surfaces — mobile touch', () => {
       return { scrollWidth, clientWidth, overflows: scrollWidth > clientWidth };
     });
 
-    // If the table overflows horizontally at 320px the overflow.x-auto wrapper should contain it
-    // — i.e. the document itself must not overflow.
+    // The table overflows its own wrapper but the document must not overflow.
     expect(overflow.overflows).toBe(false);
   });
 });
