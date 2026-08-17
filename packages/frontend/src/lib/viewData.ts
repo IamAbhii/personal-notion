@@ -311,3 +311,24 @@ export function groupRows(
 export function cardMoveNewValue(targetColumnOptionId: string | null): string | null {
   return targetColumnOptionId === null ? null : JSON.stringify(targetColumnOptionId);
 }
+
+// ── View cleanup on property delete ──────────────────────────────────────────
+
+/**
+ * Returns the cleaned filter list and sort for a view after a property is deleted.
+ * Any filter referencing the deleted property is removed, and the sort is cleared if it
+ * references the same property. Callers use this to update view records before the
+ * property.delete op lands, so the Filter panel never shows a filter that is not stored (DEF-071).
+ *
+ * Returns null if no cleanup is needed (view does not reference the property), so callers can
+ * skip the view.update op.
+ */
+export function cleanViewAfterPropertyDelete(
+  view: { filters: ViewFilter[]; sort: ViewSort | null },
+  deletedPropertyId: string,
+): { filters: ViewFilter[]; sort: ViewSort | null } | null {
+  const cleanFilters = view.filters.filter((f) => f.propertyId !== deletedPropertyId);
+  const sortGone = view.sort?.propertyId === deletedPropertyId;
+  if (cleanFilters.length === view.filters.length && !sortGone) return null;
+  return { filters: cleanFilters, sort: sortGone ? null : view.sort };
+}

@@ -117,9 +117,9 @@ export function ListView({ rows, properties, values, onSelectRow }: ListViewProp
               {row.title}
             </span>
 
-            {/* Property value pills — hidden on very small screens, shown from xs up */}
+            {/* Property value pills — hidden on mobile (320px base), shown from sm (640px) up */}
             {visibleProps.length > 0 && (
-              <span className="xs:flex flex hidden flex-shrink-0 items-center gap-2">
+              <span className="hidden flex-shrink-0 items-center gap-2 sm:flex">
                 {visibleProps.map((prop) => {
                   const raw = rowValues.get(prop.id) ?? null;
                   const rendered = renderCellValue(raw, prop);

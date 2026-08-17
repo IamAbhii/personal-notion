@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { generateKeyBetween } from 'fractional-indexing';
 import { queryKeys } from '../api/queries';
 import { submitOps } from '../sync/ops';
 import { buildViewCreateOp, buildViewDeleteOp, buildViewUpdateOp } from '../sync/viewOps';
@@ -198,10 +199,17 @@ export function useViewMutations(
       // Future: if we add customisable default filters per view kind, wire them in here rather than
       // building a separate "post-create wizard" — this is the single creation site.
       const ids: string[] = [];
+      // Mint three successive valid fractional-index sort keys. generateKeyBetween(null, null)
+      // produces 'a0'; the two following calls extend the sequence to 'a1' and 'a2'.
+      // These single-character strings ('a', 'b', 'c') are NOT valid fractional indices and
+      // the server rejects them — this was the root cause of DEF-070.
+      const k0 = generateKeyBetween(null, null); // 'a0'
+      const k1 = generateKeyBetween(k0, null); // 'a1'
+      const k2 = generateKeyBetween(k1, null); // 'a2'
       const kinds: Array<{ kind: ViewKind; name: string; sortKey: string }> = [
-        { kind: 'table', name: 'Table', sortKey: 'a' },
-        { kind: 'board', name: 'Board', sortKey: 'b' },
-        { kind: 'list', name: 'List', sortKey: 'c' },
+        { kind: 'table', name: 'Table', sortKey: k0 },
+        { kind: 'board', name: 'Board', sortKey: k1 },
+        { kind: 'list', name: 'List', sortKey: k2 },
       ];
       // Submit all three ops in parallel: view.create ops for a brand-new database are independent
       // of each other (no sort-key adjacency, no shared entity) so there is no ordering constraint.

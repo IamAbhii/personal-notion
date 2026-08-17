@@ -86,4 +86,28 @@ describe('ListView', () => {
     );
     expect(screen.getByText('Some note')).toBeInTheDocument();
   });
+
+  it('property value container does not use an undefined breakpoint prefix', () => {
+    // Regression for DEF-069: `xs:flex flex hidden` permanently hides properties because `xs` is
+    // not a defined Tailwind breakpoint in this project. The correct pattern is `hidden sm:flex`
+    // (hidden on mobile, visible at sm+). This test catches any future reintroduction of a
+    // dead-class pattern where an undefined breakpoint override is silently ignored.
+    const { container } = render(
+      <ListView
+        rows={[row('r1', 'Alpha')]}
+        properties={[textProp]}
+        values={[val('r1', 'p-text', JSON.stringify('Some note'))]}
+        onSelectRow={vi.fn()}
+      />,
+    );
+    const listRow = container.querySelector('[data-testid="list-row"]');
+    expect(listRow).toBeTruthy();
+    // The property container must not contain an `xs:` prefixed class — xs is not a defined breakpoint.
+    const allSpans = Array.from(listRow!.querySelectorAll('span'));
+    const propContainer = allSpans.find((s) => s.className.includes('flex-shrink-0'));
+    expect(propContainer).toBeTruthy();
+    expect(propContainer!.className).not.toMatch(/\bxs:/);
+    // It must use a real breakpoint (sm:flex) so properties appear on desktop viewports.
+    expect(propContainer!.className).toMatch(/\bsm:flex\b/);
+  });
 });
