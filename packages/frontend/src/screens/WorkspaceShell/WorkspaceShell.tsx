@@ -8,6 +8,7 @@ import { flushStashedOps } from '../../sync/ops';
 import { usePageMutations } from '../../hooks/usePageMutations';
 import { useBlockMutations } from '../../hooks/useBlockMutations';
 import { usePropertyMutations } from '../../hooks/usePropertyMutations';
+import { useViewMutations } from '../../hooks/useViewMutations';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { notify } from '../../lib/notify';
 import { Sidebar } from '../../components/Sidebar/Sidebar';
@@ -40,11 +41,14 @@ export function WorkspaceShell() {
   // Phase 3: properties and values. `?? []` keeps the shell rendering against a pre-Phase-3 server.
   const properties = snapshot.properties ?? [];
   const values = snapshot.values ?? [];
+  // Phase 4: views. `?? []` keeps the shell rendering against a pre-Phase-4 server.
+  const views = snapshot.views ?? [];
 
   const membership = me.memberships.find((entry) => entry.workspaceId === workspaceId);
   const mutations = usePageMutations(me.user.id, workspaceId, pages, notify);
   const blockMutations = useBlockMutations(me.user.id, workspaceId, blocks, notify);
   const propertyMutations = usePropertyMutations(me.user.id, workspaceId, properties, notify);
+  const viewMutations = useViewMutations(me.user.id, workspaceId, views, notify);
 
   // An edit flushed as the last page was closing may not have reached the server - a service worker
   // controls the page, and Chromium drops a request routed through it once its client is gone. It
@@ -117,7 +121,14 @@ export function WorkspaceShell() {
   const createPage = async (parentId: string | null, kind?: 'page' | 'database') => {
     const pageId = await mutations.createPage(parentId, kind);
     // Null means the write failed and the user has been told; there is no page to open.
-    if (pageId) selectPage(pageId);
+    if (!pageId) return;
+    if (kind === 'database') {
+      // A new database always gets three default views (table, board, list) immediately after
+      // the page.create completes, so the view switcher is available on first render. Seeded
+      // databases have their views created server-side; this path is UI-creation only.
+      await viewMutations.createDefaultViews(pageId);
+    }
+    selectPage(pageId);
   };
 
   // Creates a row page inside a database, then opens it.
@@ -162,9 +173,11 @@ export function WorkspaceShell() {
         blocks,
         properties,
         values,
+        views,
         mutations,
         blockMutations,
         propertyMutations,
+        viewMutations,
         selectPage,
         notify,
         createAndOpenPage: (parentId) => void createPage(parentId),

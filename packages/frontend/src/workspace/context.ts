@@ -1,8 +1,15 @@
 import { createContext, useContext } from 'react';
-import type { BlockRecord, PageRecord, PropertyRecord, PropertyValueRecord } from '../api/types';
+import type {
+  BlockRecord,
+  PageRecord,
+  PropertyRecord,
+  PropertyValueRecord,
+  ViewRecord,
+} from '../api/types';
 import type { PageMutations } from '../hooks/usePageMutations';
 import type { BlockMutations } from '../hooks/useBlockMutations';
 import type { PropertyMutations } from '../hooks/usePropertyMutations';
+import type { ViewMutations } from '../hooks/useViewMutations';
 
 export interface WorkspaceContextValue {
   userId: string;
@@ -14,15 +21,18 @@ export interface WorkspaceContextValue {
   properties: PropertyRecord[];
   /** All property values for every row in this workspace. */
   values: PropertyValueRecord[];
+  /** All views for every database in this workspace. Absent on a pre-Phase-4 server returns []. */
+  views: ViewRecord[];
   mutations: PageMutations;
   blockMutations: BlockMutations;
   propertyMutations: PropertyMutations;
+  viewMutations: ViewMutations;
   selectPage: (pageId: string) => void;
   /** Posts a message to the notice stack - anything the app has to tell the user about a write. */
   notify: (message: string) => void;
   /** Creates a page and opens it, so every create in the app lands the user on the new page. */
   createAndOpenPage: (parentId: string | null) => void;
-  /** Creates a database and opens it. */
+  /** Creates a database, mints its three default views, and opens it. */
   createAndOpenDatabase: (parentId: string | null) => void;
   /** Creates a row inside a database and opens its row page. */
   createAndOpenRow: (databasePageId: string) => void;
