@@ -44,22 +44,37 @@ test.describe('Phase 4 — view switcher and board', () => {
     await expect(tableRows).toHaveCount(6, { timeout: 8000 });
     const tableTitles = await tableRows
       .locator('[data-testid="row-title-cell"]')
-      .allTextContents();
+      .allTextContents()
+      .then((ts) => ts.map((t) => t.trim()).filter(Boolean));
 
-    // Switch to BOARD view.
+    // Switch to BOARD view and verify every table title appears as a card.
+    // A count match alone is insufficient: three views could show three different sets of rows.
     await page.getByRole('tab', { name: 'Board view' }).click();
     await expect(page.getByTestId('board-view')).toBeVisible();
-    const boardCards = page.getByTestId('board-card');
-    // Board cards count must equal table row count: both should be 6 for Work Projects.
-    await expect(boardCards).toHaveCount(6, { timeout: 8000 });
+    // Board cards count must equal table row count.
+    await expect(page.getByTestId('board-card')).toHaveCount(6, { timeout: 8000 });
+    // Every table title must appear as a board card (span.truncate holds the title text).
+    for (const title of tableTitles) {
+      await expect(page.getByTestId('board-card').filter({ hasText: title })).toBeVisible({
+        timeout: 5000,
+      });
+    }
 
-    // Switch to LIST view.
+    // Switch to LIST view and verify all list titles are a subset of table titles.
     await page.getByRole('tab', { name: 'List view' }).click();
     await expect(page.getByTestId('list-view')).toBeVisible();
-    // List view has a filter (isNotChecked for Done), so it may show fewer rows.
-    // Assert at least one row is visible.
+    // List view has a Done=isNotChecked filter so it shows fewer rows than the table.
     const listRows = page.getByTestId('list-row');
     await expect(listRows.first()).toBeVisible();
+    // Extract titles from the flex-1 span (the title span inside each list row).
+    const listTitles = await listRows
+      .locator('span.flex-1')
+      .allTextContents()
+      .then((ts) => ts.map((t) => t.trim()).filter(Boolean));
+    // Every list row title must be one of the table row titles (list is a filtered subset).
+    for (const title of listTitles) {
+      expect(tableTitles).toContain(title);
+    }
 
     // Switch back to TABLE — confirming all three directions are lossless.
     await page.getByRole('tab', { name: 'Table view' }).click();
@@ -137,9 +152,7 @@ test.describe('Phase 4 — view switcher and board', () => {
     await page.waitForTimeout(800);
 
     // Card should now appear in the "In progress" column.
-    const inProgressColumn = page
-      .getByTestId('board-column')
-      .filter({ hasText: /In progress/i });
+    const inProgressColumn = page.getByTestId('board-column').filter({ hasText: /In progress/i });
     await expect(
       inProgressColumn.getByTestId('board-card').filter({ hasText: 'Accessibility audit' }),
     ).toBeVisible({ timeout: 6000 });
@@ -343,8 +356,8 @@ test.describe('Phase 4 — list view', () => {
     // ancestor chain — an element inside a display:none parent has offsetHeight===0 even if its
     // own computed display is not 'none'.
     const propValueSpans = page.locator('[data-testid="list-row"] span[title]');
-    const visiblePropCount = await propValueSpans.evaluateAll((els) =>
-      els.filter((el) => (el as HTMLElement).offsetHeight > 0).length,
+    const visiblePropCount = await propValueSpans.evaluateAll(
+      (els) => els.filter((el) => (el as HTMLElement).offsetHeight > 0).length,
     );
     // Criterion 6: at least one property value must be visible alongside a title.
     // If this fails it means the property container is hidden (e.g. the "xs" Tailwind breakpoint
@@ -352,4 +365,3 @@ test.describe('Phase 4 — list view', () => {
     expect(visiblePropCount).toBeGreaterThan(0);
   });
 });
-

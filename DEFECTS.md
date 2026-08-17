@@ -1,6 +1,419 @@
-## DEF-069: List view never shows property values — xs breakpoint undefined, container always hidden
+## DEF-070: Creating a database sends invalid sortKeys; server rejects all three view.create ops; database ends up with no views and navigation never occurs
 
 - Status: OPEN
+- Severity: HIGH
+- Found by: adversary (ADV-059)
+- Phase: 4
+
+Steps to reproduce:
+
+1. Launch the app: `npm start` then open http://localhost:8787.
+2. In the sidebar, click the "Add a top-level database" button (or the "New database" button at the bottom of the sidebar).
+3. Watch the browser console and `/sync` network traffic; then reload and look at the new database entry in the sidebar.
+
+Expected: a new database is created with its three views (Table, Board, List), the app navigates to it, and the main area renders the database table view.
+
+Actual: the client sends three `view.create` ops with `sortKey: "a"`, `"b"`, `"c"`. The server rejects all three with `{"status":"rejected","reason":"sortKey is not a valid fractional index"}`. An uncaught error reaches the window. The `page.create` for the database itself is applied, so the entry appears in the sidebar, but the database has zero views. The app does not navigate to the new database — the URL stays on the previously viewed page, and nothing tells the user anything went wrong. The sidebar entry sometimes disappears after a reload. As a secondary consequence, `createPage` in `WorkspaceShell.tsx` awaits `createDefaultViews` before calling `selectPage`; because `createDefaultViews` throws, `selectPage` is never called. The `createPage` call is invoked with `void`, silently swallowing the rejection.
+Screenshot: screenshots/adv-059.png
+
+History:
+
+- qa: opened. All tests that call `createDatabase()` (which drives the UI flow through the sidebar button) fail with a 30–35 s timeout waiting for the URL to change after database creation. Affects: database-create.spec.ts (2 tests), database-table.spec.ts (4 tests), database-persistence.spec.ts (1 test), database-mobile.spec.ts (1 test), phase-3-defect-regressions.spec.ts (1 test) — 9 failures total. Root cause confirmed by adversary (ADV-059): invalid sortKeys sent to server.
+
+## DEF-088: Filter property list omits Title while the sort list includes it
+
+- Status: OPEN
+- Severity: LOW
+- Found by: adversary (ADV-077)
+- Phase: 4
+
+Steps to reproduce:
+
+1. Launch the app and open "Work Projects".
+2. Open the Filter / Sort panel.
+3. Compare the "Filter property" dropdown with the "Sort property" dropdown.
+
+Expected: both lists agree about which properties can be filtered and sorted; Title is present in both or absent from both.
+
+Actual: the "Sort property" list offers Title (value `title`) alongside the six user properties; the "Filter property" list offers only the six user properties. Since Title is text, `contains`/`notContains` would apply to it exactly as they do to the Notes property. Its absence from the filter list reads as an oversight, and filtering by title is the first thing most users try.
+
+History:
+
+- qa: opened.
+
+## DEF-087: Board has no accessible structure; filter/sort popover has no accessible name
+
+- Status: OPEN
+- Severity: LOW
+- Found by: adversary (ADV-076)
+- Phase: 4
+
+Steps to reproduce:
+
+1. Launch the app and open "Work Projects" in the Board view.
+2. Inspect the accessibility tree of the board and of the open Filter / Sort panel.
+
+Expected: columns are exposed as groups or regions with their option name and count as an accessible name; cards are list items; the popover is named (e.g. "Filter and sort").
+
+Actual: the board is a flat run of text and buttons — the column name and its count are bare text nodes with no grouping element, and nothing associates a card with its column. A screen reader hears "Backlog, 2, Drag 'Accessibility audit', Accessibility audit, Add card, In progress, 1, …" with no structure to navigate. The filter/sort popover is exposed as an unnamed `dialog`. The regions inside it are named ("Filters", "Sort", "Group by"), showing the intent was there.
+
+History:
+
+- qa: opened.
+
+## DEF-086: Select sort is alphabetical rather than following the option order
+
+- Status: OPEN
+- Severity: LOW
+- Found by: adversary (ADV-075)
+- Phase: 4
+
+Steps to reproduce:
+
+1. Launch the app and open "Work Projects" in the table view.
+2. Add a sort on Status ascending.
+3. Observe the row order.
+
+Expected: rows sorted by the option order defined for Status (Backlog, In progress, Done, On hold), matching the column order the board uses.
+
+Actual: rows appear in alphabetical option-name order: Backlog, Backlog, Done, In progress, On hold. The sorted table disagrees with the board column order. Empty values sort last in both directions, which is correct.
+
+History:
+
+- qa: opened.
+
+## DEF-085: Empty database says "No rows match the current filters" although no filter is set
+
+- Status: OPEN
+- Severity: LOW
+- Found by: adversary (ADV-072)
+- Phase: 4
+
+Steps to reproduce:
+
+1. Launch the app and open or create a database that has no rows and no filters.
+2. Look at the list view (or any view).
+
+Expected: something like "This database has no rows yet" plus a way to add one.
+
+Actual: the message "No rows match the current filters." is shown, which sends the user looking for a filter that does not exist. The empty-database state and the filtered-to-nothing state produce the same message, so the two cases are not distinguished.
+Screenshot: screenshots/adv-060.png
+
+History:
+
+- qa: opened.
+
+## DEF-084: List view properties are unlabelled, unaligned, and omitted when empty
+
+- Status: OPEN
+- Severity: LOW
+- Found by: adversary (ADV-071)
+- Phase: 4
+
+Steps to reproduce:
+
+1. Launch the app and open "Book Tracker" in the list view at 1280x800.
+2. Read down the rows and compare the horizontal positions of the property pills.
+
+Expected: the properties shown for each row line up so the column of pills means the same thing on every row.
+
+Actual: each row lays its properties out right-aligned and omits any property that is empty, so nothing lines up: "Want to read" sits at a different x on every row, and the last row shows a single pill "Science" (a Topics value) which reads as a Status because that is where Status appears on the rows above. The property name exists only as a `title` attribute on a wrapper span, so it is invisible and not announced. The first three properties are shown and the rest are dropped with no indication — Book Tracker's Finished, Rating and Notes never appear.
+Screenshot: screenshots/adv-071.png
+
+History:
+
+- qa: opened.
+
+## DEF-083: List view prints dates as raw ISO strings instead of the formatted date used everywhere else
+
+- Status: OPEN
+- Severity: LOW
+- Found by: adversary (ADV-070)
+- Phase: 4
+
+Steps to reproduce:
+
+1. Launch the app and open "Work Projects".
+2. Compare the "Due date" property value for any row in the table view vs. the list view.
+
+Expected: one date format across the product.
+
+Actual: the table view (and the board's row page) shows "15 Sept 2026"; the list view shows "2026-09-15" (raw ISO string).
+Screenshot: screenshots/adv-070.png
+
+History:
+
+- qa: opened.
+
+## DEF-082: Duplicate select option names allowed; board shows two identical columns
+
+- Status: OPEN
+- Severity: LOW
+- Found by: adversary (ADV-068)
+- Phase: 4
+
+Steps to reproduce:
+
+1. Launch the app and open "Work Projects".
+2. Click any Status cell to open the editor, then click "Manage options".
+3. In the "New option…" input, type "Done" (an existing option name) and click Add.
+4. Save. Then open the Board view.
+
+Expected: a duplicate option name is refused or at least flagged (whitespace-only names are already correctly blocked with Add disabled).
+
+Actual: the property now has two options called "Done". The board renders two columns both labelled "Done", one empty, with nothing to tell them apart. The same duplicate appears twice in every Status cell editor and twice in the filter value list, where picking the wrong one silently matches no rows.
+Screenshot: screenshots/adv-068.png
+
+History:
+
+- qa: opened.
+
+## DEF-081: Chosen view is forgotten on every reload and navigation away and back
+
+- Status: OPEN
+- Severity: LOW
+- Found by: adversary (ADV-067)
+- Phase: 4
+
+Steps to reproduce:
+
+1. Launch the app and open "Work Projects".
+2. Click the "Board" tab to switch to the board view.
+3. Reload the page; then navigate to another page and back.
+
+Expected: the view I selected (Board) is still showing when I return to that database.
+
+Actual: every reload or navigation away and back resets to the Table view. The chosen view is stored nowhere (not in the URL, not in localStorage). The filter, sort and grouping settings do survive (they are server state), making the reset jarring — the board's settings are remembered but the board itself is not. A link to a database can never point at its board view.
+
+History:
+
+- qa: opened.
+
+## DEF-080: View switcher tablist ignores arrow keys
+
+- Status: OPEN
+- Severity: LOW
+- Found by: adversary (ADV-065)
+- Phase: 4
+
+Steps to reproduce:
+
+1. Launch the app and open "Work Projects".
+2. Focus the "Table view" tab with Tab key.
+3. Press ArrowRight, then Enter.
+
+Expected: for `role="tablist"` / `role="tab"`, arrow keys move between tabs (and activate, or Enter activates), per the ARIA tabs keyboard pattern.
+
+Actual: ArrowRight does nothing — focus and selection both stay on "Table view". Enter re-selects the same tab. The tabs are individually reachable with Tab, so the control is operable, but it does not behave the way its own ARIA roles promise, and a screen-reader user following the tabs pattern will think the switcher is broken.
+
+History:
+
+- qa: opened.
+
+## DEF-079: Server-rejected option name silently discards all edits in the same save
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-069)
+- Phase: 4
+
+Steps to reproduce:
+
+1. Launch the app and open "Work Projects". Open the Status "Manage options" dialog.
+2. Rename "Backlog" to a 90+ character string and press Save.
+3. Separately: rename "Backlog" to " " (whitespace only) and press Save.
+4. Also try: rename "Backlog" to "Icebox" AND add a duplicate option in the same dialog, then Save.
+
+Expected: the dialog reports what was refused and stays open, or the client validates the same rules the server enforces (name ≤ 100 chars, non-empty, non-duplicate).
+
+Actual: in every case the dialog closes as though the save succeeded with no toast and no console error, but the options are unchanged. The `/sync` response shows the op rejected: `"reason":"option name must be at most 100 characters"` and `"reason":"option name must not be empty"`. In the third run the legitimate rename to "Icebox" was also lost, because the whole batch was dropped — a user can silently lose valid edits alongside a bad one.
+
+History:
+
+- qa: opened.
+
+## DEF-078: Offline, card drag reports "Moved … to Done" while the card stays where it was
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-066)
+- Phase: 4
+
+Steps to reproduce:
+
+1. Launch the app and open "Work Projects" in the board view.
+2. Go offline in the browser (DevTools Network → Offline).
+3. Drag "Accessibility audit" from Backlog to Done.
+4. Observe the toast message and the board state.
+
+Expected: either the card moves optimistically and the queued op syncs later, or the UI indicates the move is pending. The toast should accurately describe the current board state.
+
+Actual: the toast says `Moved "…" to "Done"` but the board does not change — the card is still in Backlog and the column counts are unchanged. There is no offline indicator anywhere on the screen, so the only user feedback contradicts what is on screen. On reconnect the queue flushes correctly and the server value becomes Done, so nothing is lost — but for the duration of the offline period the board disagrees with its own success message.
+Screenshot: screenshots/adv-066.png
+
+History:
+
+- qa: opened.
+
+## DEF-077: Keyboard drag lifts card but arrow keys never move it to another column
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-064)
+- Phase: 4
+
+Steps to reproduce:
+
+1. Launch the app and open "Work Projects" in the board view.
+2. Tab to a card's drag handle and press Space (handle has `aria-roledescription="draggable"`).
+3. Press ArrowRight twice, then ArrowDown, then Tab.
+
+Expected: arrow keys move the lifted card between columns; Space drops it; Escape cancels — the standard dnd-kit keyboard drag flow the drag handle advertises.
+
+Actual: the pickup is announced ("Card … is over the 'Backlog' column"), but every arrow key leaves the announcement unchanged — the card never leaves its own column. Pressing Tab ends the drag and writes a move back to the column it started in ("Moved … to 'Backlog'"), i.e. Tab commits rather than cancels. Changing a card's group is mouse-only, and the keyboard path additionally issues a pointless `value.set`.
+Screenshot: screenshots/adv-064.png
+
+History:
+
+- qa: opened.
+
+## DEF-076: "Add card to Done" creates a card with no group value; card appears in "No value" column
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-063)
+- Phase: 4
+
+Steps to reproduce:
+
+1. Launch the app and open "Work Projects" in the board view.
+2. Click "Add card to Done" inside the Done column.
+3. Observe which column the new card appears in.
+
+Expected: a card added from a column's own "Add card" control belongs to that column (Status = Done).
+
+Actual: the new row is created with no Status value at all, so the card is placed in the trailing "No value" column — usually off-screen. Nothing appears in the Done column, and because the board does not scroll to "No value", the click appears to have done nothing. Repeating it multiple times from Backlog produced multiple untitled cards, all in "No value". The row page itself is created correctly.
+Screenshot: screenshots/adv-063.png
+
+History:
+
+- qa: opened.
+
+## DEF-075: Card dropped inside one column lands in the next; off-viewport column unreachable
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-062)
+- Phase: 4
+
+Steps to reproduce:
+
+1. Launch the app and open "Work Projects" in the board view at 1280x800.
+2. Drag a card and release it 8px inside the right edge of the "In progress" column (x≈836, measured column rect 584–844 — unambiguously inside "In progress").
+3. Observe which column the card moves to.
+4. Also try to drag a card to the "No value" column, which is off the right edge of the viewport.
+
+Expected: the card goes to the column the pointer is over; dragging toward the right edge auto-scrolls the board so trailing columns can be reached.
+
+Actual: the drop at x=836 moved the card to "Done" — one column to the right. The drop target is chosen from the dragged card overlay's rectangle rather than the pointer position, so the right-hand half of every column behaves as the next column. The same cause makes the off-screen "No value" column unreachable: the board never auto-scrolls during a drag, and dropping at the viewport edge either reports "dropped outside a column and stayed in place" or silently lands in a neighbour. Manually scrolling the board first and then dragging does work.
+Screenshot: screenshots/adv-062.png
+
+History:
+
+- qa: opened.
+
+## DEF-074: Card-move toasts and drag announcements name the card by raw UUID instead of its title
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-061)
+- Phase: 4
+
+Steps to reproduce:
+
+1. Launch the app and open "Work Projects" in the board view.
+2. Drag "Accessibility audit" from Backlog to Done.
+3. Observe the toast message and the screen-reader live region announcement.
+
+Expected: feedback names the card, e.g. `Moved "Accessibility audit" to "Done"`.
+
+Actual: every message substitutes the row id: `Moved "ce1d6798-7cbb-4cca-845a-89fb624053c9" to "Done"`, `Card "b6390a6a-…" was dropped outside a column and stayed in place`, `Cancelled moving "29345c0d-…"`, and the live-region announcement `Card "3da47d9a-…" is over the "Backlog" column`. The column name is resolved correctly in the same sentence, so only the card title is affected. This matters most when the move makes the card vanish from the view (a filter excludes the destination column): the toast is then the only evidence of what happened, and it is a UUID.
+Screenshot: screenshots/adv-061.png
+
+History:
+
+- qa: opened.
+
+## DEF-073: Database with no views shows all three tabs, no Filter control, and board points at a missing control
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-060)
+- Phase: 4
+
+Steps to reproduce:
+
+1. Reproduce DEF-070 (create a new database so that its views are not created).
+2. Open the resulting "Untitled" database.
+3. Click through the Table, Board and List tabs.
+
+Expected: either the views are minted on demand, or the switcher reflects what the database actually has.
+
+Actual: all three tabs render. The Filter / Sort control is absent entirely. The board shows "Pick a Select property to group by using the Filter / Sort control above" — a dead end, because there is no such control to use. The list shows "No rows match the current filters" although no filter is set (see DEF-085). Nothing in the UI hints that this database is missing its views or how to recover it.
+Screenshot: screenshots/adv-060.png
+
+History:
+
+- qa: opened.
+
+## DEF-072: Table view has no empty state when all rows are filtered out
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-058)
+- Phase: 4
+
+Steps to reproduce:
+
+1. Launch the app and open "Work Projects" in the table view.
+2. Add two contradictory filters, e.g. `Status is Backlog` AND `Status is not Backlog`.
+3. Compare with the list view under the same contradictory filters.
+
+Expected: consistent "no rows match" messaging across all views.
+
+Actual: the table view shows only the header row and the "New row" button — no explanation at all, so a user who forgets the active filter sees an apparently emptied database. The list view says "No rows match the current filters." under the same conditions, and the board shows all columns empty but also no message. Three views, three different empty behaviours for the same cause.
+Screenshot: screenshots/adv-058.png
+
+History:
+
+- qa: opened.
+
+## DEF-071: Deleting a property leaves the view filtering and sorting by it; Filter panel shows a filter that is not stored
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-057)
+- Phase: 4
+
+Steps to reproduce:
+
+1. Launch the app and open "Work Projects" in the table view.
+2. Add a filter `Effort (days) is 3` and a sort on `Spec`.
+3. Delete both of those properties via their column menus ("Delete property" → "Delete permanently").
+4. Reload and reopen the Filter / Sort panel.
+
+Expected: deleting a property clears any filter or sort that referenced it; the Filter badge and panel reflect the settings actually in force.
+
+Actual: the view record still holds the deleted property ids in its filters and sort. The rows are correctly shown unfiltered, but the Filter button still shows badge "2", and the panel renders the dangling filter as `Status | is | — empty —` because the selects fall back to their first option. The panel claims a filter that would show one row while the table shows all six, and the stored sort is invisible in the panel ("— none —"). Touching any control in that row would then save a filter the user never asked for.
+Screenshot: screenshots/adv-057.png
+
+History:
+
+- qa: opened.
+
+## DEF-069: List view never shows property values — xs breakpoint undefined, container always hidden
+
+- Status: CLOSED
 - Severity: HIGH
 - Found by: qa
 - Phase: 4
@@ -19,11 +432,13 @@ Actual: every row shows only its title. No property values appear for any row at
 Screenshot: screenshots/def-069.png
 
 History:
+
 - qa: opened. Confirmed via DOM inspection: all 5 visible rows show zero visible property-value spans; `offsetHeight === 0` for every `span[title]` inside a list row. e2e test "list view shows at least one property value per row (criterion 6)" fails with `Expected > 0, Received 0`.
+- qa: CLOSED. Frontend-dev fixed by changing `xs:flex` to `sm:flex` (Tailwind's defined 640px breakpoint). Retested: e2e test "list view shows at least one property value per row (criterion 6)" now passes at 1280x800 — `visiblePropCount > 0` confirmed. Regression: other list-view tests unaffected. Property values correctly hidden below 640px and visible from 640px up, matching the criterion.
 
 ## DEF-068: Board card title overflows the card's right edge for long titles
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: qa
 - Phase: 4
@@ -44,7 +459,9 @@ Note: the orchestrator described this as two issues (overflow + centre-alignment
 Screenshot: screenshots/def-068.png
 
 History:
+
 - qa: opened. DOM confirmed: `spanRight (885) > cardRight (834)` for the "Phase 3: databases and table view" card. Text alignment is left (not centre-aligned as originally described). Filing as one defect for the overflow only.
+- qa: CLOSED. Frontend-dev fixed by adding `min-w-0` and `overflow-hidden` to the title button inside `BoardCard`. Retested: `span.truncate` right edge no longer exceeds card right edge (overflow = 0px). Title now shows "Phase 3: databases an..." with ellipsis. Screenshot: screenshots/def-068-retest.png. No regression on other board tests.
 
 ## DEF-067: Row pages (and iconless ordinary pages) render an empty white icon tile above the title
 
