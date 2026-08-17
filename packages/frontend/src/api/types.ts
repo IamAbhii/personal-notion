@@ -119,9 +119,77 @@ export interface BlockRecord {
   updatedAt: number | string;
 }
 
+// ── Phase 4: views ────────────────────────────────────────────────────────────
+
+/** The three view layouts a database can be displayed as. Fixed at creation; never changed. */
+export type ViewKind = 'table' | 'board' | 'list';
+
+/** All legal filter operators. Which are valid depends on the property type being filtered. */
+export type FilterOperator =
+  'contains' | 'notContains' | 'is' | 'isNot' | 'before' | 'after' | 'isChecked' | 'isNotChecked';
+
+/** One filter condition in a view. `value` is null for operators that need no value (isChecked). */
+export interface ViewFilter {
+  id: string;
+  propertyId: string;
+  operator: FilterOperator;
+  value: string | null;
+}
+
+/**
+ * A sort applied to a view. `propertyId` may be the literal string 'title' (sort by row title)
+ * or the id of any property on that database.
+ */
+export interface ViewSort {
+  propertyId: string;
+  direction: 'asc' | 'desc';
+}
+
+/** A view as the snapshot returns it. */
+export interface ViewRecord {
+  id: string;
+  databasePageId: string;
+  name: string;
+  kind: ViewKind;
+  groupPropertyId: string | null;
+  filters: ViewFilter[];
+  sort: ViewSort | null;
+  sortKey: string;
+  version: number;
+  updatedAt: number;
+}
+
+/**
+ * Payload of a `view.create` op. The client mints the view id. `sortKey` omitted appends.
+ * `groupPropertyId` is required for board views; must be a select property of the database.
+ */
+export interface ViewCreatePayload {
+  databasePageId: string;
+  name: string;
+  kind: ViewKind;
+  groupPropertyId?: string | null;
+  filters?: ViewFilter[];
+  sort?: ViewSort | null;
+  sortKey?: string;
+}
+
+/**
+ * Payload of a `view.update` op: any subset of the mutable fields.
+ * `kind` is deliberately absent — a view's kind is fixed at creation.
+ */
+export interface ViewUpdatePayload {
+  name?: string;
+  groupPropertyId?: string | null;
+  filters?: ViewFilter[];
+  sort?: ViewSort | null;
+  sortKey?: string;
+}
+
+/** Payload of a `view.delete` op. Deletion is permanent. */
+export type ViewDeletePayload = Record<string, never>;
+
 /**
  * GET /api/workspaces/:workspaceId/snapshot — the only read on cold start.
- * Future: Phase 4 adds views and per-view settings as a sibling key here.
  */
 export interface SnapshotResponse {
   workspaceId: string;
@@ -131,12 +199,14 @@ export interface SnapshotResponse {
   properties?: PropertyRecord[];
   /** All property values for every row in this workspace. Absent on a pre-Phase-3 server. */
   values?: PropertyValueRecord[];
+  /** All views for every database in this workspace. Absent on a pre-Phase-4 server. */
+  views?: ViewRecord[];
 }
 
-/** The entity kinds ops can target. Phase 3 adds property and value. */
-export type OpEntity = 'page' | 'block' | 'property' | 'value';
+/** The entity kinds ops can target. Phase 3 adds property and value; Phase 4 adds view. */
+export type OpEntity = 'page' | 'block' | 'property' | 'value' | 'view';
 
-/** All op types across Phases 1–3. Future: view op types are added here. */
+/** All op types across Phases 1–4. */
 export type OpType =
   | 'page.create'
   | 'page.update'
@@ -147,7 +217,10 @@ export type OpType =
   | 'property.create'
   | 'property.update'
   | 'property.delete'
-  | 'value.set';
+  | 'value.set'
+  | 'view.create'
+  | 'view.update'
+  | 'view.delete';
 
 /** Payload of a `page.create` op. The client mints the id, so no id is in the payload. */
 export interface PageCreatePayload {

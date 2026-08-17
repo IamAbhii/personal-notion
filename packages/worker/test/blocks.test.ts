@@ -581,7 +581,7 @@ describe('the snapshot with blocks', () => {
     ]);
 
     const { etag } = await snapshot(owner);
-    expect(etag.startsWith('"p3-')).toBe(true);
+    expect(etag.startsWith('"p4-')).toBe(true);
 
     const unchanged = await apiFetch(`/api/workspaces/${owner.workspaceId}/snapshot`, {
       sessionId: owner.sessionId,

@@ -1395,10 +1395,10 @@ describe('snapshot with databases', () => {
     expect(body.values[0]?.value).toBe(JSON.stringify('hello'));
   });
 
-  it('ETag starts with p3-', async () => {
+  it('ETag starts with p4- (Phase 4 includes views in the aggregate)', async () => {
     const owner = await createAccount();
     const { etag } = await snapshot(owner);
-    expect(etag).toMatch(/^"p3-/);
+    expect(etag).toMatch(/^"p4-/);
   });
 
   it('ETag changes when a property is created', async () => {
