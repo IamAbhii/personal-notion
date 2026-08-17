@@ -68,7 +68,7 @@ describe('FilterSortControl', () => {
     expect(screen.getByTestId('filter-sort-panel')).toBeInTheDocument();
   });
 
-  it('adds a filter and calls onUpdate with the new filter list', async () => {
+  it('adds a filter defaulting to Title contains (DEF-088)', async () => {
     const user = userEvent.setup();
     const onUpdate = vi.fn();
     render(
@@ -79,10 +79,28 @@ describe('FilterSortControl', () => {
     expect(onUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
         filters: expect.arrayContaining([
-          expect.objectContaining({ propertyId: 'p-text', operator: 'contains' }),
+          expect.objectContaining({ propertyId: 'title', operator: 'contains' }),
         ]),
       }),
     );
+  });
+
+  it('shows Title as first option in the filter property picker (DEF-088)', async () => {
+    const user = userEvent.setup();
+    render(
+      <FilterSortControl
+        {...baseProps}
+        view={makeView({
+          filters: [{ id: 'f1', propertyId: 'p-text', operator: 'contains', value: null }],
+        })}
+        viewKind="table"
+        onUpdate={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: /filter and sort/i }));
+    const propertyPicker = screen.getByRole('combobox', { name: /filter property/i });
+    const options = Array.from(propertyPicker.querySelectorAll('option')).map((o) => o.value);
+    expect(options[0]).toBe('title');
   });
 
   it('removes a filter and calls onUpdate with the remaining filters', async () => {

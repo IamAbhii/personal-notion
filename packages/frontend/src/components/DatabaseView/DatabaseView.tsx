@@ -45,14 +45,24 @@ export interface DatabaseViewProps {
   onCreateRow: () => Promise<string | null>;
   onDeleteRow: (row: PageRecord) => void;
   onCreateProperty: (args: { name: string; type: PropertyType; options?: SelectOption[] }) => void;
+  /**
+   * Persists a property change. Returns null on success or the rejection reason on failure.
+   * The options-update path uses the return value to surface inline errors in the OptionsEditor
+   * without closing the dialog (DEF-079).
+   */
   onUpdateProperty: (
     property: PropertyRecord,
     changes: { name?: string; options?: SelectOption[] },
-  ) => void;
+  ) => Promise<string | null>;
   onDeleteProperty: (property: PropertyRecord) => void;
   onSetValue: (args: { rowPageId: string; propertyId: string; value: string | null }) => void;
   /** Renames a row in-place; called after the inline title input commits (ADV-044). */
   onRenameRow?: (row: PageRecord, title: string) => void;
+  /**
+   * Total row count before any filter is applied. Used to distinguish a genuinely empty database
+   * ("no rows yet") from filtered-to-empty ("no rows match filters") (DEF-085).
+   */
+  totalRowCount?: number;
 }
 
 // ---------- Color swatch classes (higher opacity for the picker so swatches are distinguishable
@@ -71,7 +81,11 @@ const COLOR_SWATCH_CLASS: Record<OptionColor, string> = {
 
 interface OptionsEditorProps {
   property: PropertyRecord;
-  onSave: (options: SelectOption[]) => void;
+  /**
+   * Submits the updated options array. Returns null on success or the server rejection reason
+   * on failure so the editor can show an inline error and stay open (DEF-079).
+   */
+  onSave: (options: SelectOption[]) => Promise<string | null>;
   onClose: () => void;
   /**
    * How many rows currently use each option id. Before removing an option that is in use the
@@ -240,7 +254,13 @@ function OptionsEditor({ property, onSave, onClose, optionUseCounts }: OptionsEd
                 return;
               }
               setValidationError(null);
-              onSave(options);
+              // Await the server result: if the server rejects (e.g. a duplicate option name),
+              // stay open and show the reason inline rather than silently discarding (DEF-079).
+              void onSave(options).then((reason) => {
+                if (reason !== null) {
+                  setValidationError(reason);
+                }
+              });
             }}
           >
             Save
@@ -270,7 +290,11 @@ interface PropertyHeaderMenuProps {
   property: PropertyRecord;
   onRename: (name: string) => void;
   onDelete: () => void;
-  onManageOptions?: (options: SelectOption[]) => void;
+  /**
+   * Persists updated options. Returns null on success or the rejection reason on failure so
+   * the OptionsEditor can surface it inline (DEF-079).
+   */
+  onManageOptions?: (options: SelectOption[]) => Promise<string | null>;
   /** How many rows use each option id (passed through for the OptionsEditor confirm guard). */
   optionUseCounts?: Map<string, number>;
 }
@@ -345,10 +369,15 @@ function PropertyHeaderMenu({
         <OptionsEditor
           property={property}
           optionUseCounts={optionUseCounts}
-          onSave={(options) => {
-            onManageOptions(options);
-            setManagingOptions(false);
-            setOpen(false);
+          onSave={async (options) => {
+            // Pass the result through — null means success (close the dialog), a string is a
+            // rejection reason that OptionsEditor will display inline (DEF-079).
+            const reason = await onManageOptions(options);
+            if (reason === null) {
+              setManagingOptions(false);
+              setOpen(false);
+            }
+            return reason;
           }}
           onClose={() => {
             setManagingOptions(false);
@@ -503,6 +532,7 @@ export function DatabaseView({
   onDeleteProperty,
   onSetValue,
   onRenameRow,
+  totalRowCount,
 }: DatabaseViewProps) {
   const [pendingDeleteRow, setPendingDeleteRow] = useState<PageRecord | null>(null);
   const [pendingDeleteProperty, setPendingDeleteProperty] = useState<PropertyRecord | null>(null);
@@ -628,14 +658,16 @@ export function DatabaseView({
           </tr>
         </thead>
         <tbody>
-          {/* Empty state: shown when a filter matches no rows (DEF-072). */}
+          {/* Empty state: distinguish a genuinely empty database from a filtered-to-empty one (DEF-085). */}
           {rowPages.length === 0 && (
             <tr>
               <td
                 colSpan={properties.length + 2}
                 className="py-8 text-center text-sm text-text-muted"
               >
-                No rows match the current filters.
+                {totalRowCount === 0
+                  ? 'This database is empty. Add a row to get started.'
+                  : 'No rows match the current filters.'}
               </td>
             </tr>
           )}

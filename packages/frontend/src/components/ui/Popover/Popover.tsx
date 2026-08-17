@@ -15,6 +15,11 @@ export interface PopoverProps {
   align?: 'start' | 'center' | 'end';
   /** Extra className on the content panel. */
   className?: string;
+  /**
+   * Accessible name for the popover content. Use when there is no visible heading inside the
+   * panel — Radix exposes the content as a dialog and a dialog must have a name (DEF-087).
+   */
+  contentLabel?: string;
 }
 
 /**
@@ -29,6 +34,7 @@ export function Popover({
   onOpenChange,
   align = 'start',
   className,
+  contentLabel,
 }: PopoverProps) {
   return (
     <RadixPopover.Root open={open} onOpenChange={onOpenChange}>
@@ -36,6 +42,7 @@ export function Popover({
       <RadixPopover.Portal>
         <RadixPopover.Content
           align={align}
+          aria-label={contentLabel}
           // Keep the popover 8px away from viewport edges so it never clips on narrow screens.
           collisionPadding={8}
           // Constrain width so a 340px picker does not overflow a 320px viewport.

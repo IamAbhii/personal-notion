@@ -107,7 +107,7 @@ export function PageScreen() {
             ...args,
           })
         }
-        onUpdateProperty={(prop, changes) => void propertyMutations.updateProperty(prop, changes)}
+        onUpdateProperty={(prop, changes) => propertyMutations.updateProperty(prop, changes)}
         onDeleteProperty={(prop) => void propertyMutations.deleteProperty(prop)}
         onSetValue={(args) => void propertyMutations.setValue(args)}
         onUpdateView={(view, changes) => void viewMutations.updateView(view, changes)}
@@ -219,7 +219,7 @@ interface DatabasePageContentProps {
   onUpdateProperty: (
     property: PropertyRecord,
     changes: { name?: string; options?: PropertyRecord['options'] },
-  ) => void;
+  ) => Promise<string | null>;
   onDeleteProperty: (property: PropertyRecord) => void;
   onSetValue: (args: { rowPageId: string; propertyId: string; value: string | null }) => void;
   onUpdateView: (
@@ -370,6 +370,7 @@ function DatabasePageContent({
         <DatabaseView
           dbPage={page}
           rowPages={displayRows}
+          totalRowCount={rowPages.length}
           properties={dbProperties}
           values={dbValues}
           onSelectRow={onSelectRow}
@@ -398,6 +399,7 @@ function DatabasePageContent({
       {activeKind === 'list' && (
         <ListView
           rows={displayRows}
+          totalRowCount={rowPages.length}
           properties={dbProperties}
           values={dbValues}
           onSelectRow={onSelectRow}

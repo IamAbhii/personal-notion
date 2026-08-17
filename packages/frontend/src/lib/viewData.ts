@@ -28,6 +28,12 @@ export const LEGAL_OPERATORS: Record<PropertyType, FilterOperator[]> = {
   number: ['is', 'isNot'],
 };
 
+/**
+ * The legal filter operators for the synthetic 'title' property. Title behaves like a text
+ * property, so contains/notContains apply (DEF-088).
+ */
+export const TITLE_FILTER_OPERATORS: FilterOperator[] = ['contains', 'notContains'];
+
 /** Human-readable labels for each filter operator, used by the filter control UI. */
 export const OPERATOR_LABELS: Record<FilterOperator, string> = {
   contains: 'contains',
@@ -64,17 +70,27 @@ export function buildValuesMap(
  * properties, unsupported operator-type pairings and malformed values rather than hiding the row.
  */
 function rowPassesFilter(
-  _row: PageRecord,
+  row: PageRecord,
   rowValues: Map<string, string | null>,
   properties: PropertyRecord[],
   filter: ViewFilter,
 ): boolean {
+  const op = filter.operator;
+  const filterVal = filter.value;
+
+  // 'title' is a synthetic property id that filters by the row's own page title (DEF-088).
+  if (filter.propertyId === 'title') {
+    const str = row.title ?? '';
+    const fv = filterVal ?? '';
+    if (op === 'contains') return str.toLowerCase().includes(fv.toLowerCase());
+    if (op === 'notContains') return !str.toLowerCase().includes(fv.toLowerCase());
+    return true;
+  }
+
   const property = properties.find((p) => p.id === filter.propertyId);
   if (!property) return true;
 
   const raw = rowValues.get(filter.propertyId) ?? null;
-  const op = filter.operator;
-  const filterVal = filter.value;
 
   try {
     switch (property.type) {
@@ -179,15 +195,18 @@ function getSortValue(
         // YYYY-MM-DD strings sort lexicographically, which is correct.
         return JSON.parse(raw) as string;
       case 'select': {
-        // Sort by the option name, not its id, so the order is human-readable.
+        // Sort by the option's index in the options array (user-defined order), not alphabetically.
+        // This keeps Backlog < In progress < Done rather than alphabetical order (DEF-086).
         const optId = JSON.parse(raw) as string;
-        return property.options.find((o) => o.id === optId)?.name ?? null;
+        const idx = property.options.findIndex((o) => o.id === optId);
+        return idx === -1 ? null : idx;
       }
       case 'multiSelect': {
-        // Multi-select sort by the first option's name in selection order.
+        // Sort by the first selected option's definition-order index.
         const optIds = JSON.parse(raw) as string[];
         if (optIds.length === 0) return null;
-        return property.options.find((o) => o.id === optIds[0])?.name ?? null;
+        const firstIdx = property.options.findIndex((o) => o.id === optIds[0]);
+        return firstIdx === -1 ? null : firstIdx;
       }
     }
   } catch {
