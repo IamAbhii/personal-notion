@@ -32,6 +32,9 @@ export const MAX_OPTION_NAME_LENGTH = 100;
 // values to be used as a side channel for arbitrary blobs.
 export const MAX_VALUE_LENGTH = 2000;
 
+// View name limit: 200 characters is longer than any sensible view name and well under D1's ceiling.
+export const MAX_VIEW_NAME_LENGTH = 200;
+
 // The eleven block types the editor offers, and the only values the type column may hold. Membership
 // is checked in payloadRejection rather than by a zod enum, so an unknown type costs the client that
 // op instead of failing the whole batch.
@@ -179,10 +182,83 @@ const valueSetPayload = z.object({
   value: z.string().nullable(),
 });
 
+// The eight filter operators across all property types. operator is stored as a plain string rather
+// than a zod enum so an unknown operator costs only that op rather than the whole batch.
+export const FILTER_OPERATORS = [
+  'contains',
+  'notContains',
+  'is',
+  'isNot',
+  'before',
+  'after',
+  'isChecked',
+  'isNotChecked',
+] as const;
+
+export type FilterOperator = (typeof FILTER_OPERATORS)[number];
+
+// True when value is one of the eight filter operators.
+export function isFilterOperator(value: string): value is FilterOperator {
+  return (FILTER_OPERATORS as readonly string[]).includes(value);
+}
+
+// Which operators are legal for each property type. Used by the applier to validate filter settings
+// against the type of the property being filtered.
+export const OPERATORS_BY_TYPE: Record<string, FilterOperator[]> = {
+  text: ['contains', 'notContains'],
+  url: ['contains', 'notContains'],
+  select: ['is', 'isNot'],
+  multiSelect: ['is', 'isNot'],
+  checkbox: ['isChecked', 'isNotChecked'],
+  date: ['before', 'after'],
+  number: ['is', 'isNot'],
+};
+
+// A single filter condition. operator is z.string() (not an enum) so an unknown operator costs
+// only this op rather than failing the whole batch.
+const viewFilterSchema = z.object({
+  id: z.string().min(1),
+  propertyId: z.string().min(1),
+  operator: z.string(),
+  value: z.string().nullable(),
+});
+
+// A view sort. direction uses z.enum so an obviously bad value fails the batch-level parse
+// (a developer mistake, not a server-skew issue), consistent with page.create's kind enum.
+const viewSortSchema = z.object({
+  propertyId: z.string().min(1),
+  direction: z.enum(['asc', 'desc']),
+});
+
+// view.create: entityId is the view id, minted client-side. databasePageId must be an existing
+// database page in the workspace. kind is fixed at creation; view.update may not carry it.
+const viewCreatePayload = z.object({
+  databasePageId: z.string().min(1),
+  name: z.string(),
+  kind: z.enum(['table', 'board', 'list']),
+  groupPropertyId: z.string().nullable().optional(),
+  filters: z.array(viewFilterSchema).optional(),
+  sort: viewSortSchema.nullable().optional(),
+  sortKey: z.string().optional(),
+});
+
+// kind is declared here so its presence can be detected and rejected per-op in viewRejection.
+// Future: kind changes would require migrating dependent UI state; not in scope.
+const viewUpdatePayload = z.object({
+  name: z.string().optional(),
+  groupPropertyId: z.string().nullable().optional(),
+  filters: z.array(viewFilterSchema).optional(),
+  sort: viewSortSchema.nullable().optional(),
+  sortKey: z.string().optional(),
+  kind: z.unknown().optional(),
+});
+
+const viewDeletePayload = z.object({}).loose().optional();
+
 const opEnvelope = {
   opId: z.string().min(1),
   workspaceId: z.string().min(1),
-  entity: z.enum(['page', 'block', 'property', 'value']),
+  entity: z.enum(['page', 'block', 'property', 'value', 'view']),
   entityId: z.string().min(1),
   // The version the client believed it was editing. Null when the client had no version yet.
   baseVersion: z.number().int().nullable().optional(),
@@ -191,7 +267,6 @@ const opEnvelope = {
   createdAt: z.number().int(),
 };
 
-// Future: later phases add view.* members to this union; the envelope and batching rules stay as is.
 export const opSchema = z.discriminatedUnion('type', [
   z.object({ ...opEnvelope, type: z.literal('page.create'), payload: pageCreatePayload }),
   z.object({ ...opEnvelope, type: z.literal('page.update'), payload: pageUpdatePayload }),
@@ -203,6 +278,9 @@ export const opSchema = z.discriminatedUnion('type', [
   z.object({ ...opEnvelope, type: z.literal('property.update'), payload: propertyUpdatePayload }),
   z.object({ ...opEnvelope, type: z.literal('property.delete'), payload: propertyDeletePayload }),
   z.object({ ...opEnvelope, type: z.literal('value.set'), payload: valueSetPayload }),
+  z.object({ ...opEnvelope, type: z.literal('view.create'), payload: viewCreatePayload }),
+  z.object({ ...opEnvelope, type: z.literal('view.update'), payload: viewUpdatePayload }),
+  z.object({ ...opEnvelope, type: z.literal('view.delete'), payload: viewDeletePayload }),
 ]);
 
 export const syncRequestSchema = z.object({ ops: z.array(opSchema) });
@@ -212,13 +290,15 @@ export type SyncRequest = z.infer<typeof syncRequestSchema>;
 
 type BlockWriteOp = Extract<Op, { type: 'block.create' | 'block.update' }>;
 type PropertyWriteOp = Extract<Op, { type: 'property.create' | 'property.update' }>;
+type ViewWriteOp = Extract<Op, { type: 'view.create' | 'view.update' }>;
 
 // The entity an op type acts on. The envelope carries `entity` for the applied_ops log and for future
 // entity-scoped routing, so it must agree with the op type rather than being trusted blindly.
-function entityFamily(type: Op['type']): 'page' | 'block' | 'property' | 'value' {
+function entityFamily(type: Op['type']): 'page' | 'block' | 'property' | 'value' | 'view' {
   if (type.startsWith('block.')) return 'block';
   if (type.startsWith('property.')) return 'property';
   if (type.startsWith('value.')) return 'value';
+  if (type.startsWith('view.')) return 'view';
   return 'page';
 }
 
@@ -231,8 +311,14 @@ export function payloadRejection(op: Op): string | null {
   if (op.type === 'block.create' || op.type === 'block.update') return blockRejection(op);
   if (op.type === 'property.create' || op.type === 'property.update') return propertyRejection(op);
   if (op.type === 'value.set') return valueRejection(op);
-  // page.delete, block.delete and property.delete have no payload fields to validate.
-  if (op.type === 'page.delete' || op.type === 'block.delete' || op.type === 'property.delete') {
+  if (op.type === 'view.create' || op.type === 'view.update') return viewRejection(op);
+  // page.delete, block.delete, property.delete and view.delete have no payload fields to validate.
+  if (
+    op.type === 'page.delete' ||
+    op.type === 'block.delete' ||
+    op.type === 'property.delete' ||
+    op.type === 'view.delete'
+  ) {
     return null;
   }
 
@@ -348,6 +434,43 @@ function valueRejection(op: Extract<Op, { type: 'value.set' }>): string | null {
   const { value } = op.payload;
   if (value !== null && value.length > MAX_VALUE_LENGTH) {
     return `value must be at most ${MAX_VALUE_LENGTH} characters`;
+  }
+  return null;
+}
+
+// Why a view create or update payload is unacceptable without loading state, or null when it is fine.
+// Stateful checks (databasePageId exists, groupPropertyId is a select property, filter propertyIds
+// belong to the database, operator is legal for property type) are deferred to the applier.
+function viewRejection(op: ViewWriteOp): string | null {
+  // A view's kind is fixed at creation, matching the same pattern as a page's kind.
+  if (op.type === 'view.update' && op.payload.kind !== undefined) {
+    return "a view's kind cannot be changed";
+  }
+  const { name, sortKey } = op.payload;
+  if (name !== undefined) {
+    if (name.trim() === '') return 'name must not be empty';
+    if (name.length > MAX_VIEW_NAME_LENGTH) {
+      return `name must be at most ${MAX_VIEW_NAME_LENGTH} characters`;
+    }
+  }
+  if (sortKey !== undefined && !isValidSortKey(sortKey)) {
+    return 'sortKey is not a valid fractional index';
+  }
+  // Validate filter operators structurally; the operator-vs-property-type check is in the applier.
+  const filters = op.payload.filters;
+  if (filters !== undefined) {
+    for (const f of filters) {
+      if (!isFilterOperator(f.operator)) return `unknown filter operator: ${f.operator}`;
+    }
+  }
+  // Validate sort direction structurally; the sort propertyId check is in the applier.
+  const sort = op.payload.sort;
+  if (sort !== undefined && sort !== null) {
+    if (sort.direction !== 'asc' && sort.direction !== 'desc') {
+      return "sort direction must be 'asc' or 'desc'";
+    }
+    if (!sort.propertyId || sort.propertyId.trim() === '')
+      return 'sort propertyId must not be empty';
   }
   return null;
 }

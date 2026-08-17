@@ -9,10 +9,12 @@ import {
   pages,
   properties,
   propertyValues,
+  views,
   type BlockRow,
   type PageRow,
   type PropertyRow,
   type PropertyValueRow,
+  type ViewRow,
 } from '../db/schema';
 import { newId } from '../lib/ids';
 import type { Ctx } from '../repo/context';
@@ -30,6 +32,9 @@ const BLOCK_ROWS_PER_INSERT = 9;
 const PROPERTY_ROWS_PER_INSERT = 10;
 // A property_values row binds 7 parameters.
 const VALUE_ROWS_PER_INSERT = 14;
+// A view row binds 12 parameters (id, workspace_id, database_page_id, name, kind, group_property_id,
+// filters, sort, sort_key, version, created_at, updated_at), so max 8 rows per insert.
+const VIEW_ROWS_PER_INSERT = 8;
 
 // Flattens the page template into page rows and block rows, minting a fresh uuid for every row and a
 // fractional sort_key per sibling group, so the tree renders in template order and each page's blocks
@@ -82,9 +87,9 @@ function buildPageRows(ctx: Ctx, now: number): { pageRows: PageRow[]; blockRows:
   return { pageRows, blockRows };
 }
 
-// Flattens the database template into page rows (databases and rows), block rows, property rows and
-// value rows. Option ids are minted here so values can reference them. The lastPageKey parameter
-// positions the database pages after all regular pages in the root level.
+// Flattens the database template into page rows (databases and rows), block rows, property rows,
+// value rows and view rows. Option ids are minted here so values can reference them. The
+// lastPageKey parameter positions the database pages after all regular pages at the root level.
 function buildDatabaseRows(
   ctx: Ctx,
   now: number,
@@ -94,11 +99,13 @@ function buildDatabaseRows(
   blockRows: BlockRow[];
   propertyRows: PropertyRow[];
   valueRows: PropertyValueRow[];
+  viewRows: ViewRow[];
 } {
   const pageRows: PageRow[] = [];
   const blockRows: BlockRow[] = [];
   const propertyRows: PropertyRow[] = [];
   const valueRows: PropertyValueRow[] = [];
+  const viewRows: ViewRow[] = [];
 
   let previousDbKey = lastPageKey;
 
@@ -215,9 +222,57 @@ function buildDatabaseRows(
         });
       }
     }
+    // Views for this database (table, board, list — one of each per the Phase 4 template).
+    let previousViewKey: string | null = null;
+    for (const viewDef of db.views ?? []) {
+      const viewSortKey = generateKeyBetween(previousViewKey, null);
+      previousViewKey = viewSortKey;
+
+      // Resolve groupPropertyName to an id; skip the view if the name is unknown.
+      let groupPropertyId: string | null = null;
+      if (viewDef.groupPropertyName) {
+        const gId = propertyIdByName.get(viewDef.groupPropertyName);
+        if (!gId) continue;
+        groupPropertyId = gId;
+      }
+
+      // Resolve filter property names to ids; skip any filter whose name is unknown.
+      const resolvedFilters = (viewDef.filters ?? []).flatMap((f) => {
+        const propId = propertyIdByName.get(f.propertyName);
+        if (!propId) return [];
+        return [{ id: newId(), propertyId: propId, operator: f.operator, value: f.value }];
+      });
+
+      // Resolve sort property name to id; 'title' is the special literal and passes through as-is.
+      let resolvedSort: { propertyId: string; direction: 'asc' | 'desc' } | null = null;
+      if (viewDef.sort) {
+        const sortPropId =
+          viewDef.sort.propertyName === 'title'
+            ? 'title'
+            : propertyIdByName.get(viewDef.sort.propertyName);
+        if (sortPropId) {
+          resolvedSort = { propertyId: sortPropId, direction: viewDef.sort.direction };
+        }
+      }
+
+      viewRows.push({
+        id: newId(),
+        workspaceId: ctx.workspaceId,
+        databasePageId: dbPageId,
+        name: viewDef.name,
+        kind: viewDef.kind,
+        groupPropertyId,
+        filters: JSON.stringify(resolvedFilters),
+        sort: resolvedSort ? JSON.stringify(resolvedSort) : null,
+        sortKey: viewSortKey,
+        version: 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
   }
 
-  return { pageRows, blockRows, propertyRows, valueRows };
+  return { pageRows, blockRows, propertyRows, valueRows, viewRows };
 }
 
 // Converts a seed value (JS value) to its JSON-encoded storage form. For select and multiSelect the
@@ -256,8 +311,7 @@ function encodeValue(
 // The insert statements that populate a workspace from the template, plus how many pages they
 // create. Exposed as statements rather than only as a write so a caller that has other work to do
 // atomically - the test reset, which clears the workspace first - can put it all in one batch.
-// Pages first, then their blocks, then properties and values, all in one batch.
-// Future: Phase 4 seeds views too; add their statements here.
+// Pages first, then their blocks, then properties, values and views, all in one batch.
 export function buildSeedStatements(
   db: Db,
   ctx: Ctx,
@@ -274,6 +328,7 @@ export function buildSeedStatements(
     blockRows: dbBlockRows,
     propertyRows,
     valueRows,
+    viewRows,
   } = buildDatabaseRows(ctx, now, lastRootKey);
 
   const allPageRows = [...pageRows, ...dbPageRows];
@@ -295,6 +350,9 @@ export function buildSeedStatements(
     statements.push(
       db.insert(propertyValues).values(valueRows.slice(i, i + VALUE_ROWS_PER_INSERT)),
     );
+  }
+  for (let i = 0; i < viewRows.length; i += VIEW_ROWS_PER_INSERT) {
+    statements.push(db.insert(views).values(viewRows.slice(i, i + VIEW_ROWS_PER_INSERT)));
   }
 
   return { statements, pageCount: allPageRows.length, blockCount: allBlockRows.length };

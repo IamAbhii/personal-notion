@@ -151,3 +151,30 @@ export const blocks = sqliteTable(
 );
 
 export type BlockRow = typeof blocks.$inferSelect;
+
+// Mirrors migrations/0005_views.sql. filters is stored as a JSON string (array of ViewFilter) and
+// sort as a JSON string (ViewSort object) or null. Both are parsed server-side before the snapshot
+// sends them to the client so the client never has to deserialise a nested JSON string.
+// Future: per-view column visibility or width settings could be added here as another JSON column.
+export const views = sqliteTable(
+  'views',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id').notNull(),
+    databasePageId: text('database_page_id').notNull(),
+    name: text('name').notNull(),
+    kind: text('kind').notNull(),
+    groupPropertyId: text('group_property_id'),
+    filters: text('filters').notNull().default('[]'),
+    sort: text('sort'),
+    sortKey: text('sort_key').notNull(),
+    version: integer('version').notNull().default(1),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (table) => [
+    index('views_workspace_db_sort_idx').on(table.workspaceId, table.databasePageId, table.sortKey),
+  ],
+);
+
+export type ViewRow = typeof views.$inferSelect;

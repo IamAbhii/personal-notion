@@ -40,9 +40,19 @@ import {
   upsertValueStatement,
 } from '../repo/propertyValues';
 import {
+  buildViewRow,
+  deleteViewsForDatabasesStatements,
+  deleteViewStatement,
+  insertViewStatement,
+  listViewStates,
+  updateViewStatement,
+} from '../repo/views';
+import {
   MAX_PROPERTIES_PER_DATABASE,
+  OPERATORS_BY_TYPE,
   payloadRejection,
   type BlockType,
+  type FilterOperator,
   type Op,
   type OpResult,
   type PropertyType,
@@ -87,6 +97,10 @@ type PropertyState = {
 // in memory and emit the right upsert statements in the same atomic batch.
 type ValueState = { version: number; value: string | null };
 
+// What the applier needs per view: existence, version, which database it belongs to, and its sortKey
+// (for the next-key-after computation when new views are appended without an explicit sortKey).
+type ViewState = { version: number; databasePageId: string; sortKey: string };
+
 // Applies ops to a workspace and returns one result per op, in the order they were given.
 // Ops are re-ordered to client_seq before applying, because a later op may depend on an earlier one
 // (a child created under a page created in the same chunk).
@@ -98,13 +112,14 @@ export async function applyOps(db: Db, ctx: Ctx, ops: Op[]): Promise<SyncOutcome
     ordered.map((op) => op.opId),
   );
 
-  // Four reads - pages, blocks, properties and values - then every decision is made in memory.
+  // Five reads - pages, blocks, properties, values and views - then every decision is made in memory.
   // Doing it per op would spend the whole D1 query budget on lookups.
-  const [rows, blockRows, propRows, valueRows] = await Promise.all([
+  const [rows, blockRows, propRows, valueRows, viewRows] = await Promise.all([
     listPageStates(db, ctx),
     listBlockStates(db, ctx),
     listPropertyStates(db, ctx),
     listValueStates(db, ctx),
+    listViewStates(db, ctx),
   ]);
 
   const state = new Map<string, PageState>(
@@ -141,6 +156,12 @@ export async function applyOps(db: Db, ctx: Ctx, ops: Op[]): Promise<SyncOutcome
     valueRows.map((row) => [
       `${row.rowPageId}:${row.propertyId}`,
       { version: row.version, value: row.value },
+    ]),
+  );
+  const viewState = new Map<string, ViewState>(
+    viewRows.map((row) => [
+      row.id,
+      { version: row.version, databasePageId: row.databasePageId, sortKey: row.sortKey },
     ]),
   );
 
@@ -593,7 +614,165 @@ export async function applyOps(db: Db, ctx: Ctx, ops: Op[]): Promise<SyncOutcome
       continue;
     }
 
-    // page.delete: remove the page plus its whole subtree (blocks, properties, values) in one batch.
+    if (op.type === 'view.create') {
+      if (viewState.has(op.entityId)) {
+        reject(op, 'view already exists');
+        continue;
+      }
+      const {
+        databasePageId,
+        name,
+        kind,
+        groupPropertyId,
+        filters,
+        sort,
+        sortKey: suppliedKey,
+      } = op.payload;
+
+      // databasePageId must be an existing database page in this workspace.
+      const dbPage = state.get(databasePageId);
+      if (!dbPage || dbPage.kind !== 'database') {
+        reject(op, 'databasePageId is not a database page');
+        continue;
+      }
+
+      // groupPropertyId, when non-null, must be a select property of that same database.
+      if (groupPropertyId) {
+        const gProp = propertyState.get(groupPropertyId);
+        if (!gProp || gProp.databasePageId !== databasePageId) {
+          reject(op, 'groupPropertyId is not a property of the specified database');
+          continue;
+        }
+        if (gProp.type !== 'select') {
+          reject(op, 'groupPropertyId must be a select property');
+          continue;
+        }
+      }
+
+      // Validate each filter: propertyId must belong to the database, operator must be legal for
+      // its property type. Filtering and grouping are computed client-side; the server validates only.
+      if (filters) {
+        const filterError = validateViewFilters(filters, databasePageId, propertyState);
+        if (filterError) {
+          reject(op, filterError);
+          continue;
+        }
+      }
+
+      // sort.propertyId must be 'title' or a property of the database; direction already validated
+      // structurally in payloadRejection.
+      if (sort) {
+        const sortError = validateViewSort(sort, databasePageId, propertyState);
+        if (sortError) {
+          reject(op, sortError);
+          continue;
+        }
+      }
+
+      const sortKey = suppliedKey ?? nextViewKey(viewState, databasePageId);
+      const row = buildViewRow(
+        ctx,
+        {
+          id: op.entityId,
+          databasePageId,
+          name: name.trim(),
+          kind,
+          groupPropertyId: groupPropertyId ?? null,
+          filters: JSON.stringify(filters ?? []),
+          sort: sort ? JSON.stringify(sort) : null,
+        },
+        sortKey,
+        now,
+      );
+      dataStatements.push(insertViewStatement(db, row));
+      viewState.set(row.id, { version: row.version, databasePageId, sortKey });
+      accept(op, row.version);
+      continue;
+    }
+
+    if (op.type === 'view.update') {
+      const current = viewState.get(op.entityId);
+      if (!current) {
+        reject(op, 'view no longer exists');
+        continue;
+      }
+
+      // groupPropertyId validation: same rules as view.create when a non-null value is provided.
+      const { groupPropertyId, filters, sort, sortKey, name } = op.payload;
+      if (groupPropertyId !== undefined && groupPropertyId !== null) {
+        const gProp = propertyState.get(groupPropertyId);
+        if (!gProp || gProp.databasePageId !== current.databasePageId) {
+          reject(op, "groupPropertyId is not a property of this view's database");
+          continue;
+        }
+        if (gProp.type !== 'select') {
+          reject(op, 'groupPropertyId must be a select property');
+          continue;
+        }
+      }
+
+      if (filters !== undefined) {
+        const filterError = validateViewFilters(filters, current.databasePageId, propertyState);
+        if (filterError) {
+          reject(op, filterError);
+          continue;
+        }
+      }
+
+      if (sort !== undefined && sort !== null) {
+        const sortError = validateViewSort(sort, current.databasePageId, propertyState);
+        if (sortError) {
+          reject(op, sortError);
+          continue;
+        }
+      }
+
+      // Future: reject on mismatch to enable optimistic concurrency; same last-write-wins policy as
+      // other entity types.
+      if (typeof op.baseVersion === 'number' && op.baseVersion !== current.version) {
+        versionMismatches.push({
+          opId: op.opId,
+          entityId: op.entityId,
+          baseVersion: op.baseVersion,
+          serverVersion: current.version,
+        });
+      }
+
+      const nextVersion = current.version + 1;
+      const patch = {
+        ...(name !== undefined ? { name: name.trim() } : {}),
+        ...(Object.prototype.hasOwnProperty.call(op.payload, 'groupPropertyId')
+          ? { groupPropertyId: groupPropertyId ?? null }
+          : {}),
+        ...(filters !== undefined ? { filters: JSON.stringify(filters) } : {}),
+        ...(Object.prototype.hasOwnProperty.call(op.payload, 'sort')
+          ? { sort: sort ? JSON.stringify(sort) : null }
+          : {}),
+        ...(sortKey !== undefined ? { sortKey } : {}),
+        version: nextVersion,
+      };
+      dataStatements.push(updateViewStatement(db, ctx, op.entityId, patch, now));
+      viewState.set(op.entityId, {
+        version: nextVersion,
+        databasePageId: current.databasePageId,
+        sortKey: sortKey ?? current.sortKey,
+      });
+      accept(op, nextVersion);
+      continue;
+    }
+
+    if (op.type === 'view.delete') {
+      if (!viewState.has(op.entityId)) {
+        reject(op, 'view no longer exists');
+        continue;
+      }
+      dataStatements.push(deleteViewStatement(db, ctx, op.entityId));
+      viewState.delete(op.entityId);
+      accept(op, null);
+      continue;
+    }
+
+    // page.delete: remove the page plus its whole subtree (blocks, properties, values, views) in one batch.
     if (!state.has(op.entityId)) {
       reject(op, 'page no longer exists');
       continue;
@@ -625,6 +804,12 @@ export async function applyOps(db: Db, ctx: Ctx, ops: Op[]): Promise<SyncOutcome
         }
       }
       dataStatements.push(...deletePropertiesForDatabasesStatements(db, ctx, deletedDatabaseIds));
+
+      // Cascade views: remove all views for any deleted database pages.
+      for (const [viewId, view] of viewState) {
+        if (deletedDatabaseIds.includes(view.databasePageId)) viewState.delete(viewId);
+      }
+      dataStatements.push(...deleteViewsForDatabasesStatements(db, ctx, deletedDatabaseIds));
     }
 
     // Cascade property values: remove the cell values for any deleted row pages (including rows
@@ -702,6 +887,12 @@ function nextBlockKey(state: Map<string, BlockState>, pageId: string): string {
 // The next fractional sort_key after the last property of databasePageId, for append-when-omitted.
 function nextPropertyKey(state: Map<string, PropertyState>, databasePageId: string): string {
   const forDb = ordered(state, (prop) => prop.databasePageId === databasePageId);
+  return nextKeyAfter(lastInOrder(forDb)?.sortKey ?? null);
+}
+
+// The next fractional sort_key after the last view of databasePageId, for append-when-omitted.
+function nextViewKey(state: Map<string, ViewState>, databasePageId: string): string {
+  const forDb = ordered(state, (view) => view.databasePageId === databasePageId);
   return nextKeyAfter(lastInOrder(forDb)?.sortKey ?? null);
 }
 
@@ -801,6 +992,44 @@ function clearDanglingOptionValues(
     );
     valueState.set(key, { version: nextVersion, value: newValue });
   }
+}
+
+// Validates that each filter's propertyId belongs to the given database and its operator is legal
+// for the property's type. Returns a rejection reason or null when all filters are valid.
+// Filtering is computed client-side; this validates settings only, not the resulting row set.
+function validateViewFilters(
+  filters: Array<{ id: string; propertyId: string; operator: string; value: string | null }>,
+  databasePageId: string,
+  propertyState: Map<string, PropertyState>,
+): string | null {
+  for (const f of filters) {
+    const prop = propertyState.get(f.propertyId);
+    if (!prop) return `filter propertyId ${f.propertyId} does not exist`;
+    if (prop.databasePageId !== databasePageId) {
+      return `filter propertyId ${f.propertyId} does not belong to the specified database`;
+    }
+    const allowed = OPERATORS_BY_TYPE[prop.type];
+    if (!allowed || !allowed.includes(f.operator as FilterOperator)) {
+      return `operator "${f.operator}" is not valid for property type "${prop.type}"`;
+    }
+  }
+  return null;
+}
+
+// Validates that a sort's propertyId is either the literal 'title' or a property of the database.
+// Returns a rejection reason or null when the sort is valid.
+function validateViewSort(
+  sort: { propertyId: string; direction: string },
+  databasePageId: string,
+  propertyState: Map<string, PropertyState>,
+): string | null {
+  if (sort.propertyId === 'title') return null;
+  const prop = propertyState.get(sort.propertyId);
+  if (!prop) return `sort propertyId ${sort.propertyId} does not exist`;
+  if (prop.databasePageId !== databasePageId) {
+    return `sort propertyId ${sort.propertyId} does not belong to the specified database`;
+  }
+  return null;
 }
 
 // Checks that a JSON-encoded value matches the expected property type. Returns a rejection reason

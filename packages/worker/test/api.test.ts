@@ -140,10 +140,11 @@ describe('GET /api/workspaces/:workspaceId/snapshot', () => {
           updatedAt: page.updatedAt,
         },
       ],
-      // The blocks, properties and values keys are always present, empty when nothing exists yet.
+      // The blocks, properties, values and views keys are always present, empty when nothing exists.
       blocks: [],
       properties: [],
       values: [],
+      views: [],
     });
 
     const cached = await apiFetch(`/api/workspaces/${owner.workspaceId}/snapshot`, {

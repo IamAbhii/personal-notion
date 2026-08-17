@@ -2,9 +2,9 @@
 // workspace. Ids are minted per call by seedWorkspace, never written here, so the same template can
 // populate any number of workspaces without collisions.
 //
-// It grows with the phases: Phase 2 added `blocks` to these nodes, Phase 3 added `databases`, and a
-// later phase adds views. Keep the shape append-only.
-import type { BlockType, OptionColor, PropertyType } from '../sync/ops';
+// It grows with the phases: Phase 2 added `blocks` to these nodes, Phase 3 added `databases`, and
+// Phase 4 adds `views`. Keep the shape append-only.
+import type { BlockType, FilterOperator, OptionColor, PropertyType } from '../sync/ops';
 
 // One block of page content. Order inside the array is the order on the page; seedWorkspace mints the
 // fractional sort_keys. props is a JSON string for type-specific extras only.
@@ -38,12 +38,39 @@ export type SeedRowDef = {
   values?: Array<{ propertyName: string; value: unknown }>;
 };
 
-// A database page with its property schema and initial rows.
+// One filter condition in a seeded view. propertyName is resolved to the property id by
+// seedWorkspace; operator must be legal for the property type it targets.
+export type SeedViewFilterDef = {
+  propertyName: string;
+  operator: FilterOperator;
+  value: string | null;
+};
+
+// A sort condition in a seeded view. propertyName may be 'title' or the name of any property on
+// the same database.
+export type SeedViewSortDef = {
+  propertyName: string;
+  direction: 'asc' | 'desc';
+};
+
+// A view definition for a seeded database. groupPropertyName must be the name of a select property
+// on the same database (board views only).
+export type SeedViewDef = {
+  name: string;
+  kind: 'table' | 'board' | 'list';
+  groupPropertyName?: string;
+  filters?: SeedViewFilterDef[];
+  sort?: SeedViewSortDef;
+};
+
+// A database page with its property schema, initial rows and default views.
 export type SeedDatabaseDef = {
   title: string;
   icon: string;
   properties: SeedPropertyDef[];
   rows: SeedRowDef[];
+  // Three views per database (table, board, list). Absent in pre-Phase-4 seeds.
+  views?: SeedViewDef[];
 };
 
 // Written out in full on a few pages so a first run reads like a workspace someone actually keeps, and
@@ -321,6 +348,56 @@ export const SEED_DATABASES: SeedDatabaseDef[] = [
           { propertyName: 'Spec', value: 'notion.so/perf-baseline' },
         ],
       },
+      // Two extra rows added for Phase 4 board viability: every Status column gets at least one
+      // card, one column gets a second card, and one row has no Status (uncategorised column).
+      {
+        title: 'API documentation',
+        blocks: [
+          { type: 'paragraph', text: 'Document every endpoint in the OpenAPI schema.' },
+          { type: 'todo', text: 'Sync and snapshot endpoints', checked: false },
+          { type: 'todo', text: 'Auth flow and session lifecycle', checked: false },
+        ],
+        values: [
+          { propertyName: 'Status', value: 'On hold' },
+          { propertyName: 'Tags', value: ['Backend'] },
+          { propertyName: 'Due date', value: '2026-11-01' },
+          { propertyName: 'Done', value: false },
+          { propertyName: 'Effort (days)', value: 3 },
+        ],
+      },
+      {
+        title: 'Mobile layout pass',
+        blocks: [{ type: 'paragraph', text: 'Check every view at 375px viewport width.' }],
+        values: [
+          { propertyName: 'Status', value: 'Backlog' },
+          { propertyName: 'Tags', value: ['Frontend', 'Design'] },
+          { propertyName: 'Due date', value: '2026-10-15' },
+          { propertyName: 'Done', value: false },
+          { propertyName: 'Effort (days)', value: 4 },
+        ],
+      },
+      // No Status — exercises the uncategorised column on the board view.
+      {
+        title: 'Offline sync queue',
+        blocks: [
+          { type: 'paragraph', text: 'Phase 6 work: the durable IndexedDB queue and flush loop.' },
+        ],
+        values: [
+          { propertyName: 'Tags', value: ['Frontend', 'Backend'] },
+          { propertyName: 'Effort (days)', value: 8 },
+        ],
+      },
+    ],
+    // Three views: table (default), board grouped by Status, list filtered to active work only.
+    views: [
+      { name: 'Table', kind: 'table' },
+      { name: 'Board', kind: 'board', groupPropertyName: 'Status' },
+      {
+        name: 'List',
+        kind: 'list',
+        // Show only items that are not yet marked done, so the list stays useful as a to-do view.
+        filters: [{ propertyName: 'Done', operator: 'isNotChecked', value: null }],
+      },
     ],
   },
   {
@@ -399,6 +476,48 @@ export const SEED_DATABASES: SeedDatabaseDef[] = [
           { propertyName: 'Topics', value: ['Technology'] },
           { propertyName: 'Link', value: 'pragprog.com/titles/tpp20' },
         ],
+      },
+      // Two extra rows for Phase 4 board viability: Abandoned column gets a card, Want to read
+      // gets a second card, and one row has no Status (uncategorised column).
+      {
+        title: 'The Lean Startup',
+        blocks: [
+          {
+            type: 'paragraph',
+            text: 'Abandoned after chapter 3 — found the build-measure-learn cycle already familiar.',
+          },
+        ],
+        values: [
+          { propertyName: 'Status', value: 'Abandoned' },
+          { propertyName: 'Topics', value: ['Technology'] },
+          { propertyName: 'Rating', value: 2 },
+        ],
+      },
+      {
+        title: 'Structure and Interpretation of Computer Programs',
+        blocks: [],
+        values: [
+          { propertyName: 'Status', value: 'Want to read' },
+          { propertyName: 'Topics', value: ['Technology', 'Science'] },
+          { propertyName: 'Link', value: 'mitpress.mit.edu/9780262510875' },
+        ],
+      },
+      // No Status — exercises the uncategorised column on the board view.
+      {
+        title: 'Thinking, Fast and Slow',
+        blocks: [{ type: 'paragraph', text: 'On the reading pile.' }],
+        values: [{ propertyName: 'Topics', value: ['Science'] }],
+      },
+    ],
+    // Three views: table (default), board grouped by Status, list sorted by rating highest first.
+    views: [
+      { name: 'Table', kind: 'table' },
+      { name: 'Board', kind: 'board', groupPropertyName: 'Status' },
+      {
+        name: 'List',
+        kind: 'list',
+        // Descending rating puts the best-rated books at the top of the reading list view.
+        sort: { propertyName: 'Rating', direction: 'desc' },
       },
     ],
   },
