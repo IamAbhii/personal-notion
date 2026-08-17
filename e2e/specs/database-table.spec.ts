@@ -208,12 +208,12 @@ test.describe('Database table view — cell editing', () => {
     await goToDatabase(page, 'Book Tracker');
     const dbView = page.getByTestId('database-view');
 
-    // Book Tracker has 3 seeded rows:
+    // Book Tracker now has 6 seeded rows (3 original + 3 Phase 4 additions appended at the end):
     //   0: The Design of Everyday Things  — has Link (renders as anchor, not input)
     //   1: A Philosophy of Software Design — no Link (renders as input[type="url"])
     //   2: The Pragmatic Programmer        — has Link (renders as anchor, not input)
     // Use nth(1) to target the row with an empty Link cell.
-    await expect(dbView.getByTestId('database-row')).toHaveCount(3);
+    await expect(dbView.getByTestId('database-row')).toHaveCount(6);
     const philosophyRow = dbView.getByTestId('database-row').nth(1);
 
     const urlInput = philosophyRow.locator('input[type="url"]');

@@ -31,14 +31,16 @@ async function gotoDatabase(page: import('@playwright/test').Page, title: string
   }
 
   // Use click() for navigation; tap() for view-switching interaction tests below.
-  await page.getByRole('treeitem', { name: new RegExp(title, 'i') }).first().click();
+  await page
+    .getByRole('treeitem', { name: new RegExp(title, 'i') })
+    .first()
+    .click();
   await page.waitForLoadState('networkidle');
 }
 
 // ── Mobile suite ──────────────────────────────────────────────────────────────
 
 test.describe('Phase 4 — mobile views (Pixel 5)', () => {
-
   test.beforeEach(async ({ page }) => {
     await resetWorkspace(page);
   });

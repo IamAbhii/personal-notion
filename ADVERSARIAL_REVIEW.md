@@ -1421,3 +1421,369 @@ it is the kind of thing that makes a table look untidy from the first row a user
 Screenshot: screenshots/adv-056.png
 
 Disposition: ACCEPTED -> DEF-065
+
+## ADV-057: Deleting a property leaves the view filtering and sorting by it, and the Filter panel then shows a filter that is not the one stored
+
+- Session: phase-4 gate
+- Suggested severity: MEDIUM
+
+What I did: opened "Work Projects" in the table view, added a filter `Effort (days) is 3` and a sort
+on `Spec`, then deleted both of those properties from their column menus ("Delete property" ->
+"Delete permanently"), then reloaded and reopened the Filter / Sort panel.
+Expected: deleting a property clears any filter or sort that referenced it, and the Filter badge and
+panel describe the settings that are actually in force.
+Actual: the view record still holds the deleted ids -
+`filters:[{propertyId:"dcfa7e48…",operator:"is",value:"3"}]` and `sort:{propertyId:"bda761c0…"}`,
+neither of which exists in `properties` any more. The rows are (correctly) shown unfiltered, but the
+Filter button still shows the badge "2", and the panel renders the dangling filter as
+`Status | is | — empty —` because the selects fall back to their first option. So the panel claims a
+filter that would show one row while the table shows all six, and the stored sort is invisible in the
+panel ("— none —"). Touching any control in that row would then save a filter the user never asked
+for.
+Screenshot: screenshots/adv-057.png
+
+Disposition: ACCEPTED -> DEF-071
+
+## ADV-058: A filter that matches nothing leaves the table view completely blank, with no empty state - the list view has one
+
+- Session: phase-4 gate
+- Suggested severity: MEDIUM
+
+What I did: in "Work Projects" table view, added two contradictory filters -
+`Status is Backlog` AND `Status is not Backlog` - then did the equivalent in the list view
+(`Done is not checked` AND `Done is checked`).
+Expected: consistent "no rows match" messaging in every view.
+Actual: the table view shows the header row, nothing under it, and the "New row" button - no
+explanation at all, so a user who forgets the filter sees an apparently emptied database. The list
+view for the same situation says "No rows match the current filters.", and the board says nothing
+either (all columns render, all empty). Three views, three different empty behaviours for the same
+cause.
+Screenshot: screenshots/adv-058.png
+
+Disposition: ACCEPTED -> DEF-072
+
+## ADV-059: Creating a database throws "sortKey is not a valid fractional index"; the server rejects all three view.create ops, so the new database has no views
+
+- Session: phase-4 gate
+- Suggested severity: HIGH
+
+What I did: reset the workspace, opened "Work Projects", clicked "Add a top-level database" in the
+sidebar. Watched the console and the `/sync` traffic, then reloaded.
+Expected: a new database is created with its three views, and the app navigates to it - as clicking
+"Add a top-level page" does for a page.
+Actual: an uncaught error reaches the window: `sortKey is not a valid fractional index`. The three
+`view.create` ops are sent with `"sortKey":"a"`, `"b"`, `"c"` and the server rejects all three
+(`{"status":"rejected","reason":"sortKey is not a valid fractional index"}`); the `page.create` for
+the database itself is applied. The app does not navigate to the new database (the URL stays on Work
+Projects), nothing tells the user anything went wrong, and the sidebar entry for the new database
+sometimes disappears after a reload. The result is a database with zero views - see ADV-060 for what
+that does to the view switcher. Creating an ordinary page in the same session produced no error and
+navigated correctly, so this is specific to the database (view-minting) path.
+Screenshot: screenshots/adv-059.png
+
+Disposition: ACCEPTED -> DEF-070
+
+## ADV-060: A database with no views shows all three tabs but no Filter control, and the board tells you to use a control that is not on screen
+
+- Session: phase-4 gate
+- Suggested severity: MEDIUM
+
+What I did: opened the "Untitled" database left behind by ADV-059 (a database whose three views were
+never persisted) and clicked through Table, Board and List.
+Expected: either the views are minted on demand, or the switcher reflects what the database actually
+has.
+Actual: all three tabs render. The Filter / Sort control is absent entirely. The board shows
+"Pick a Select property to group by using the Filter / Sort control above." - a dead end, because
+there is no such control to use. The list shows "No rows match the current filters." although no
+filter exists (see ADV-072). Nothing in the UI hints that this database is missing its views or how
+to recover it.
+Screenshot: screenshots/adv-060.png
+
+Disposition: ACCEPTED -> DEF-073
+
+## ADV-061: Card-move toasts and drag announcements name the card by raw UUID
+
+- Session: phase-4 gate
+- Suggested severity: MEDIUM
+
+What I did: dragged "Accessibility audit" from Backlog to Done on the "Work Projects" board; also
+dropped a card outside any column, cancelled a drag with Escape, and picked a card up with the
+keyboard.
+Expected: the feedback names the card, e.g. `Moved "Accessibility audit" to "Done"`.
+Actual: every message substitutes the row id:
+`Moved "ce1d6798-7cbb-4cca-845a-89fb624053c9" to "Done".`,
+`Card "b6390a6a-…" was dropped outside a column and stayed in place.`,
+`Cancelled moving "29345c0d-…".`, and the live-region announcement
+`Card "3da47d9a-…" is over the "Backlog" column.` The column name is resolved correctly in the same
+sentence, so only the card is affected. It matters most when the move makes the card vanish (a filter
+excludes the destination column): the toast is then the only evidence of what happened, and it is a
+UUID.
+Screenshot: screenshots/adv-061.png
+
+Disposition: ACCEPTED -> DEF-074
+
+## ADV-062: A card dropped inside one column lands in the next one, and the last column cannot be reached at all
+
+- Session: phase-4 gate
+- Suggested severity: MEDIUM
+
+What I did: on the "Work Projects" board at 1280x800 I measured the column rects
+(Backlog 308-568, In progress 584-844, Done 860-1120, On hold 1136-1396, No value 1412-1672) and
+released a dragged card 8px inside the right edge of "In progress" (x=836, unambiguously inside it).
+Then I tried to drag a card to the "No value" column, which sits off the right of the viewport.
+Expected: the card goes to the column the pointer is over; dragging towards the right edge auto
+scrolls the board so the trailing column can be reached.
+Actual: the drop at x=836 moved the card to "Done" - one column to the right of where it was
+released ("Moved … to Done"). The drop target appears to be chosen from the dragged card overlay's
+rectangle rather than the pointer, so the right-hand half of every column behaves as the next column.
+The same cause makes the off-screen "No value" column unreachable: the board never auto-scrolls
+during a drag, and dropping at the viewport edge either reports "dropped outside a column and stayed
+in place" or silently lands in a neighbour. Manually scrolling the board first and then dragging does
+work.
+Screenshot: screenshots/adv-062.png
+
+Disposition: ACCEPTED -> DEF-075
+
+## ADV-063: "Add card to Done" creates a card with no value for the grouping property, so it appears in the "No value" column
+
+- Session: phase-4 gate
+- Suggested severity: MEDIUM
+
+What I did: on the "Work Projects" board clicked "Add card to Done", then reopened the board and
+looked at the columns and the stored values.
+Expected: a card added from a column's own "Add card" control belongs to that column - Status = Done.
+Actual: the new row is created with no Status value at all, so the card is placed in the trailing
+"No value" column, at the far right and usually off screen. Nothing appears in the column you clicked,
+and (because the board does not scroll to it) the click looks like it did nothing. Repeating it six
+times in the Backlog column produced six untitled cards, all in "No value". The row page itself is
+created correctly.
+Screenshot: screenshots/adv-063.png
+
+Disposition: ACCEPTED -> DEF-076
+
+## ADV-064: A keyboard user can pick a card up but can never move it to another column
+
+- Session: phase-4 gate
+- Suggested severity: MEDIUM
+
+What I did: focused a card's drag handle with Tab, pressed Space (the handle announces
+`aria-roledescription="draggable"`), then pressed ArrowRight twice, ArrowDown, and Tab, then Space.
+Expected: arrow keys move the lifted card between columns, Space drops it there, Escape cancels -
+the standard dnd-kit keyboard flow the drag handle advertises.
+Actual: the pickup is announced ("Card … is over the \"Backlog\" column"), but every arrow key leaves
+the announcement unchanged - the card never leaves its own column. Pressing Tab ends the drag and
+writes a move back to the column it started in ("Moved … to \"Backlog\""), i.e. Tab commits rather
+than cancels. So changing a card's group is mouse-only, and the keyboard path additionally issues a
+pointless `value.set`.
+Screenshot: screenshots/adv-064.png
+
+Disposition: ACCEPTED -> DEF-077
+
+## ADV-065: The view switcher is a tablist that ignores arrow keys
+
+- Session: phase-4 gate
+- Suggested severity: LOW
+
+What I did: focused the "Table view" tab and pressed ArrowRight, then Enter.
+Expected: for `role="tablist"` / `role="tab"`, arrow keys move between tabs (and activate, or Enter
+activates).
+Actual: ArrowRight does nothing at all - focus and selection both stay on "Table view", and Enter
+re-selects the same tab. The tabs are individually reachable with Tab, so the control is operable,
+but it does not behave the way its own ARIA roles promise, and a screen-reader user following the
+tabs pattern will think the switcher is broken.
+
+Disposition: ACCEPTED -> DEF-080
+
+## ADV-066: Offline, a card drag reports "Moved … to Done" while the card stays where it was
+
+- Session: phase-4 gate
+- Suggested severity: MEDIUM
+
+What I did: opened the "Work Projects" board, went offline in the browser, dragged "Accessibility
+audit" from Backlog to Done, changed the sort, then came back online and reloaded.
+Expected: either the card moves optimistically and the queued op syncs later, or the UI says the move
+is pending.
+Actual: the toast says `Moved "…" to "Done"` but the board does not change - the card is still in
+Backlog, and the column counts are unchanged. There is no offline indicator anywhere on the screen,
+so the only feedback contradicts what is on screen. On reconnect the queue flushes, the server value
+becomes Done, and the board converges (nothing was lost), but for as long as the connection is down
+the board disagrees with its own success message.
+Screenshot: screenshots/adv-066.png
+
+Disposition: ACCEPTED -> DEF-078
+
+## ADV-067: The chosen view is forgotten on every reload and on any navigation away and back
+
+- Session: phase-4 gate
+- Suggested severity: LOW
+
+What I did: selected the Board view on "Work Projects", then (a) reloaded, (b) navigated away and
+came back with the browser's Back/Forward buttons, (c) refreshed mid-drag.
+Expected: for something described as a local preference, the view I chose is still showing when I
+come back to that database.
+Actual: every one of those returns to the Table view. Nothing is stored - not in the URL, not in
+localStorage - so a user who works in a board loses it on every reload, and a link to a database can
+never point at its board. The filters, sort and grouping do survive (they are server state), which
+makes the reset more jarring: the board's settings are remembered but the board is not.
+
+Disposition: ACCEPTED -> DEF-081
+
+## ADV-068: Two select options can be given the same name, and the board then shows two identical columns
+
+- Session: phase-4 gate
+- Suggested severity: LOW
+
+What I did: opened Status -> "Manage options" on "Work Projects", typed "Done" (an existing option
+name) into "New option…" - the Add button stayed enabled - added it and saved, then opened the board.
+Expected: a duplicate option name is refused, or at least flagged, as a whitespace-only name already
+is (Add is correctly disabled for " ").
+Actual: the property now has two options called "Done", and the board renders two columns both
+labelled "Done", one of them empty, with nothing to tell them apart. The same duplicate appears twice
+in every Status cell editor and twice in the filter value list, where picking the wrong one silently
+matches no rows.
+Screenshot: screenshots/adv-068.png
+
+Disposition: ACCEPTED -> DEF-082
+
+## ADV-069: An option name the server rejects is discarded silently, taking every other edit in the same save with it
+
+- Session: phase-4 gate
+- Suggested severity: MEDIUM
+
+What I did: in Status -> "Manage options" I renamed "Backlog" to a 90+ character string containing
+emoji and Arabic text and pressed Save. Separately, I renamed it to " " and pressed Save. In a third
+run I renamed "Backlog" to "Icebox" _and_ added a duplicate option in the same dialog and saved.
+Expected: the dialog reports what was refused and keeps the dialog open, or the client validates the
+same rules the server enforces (<=100 chars, non-empty).
+Actual: the dialog closes as though the save succeeded, no toast, no console error, and the options
+are unchanged. The `/sync` response shows the op rejected -
+`"reason":"option name must be at most 100 characters"` and `"reason":"option name must not be
+empty"`. In the third run the legitimate rename to "Icebox" was lost too, because the whole batch was
+dropped, so a user can silently lose good edits alongside a bad one.
+
+Disposition: ACCEPTED -> DEF-079
+
+## ADV-070: The list view prints dates as raw ISO strings where every other surface formats them
+
+- Session: phase-4 gate
+- Suggested severity: LOW
+
+What I did: compared the "Due date" property for the same rows in the table and the list views of
+"Work Projects".
+Expected: one date format across the product.
+Actual: the table (and the board's row page) shows "15 Sept 2026"; the list view shows "2026-09-15".
+Screenshot: screenshots/adv-070.png
+
+Disposition: ACCEPTED -> DEF-083
+
+## ADV-071: List view properties are unlabelled, unaligned, and omitted when empty, so a value cannot be attributed to its property
+
+- Session: phase-4 gate
+- Suggested severity: LOW
+
+What I did: opened the list view of "Book Tracker" at 1280x800 and read down the rows.
+Expected: the properties shown for each row line up, so the column of pills means the same thing on
+every row.
+Actual: each row lays its properties out right-aligned and omits any property that is empty, so
+nothing lines up: "Want to read" sits at a different x on every row, and the last row shows a single
+pill, "Science", which is a _Topics_ value but reads as a Status because that is where Status appears
+on the rows above. The property name exists only as a `title` attribute on a wrapper span, so it is
+invisible and not announced. The first three properties are shown and the rest are dropped with no
+indication (Book Tracker's Finished, Rating and Notes never appear).
+Screenshot: screenshots/adv-071.png
+
+Disposition: ACCEPTED -> DEF-084
+
+## ADV-072: A database with no rows says "No rows match the current filters" although no filter is set
+
+- Session: phase-4 gate
+- Suggested severity: LOW
+
+What I did: opened the list view of a database that has no rows and no filters.
+Expected: something like "This database has no rows yet" plus a way to add one.
+Actual: "No rows match the current filters." - which sends the user looking for a filter that does
+not exist. The message is correct for ADV-058's case and wrong here; the two cases are not
+distinguished.
+Screenshot: screenshots/adv-060.png
+
+Disposition: ACCEPTED -> DEF-085
+
+## ADV-073: A second tab keeps rendering a deleted grouping property, although a filter change in one tab does reach the other
+
+- Session: phase-4 gate
+- Suggested severity: LOW
+
+What I did: opened "Work Projects" in two tabs, both on the Board view. In tab B I deleted the Status
+property (the property the board is grouped by). Then I looked at tab A without reloading. Separately,
+I added a filter in tab B and looked at tab A.
+Expected: consistent behaviour - either both kinds of change propagate to the other tab, or neither
+does.
+Actual: the filter change propagates immediately (tab A's Filter badge and columns update). The
+property deletion does not: tab A keeps drawing five columns of a property that no longer exists,
+including cards under option names that are gone, until it is reloaded - at which point it correctly
+shows "Pick a Select property to group by…". Dragging in that stale board is still possible.
+
+Disposition: REJECTED - the same root cause as ADV-057 (a view keeps referencing a deleted property); fixing DEF-071 fixes this, and a second ledger entry for one cause would be fixed twice and closed once
+
+## ADV-074: Deleting the database you are viewing sometimes leaves a "This page no longer exists" screen instead of returning to Home
+
+- Session: phase-4 gate
+- Suggested severity: LOW
+
+What I did: opened "Work Projects", switched to the Board view, then deleted the database from its
+sidebar row and confirmed. Repeated.
+Expected: the same behaviour every time - Phase 3's pass recorded that this returns you to Home.
+Actual: on one run the app stayed on the dead URL and showed
+"NOT FOUND / This page no longer exists. / Pick another page from the sidebar."; on the next run,
+with the same steps, it navigated to Home. So the redirect after deleting the page you are on is
+racy. Caveat for triage: another agent's end-to-end suite was resetting this workspace during part of
+my session, and a reset also produces that screen, so this one may be environmental - it is recorded
+because I could not rule it in or out. The same screen appeared once in a second tab opened on a URL
+the first tab was rendering fine.
+
+Disposition: PENDING
+
+## ADV-075: Sorting by a select property sorts by option name, not by the option order the board and the editor show
+
+- Session: phase-4 gate
+- Suggested severity: LOW
+
+What I did: sorted "Work Projects" by Status ascending. The property's options are, in order,
+Backlog, In progress, Done, On hold - the order the board columns and the cell editor use.
+Expected: rows ordered by that option order, as a board-shaped product implies.
+Actual: rows come out Backlog, Backlog, Done, In progress, On hold - alphabetical by option name, so
+the sorted table disagrees with the column order of the board next to it. Empty values sort last in
+both directions, which is the right call and worth keeping.
+
+Disposition: ACCEPTED -> DEF-086
+
+## ADV-076: The board has no accessible structure, and the filter / sort popover has no accessible name
+
+- Session: phase-4 gate
+- Suggested severity: LOW
+
+What I did: read the accessibility tree of the board view and of the open Filter / Sort panel.
+Expected: columns exposed as groups or regions with their option name and count as an accessible
+name, cards as list items, and the popover named ("Filter and sort").
+Actual: the board is a flat run of text and buttons - the column name and its count are bare `text`
+nodes, there is no grouping element, and nothing associates a card with its column, so a screen
+reader user hears "Backlog, 2, Drag "Accessibility audit", Accessibility audit, Add card, In progress,
+1, …" with no structure to navigate. The popover is exposed as an unnamed `dialog`. Inside it, the
+regions are named ("Filters", "Sort", "Group by"), which shows the intent was there.
+
+Disposition: ACCEPTED -> DEF-087
+
+## ADV-077: The filter property list omits Title while the sort list includes it
+
+- Session: phase-4 gate
+- Suggested severity: LOW
+
+What I did: opened the Filter / Sort panel on "Work Projects" and compared the "Filter property" and
+"Sort property" lists.
+Expected: the two lists agree about what can be filtered and sorted, or the difference is explained.
+Actual: "Sort property" offers Title (value `title`) alongside the six properties; "Filter property"
+offers only the six. Since Title is text, `contains`/`notContains` would apply to it exactly as they
+do to the Notes property, so its absence reads as an oversight rather than a decision - and filtering
+a database by title is the first thing most people try.
+
+Disposition: ACCEPTED -> DEF-088
