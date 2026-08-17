@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { buildValuesMap, cardMoveNewValue, filterRows, groupRows, sortRows } from './viewData';
+import {
+  buildValuesMap,
+  cardMoveNewValue,
+  cleanViewAfterPropertyDelete,
+  filterRows,
+  groupRows,
+  sortRows,
+} from './viewData';
 import type {
   PageRecord,
   PropertyRecord,
@@ -323,5 +330,57 @@ describe('cardMoveNewValue', () => {
 
   it('returns a JSON-encoded option id for a named column', () => {
     expect(cardMoveNewValue('opt-a')).toBe(JSON.stringify('opt-a'));
+  });
+});
+
+// ── cleanViewAfterPropertyDelete (DEF-071) ────────────────────────────────────
+
+describe('cleanViewAfterPropertyDelete', () => {
+  const filter1 = { id: 'f1', propertyId: 'prop-a', operator: 'contains' as const, value: 'x' };
+  const filter2 = { id: 'f2', propertyId: 'prop-b', operator: 'contains' as const, value: 'y' };
+  const sort = { propertyId: 'prop-a', direction: 'asc' as const };
+
+  it('returns null when the deleted property is not referenced by any filter or sort', () => {
+    const view = { filters: [filter1], sort: null };
+    expect(cleanViewAfterPropertyDelete(view, 'prop-z')).toBeNull();
+  });
+
+  it('removes a filter that references the deleted property', () => {
+    const view = { filters: [filter1, filter2], sort: null };
+    const result = cleanViewAfterPropertyDelete(view, 'prop-a');
+    expect(result).not.toBeNull();
+    expect(result!.filters).toHaveLength(1);
+    expect(result!.filters[0]?.propertyId).toBe('prop-b');
+    expect(result!.sort).toBeNull();
+  });
+
+  it('clears the sort when it references the deleted property', () => {
+    const view = { filters: [filter2], sort };
+    const result = cleanViewAfterPropertyDelete(view, 'prop-a');
+    expect(result).not.toBeNull();
+    expect(result!.sort).toBeNull();
+    expect(result!.filters).toHaveLength(1);
+  });
+
+  it('removes filter and clears sort when both reference the deleted property', () => {
+    const view = { filters: [filter1, filter2], sort };
+    const result = cleanViewAfterPropertyDelete(view, 'prop-a');
+    expect(result).not.toBeNull();
+    expect(result!.filters).toHaveLength(1);
+    expect(result!.filters[0]?.propertyId).toBe('prop-b');
+    expect(result!.sort).toBeNull();
+  });
+
+  it('preserves a sort that references a different property', () => {
+    const otherSort = { propertyId: 'prop-b', direction: 'desc' as const };
+    const view = { filters: [filter1], sort: otherSort };
+    const result = cleanViewAfterPropertyDelete(view, 'prop-a');
+    expect(result).not.toBeNull();
+    expect(result!.sort?.propertyId).toBe('prop-b');
+  });
+
+  it('returns null when filters is empty and sort is null', () => {
+    const view = { filters: [], sort: null };
+    expect(cleanViewAfterPropertyDelete(view, 'prop-a')).toBeNull();
   });
 });

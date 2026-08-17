@@ -88,6 +88,12 @@ function OptionsEditor({ property, onSave, onClose, optionUseCounts }: OptionsEd
   const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
   // Whether the color picker is open for a given option id.
   const [pickerOpenId, setPickerOpenId] = useState<string | null>(null);
+  // Inline validation error shown when an option name would be rejected by the server (DEF-079).
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  // MAX_OPTION_NAME_LENGTH mirrors the server-enforced limit so we catch errors client-side and
+  // never lose a good batch of edits because one name is invalid (DEF-079).
+  const MAX_OPTION_NAME_LENGTH = 100;
 
   const addOption = () => {
     const name = newName.trim();
@@ -201,6 +207,12 @@ function OptionsEditor({ property, onSave, onClose, optionUseCounts }: OptionsEd
             Add
           </button>
         </div>
+        {/* Inline validation message: shown when an option name violates server rules (DEF-079). */}
+        {validationError && (
+          <p className="mt-0.5 text-xs text-danger" role="alert">
+            {validationError}
+          </p>
+        )}
         <div className="mt-0.5 flex items-center justify-end gap-1.5 border-t border-border pt-1">
           <button
             type="button"
@@ -212,7 +224,24 @@ function OptionsEditor({ property, onSave, onClose, optionUseCounts }: OptionsEd
           <button
             type="button"
             className="min-h-9 rounded-sm bg-blue px-3 py-1 text-xs font-medium text-white hover:opacity-90"
-            onClick={() => onSave(options)}
+            onClick={() => {
+              // Validate all option names client-side before submitting, so a single bad name
+              // does not silently discard the whole batch of valid edits (DEF-079).
+              const emptyOpt = options.find((o) => !o.name.trim());
+              if (emptyOpt) {
+                setValidationError('Option names cannot be empty.');
+                return;
+              }
+              const longOpt = options.find((o) => o.name.trim().length > MAX_OPTION_NAME_LENGTH);
+              if (longOpt) {
+                setValidationError(
+                  `Option names must be ${MAX_OPTION_NAME_LENGTH} characters or fewer.`,
+                );
+                return;
+              }
+              setValidationError(null);
+              onSave(options);
+            }}
           >
             Save
           </button>
@@ -599,6 +628,17 @@ export function DatabaseView({
           </tr>
         </thead>
         <tbody>
+          {/* Empty state: shown when a filter matches no rows (DEF-072). */}
+          {rowPages.length === 0 && (
+            <tr>
+              <td
+                colSpan={properties.length + 2}
+                className="py-8 text-center text-sm text-text-muted"
+              >
+                No rows match the current filters.
+              </td>
+            </tr>
+          )}
           {rowPages.map((row) => (
             <tr
               key={row.id}
