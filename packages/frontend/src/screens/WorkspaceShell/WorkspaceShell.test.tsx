@@ -62,6 +62,15 @@ vi.mock('../../hooks/usePropertyMutations', () => ({
   })),
 }));
 
+vi.mock('../../hooks/useViewMutations', () => ({
+  useViewMutations: vi.fn(() => ({
+    createView: vi.fn(),
+    updateView: vi.fn(),
+    deleteView: vi.fn(),
+    createDefaultViews: vi.fn().mockResolvedValue([]),
+  })),
+}));
+
 vi.mock('../../sync/ops', () => ({
   flushStashedOps: vi.fn(() => Promise.resolve(0)),
 }));

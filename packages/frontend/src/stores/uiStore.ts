@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
+import type { ViewKind } from '../api/types';
 
 // Future: Phase 5's theme toggle (light/dark) is the next tenant of this store.
 
@@ -16,6 +17,17 @@ interface UiState {
   collapsedPageIds: ReadonlySet<string>;
   /** Toggles the collapsed state of one page row. Immutably replaces the set. */
   togglePageCollapsed: (pageId: string) => void;
+  /**
+   * Which view kind is active for each database, keyed by database page id.
+   * Kept as local preference — not server state — so switching views is instant.
+   *
+   * Future: persist the active view selection per user on the server (in a user_preferences
+   * table keyed on workspaceId + databasePageId) so the chosen view follows the user across
+   * devices rather than being per-device.
+   */
+  activeViewKindByDb: Record<string, ViewKind>;
+  /** Sets the active view kind for one database. */
+  setActiveViewKind: (databasePageId: string, kind: ViewKind) => void;
 }
 
 // The curried create<T>()(...) form is required for correct inference in zustand v5.
@@ -34,6 +46,12 @@ export const useUiStore = create<UiState>()((set) => ({
       else next.add(pageId);
       return { collapsedPageIds: next };
     }),
+
+  activeViewKindByDb: {},
+  setActiveViewKind: (databasePageId, kind) =>
+    set((s) => ({
+      activeViewKindByDb: { ...s.activeViewKindByDb, [databasePageId]: kind },
+    })),
 }));
 
 /**
