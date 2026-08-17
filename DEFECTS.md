@@ -1,3 +1,51 @@
+## DEF-069: List view never shows property values — xs breakpoint undefined, container always hidden
+
+- Status: OPEN
+- Severity: HIGH
+- Found by: qa
+- Phase: 4
+
+Steps to reproduce:
+
+1. Launch the app: `npm start` then open http://localhost:8787.
+2. Navigate to "Work Projects" (a database with Status, Tags, Due date, Done, Effort, and Spec properties).
+3. Click the "List" tab to switch to the list view.
+4. Observe the rows at 1280x800 viewport.
+
+Expected: each row shows its title and at least one property value alongside it, as specified by Phase 4 criterion 6 ("the list view shows each row's title and at least one property").
+
+Actual: every row shows only its title. No property values appear for any row at any viewport width. The property container (`<span className="xs:flex flex hidden ...">`) always has `display: none` because `xs` is not a defined Tailwind v4 breakpoint in this project. At 1280px the container should be visible but is not: `document.querySelector('[data-testid="list-row"] span.flex.hidden').style.display === ''`, `window.getComputedStyle(...).display === 'none'` confirmed in-browser. The inner `span[title]` elements have `offsetHeight === 0`. Root cause: `xs:flex` produces no CSS rule (unknown variant), leaving only the `hidden` class active at all screen widths.
+
+Screenshot: screenshots/def-069.png
+
+History:
+- qa: opened. Confirmed via DOM inspection: all 5 visible rows show zero visible property-value spans; `offsetHeight === 0` for every `span[title]` inside a list row. e2e test "list view shows at least one property value per row (criterion 6)" fails with `Expected > 0, Received 0`.
+
+## DEF-068: Board card title overflows the card's right edge for long titles
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: qa
+- Phase: 4
+
+Steps to reproduce:
+
+1. Launch the app: `npm start` then open http://localhost:8787.
+2. Navigate to "Work Projects" (a database with a board view seeded).
+3. Click the "Board" tab to switch to the board view.
+4. Observe the "In progress" column, which contains the row "Phase 3: databases and table view".
+
+Expected: the card title is truncated with an ellipsis at the card's right boundary, so no text renders outside the rounded-rectangle card background.
+
+Actual: the title span (`<span className="truncate">`) is an inline element inside a button that has no `overflow: hidden`. The card itself also has no `overflow: hidden`. As a result, the title span overflows the card's right edge: `getBoundingClientRect()` on the span shows `right: 885` while the card's `right` is `834` — an overflow of 51px. The characters beyond the card boundary render on the gray board background between columns, visible in the zoomed screenshot. Text alignment is correct (left-aligned). The misidentification in the original finding that text was "centre-aligned" is not reproduced — `window.getComputedStyle(btn).textAlign === 'left'` confirmed.
+
+Note: the orchestrator described this as two issues (overflow + centre-alignment). Only the overflow reproduces. This is one defect.
+
+Screenshot: screenshots/def-068.png
+
+History:
+- qa: opened. DOM confirmed: `spanRight (885) > cardRight (834)` for the "Phase 3: databases and table view" card. Text alignment is left (not centre-aligned as originally described). Filing as one defect for the overflow only.
+
 ## DEF-067: Row pages (and iconless ordinary pages) render an empty white icon tile above the title
 
 - Status: CLOSED
