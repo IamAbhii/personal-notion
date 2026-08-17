@@ -189,6 +189,28 @@ describe('filterRows', () => {
     });
   });
 
+  describe('title filter (DEF-088)', () => {
+    it('contains: keeps rows whose title includes the filter value (case-insensitive)', () => {
+      const f: ViewFilter = { id: 'f1', propertyId: 'title', operator: 'contains', value: 'alpha' };
+      expect(filterRows(rows, buildValuesMap([]), [], [f]).map((r) => r.id)).toEqual(['r1']);
+    });
+
+    it('notContains: keeps rows whose title does not include the value', () => {
+      const f: ViewFilter = {
+        id: 'f1',
+        propertyId: 'title',
+        operator: 'notContains',
+        value: 'alpha',
+      };
+      expect(filterRows(rows, buildValuesMap([]), [], [f]).map((r) => r.id)).toEqual(['r2', 'r3']);
+    });
+
+    it('passes all rows when the filter value is empty', () => {
+      const f: ViewFilter = { id: 'f1', propertyId: 'title', operator: 'contains', value: '' };
+      expect(filterRows(rows, buildValuesMap([]), [], [f])).toHaveLength(3);
+    });
+  });
+
   it('AND-combines multiple filters', () => {
     const props = [prop('p1', 'text'), prop('p2', 'checkbox')];
     const values = [
@@ -319,6 +341,50 @@ describe('groupRows', () => {
     expect(col1?.label).toBe('Done');
     expect(col2?.label).toBe('No value');
   });
+});
+
+it('sorts select by option definition order, not alphabetically (DEF-086)', () => {
+  // Option order: Backlog=0, In progress=1, Done=2. Alphabetically Done < In progress, but by
+  // definition order Backlog < In progress < Done, which is the user-meaningful order.
+  const opts = [
+    { id: 'opt-backlog', name: 'Backlog', color: 'gray' as const },
+    { id: 'opt-inprogress', name: 'In progress', color: 'blue' as const },
+    { id: 'opt-done', name: 'Done', color: 'teal' as const },
+  ];
+  const props = [prop('status', 'select', opts as never)];
+  const r4 = row('r4', 'Done row');
+  const r5 = row('r5', 'In progress row');
+  const r6 = row('r6', 'Backlog row');
+  const values = [
+    val('r4', 'status', JSON.stringify('opt-done')),
+    val('r5', 'status', JSON.stringify('opt-inprogress')),
+    val('r6', 'status', JSON.stringify('opt-backlog')),
+  ];
+  const s: ViewSort = { propertyId: 'status', direction: 'asc' };
+  const result = sortRows([r4, r5, r6], buildValuesMap(values), props, s);
+  // Expect definition order: Backlog < In progress < Done
+  expect(result.map((r) => r.id)).toEqual(['r6', 'r5', 'r4']);
+});
+
+it('sorts select descending by option definition order (DEF-086)', () => {
+  const opts = [
+    { id: 'opt-backlog', name: 'Backlog', color: 'gray' as const },
+    { id: 'opt-inprogress', name: 'In progress', color: 'blue' as const },
+    { id: 'opt-done', name: 'Done', color: 'teal' as const },
+  ];
+  const props = [prop('status', 'select', opts as never)];
+  const r4 = row('r4', 'Done row');
+  const r5 = row('r5', 'In progress row');
+  const r6 = row('r6', 'Backlog row');
+  const values = [
+    val('r4', 'status', JSON.stringify('opt-done')),
+    val('r5', 'status', JSON.stringify('opt-inprogress')),
+    val('r6', 'status', JSON.stringify('opt-backlog')),
+  ];
+  const s: ViewSort = { propertyId: 'status', direction: 'desc' };
+  const result = sortRows([r4, r5, r6], buildValuesMap(values), props, s);
+  // Descending: Done > In progress > Backlog
+  expect(result.map((r) => r.id)).toEqual(['r4', 'r5', 'r6']);
 });
 
 // ── cardMoveNewValue ──────────────────────────────────────────────────────────

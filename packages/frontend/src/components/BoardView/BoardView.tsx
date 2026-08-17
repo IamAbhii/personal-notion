@@ -127,8 +127,10 @@ function BoardCard({ row, isDragging, onOpen }: BoardCardProps) {
   const style = transform ? { transform: CSS.Translate.toString(transform) } : undefined;
 
   return (
+    // role="listitem" pairs with the parent drop zone's role="list" (DEF-087).
     <div
       ref={setNodeRef}
+      role="listitem"
       style={style}
       className={cn(
         'group flex min-h-12 cursor-pointer items-center justify-between gap-2 rounded-md border border-border bg-surface px-3 py-2.5 shadow-sm transition-opacity',
@@ -185,14 +187,21 @@ function BoardColumnCard({ column, draggingId, onOpenRow, onCreateRow }: BoardCo
   const droppableId = column.optionId ?? 'uncat';
   const { setNodeRef, isOver } = useDroppable({ id: droppableId });
 
+  // Unique id for the column heading so role="region" can reference it (DEF-087).
+  const headingId = `board-col-heading-${droppableId}`;
+
   return (
+    // role="region" + aria-labelledby associates the column with its heading so a screen reader
+    // can navigate between named columns (DEF-087).
     <div
+      role="region"
+      aria-labelledby={headingId}
       className="flex w-[min(260px,80vw)] flex-shrink-0 flex-col gap-2"
       data-testid="board-column"
       data-column-id={droppableId}
     >
       {/* Column header */}
-      <div className="flex items-center gap-2 px-1">
+      <div id={headingId} className="flex items-center gap-2 px-1">
         {column.color ? (
           <span
             className={cn(
@@ -205,12 +214,19 @@ function BoardColumnCard({ column, draggingId, onOpenRow, onCreateRow }: BoardCo
         ) : (
           <span className="text-xs font-medium text-text-muted">{column.label}</span>
         )}
-        <span className="ml-auto text-xs text-text-muted">{column.rows.length}</span>
+        <span
+          className="ml-auto text-xs text-text-muted"
+          aria-label={`${column.rows.length} cards`}
+        >
+          {column.rows.length}
+        </span>
       </div>
 
-      {/* Drop zone: expands to fill available height so a drop is easy even in empty columns */}
+      {/* Drop zone: expands to fill available height so a drop is easy even in empty columns.
+          role="list" so each card's role="listitem" is valid (DEF-087). */}
       <div
         ref={setNodeRef}
+        role="list"
         className={cn(
           'flex min-h-[120px] flex-col gap-2 rounded-lg border-2 p-2 transition-colors',
           isOver ? 'border-blue/60 bg-blue/5' : 'border-transparent bg-surface/40',
@@ -406,10 +422,12 @@ export function BoardView({
         ))}
       </div>
 
-      {/* Empty state: shown below the (empty) columns when all rows are filtered out (DEF-072). */}
+      {/* Empty state: distinguish a genuinely empty database from a filtered-to-empty one (DEF-085). */}
       {totalFilteredRows === 0 && (
         <div className="py-8 text-center text-sm text-text-muted">
-          No rows match the current filters.
+          {allRows.length === 0
+            ? 'This database is empty. Add a card to get started.'
+            : 'No rows match the current filters.'}
         </div>
       )}
 

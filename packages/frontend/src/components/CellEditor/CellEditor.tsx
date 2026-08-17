@@ -4,6 +4,7 @@ import { Pencil, X } from 'lucide-react';
 import { Popover } from '../ui/Popover/Popover';
 import { cn } from '../../lib/cn';
 import { optionColorClass } from '../../lib/optionColors';
+import { formatDateString, parseDateString as parseDateStr } from '../../lib/dateFormat';
 import { OPTION_COLORS } from '../../api/types';
 import type { PropertyRecord, PropertyType, SelectOption } from '../../api/types';
 import styles from './CellEditor.module.css';
@@ -64,25 +65,17 @@ function encodeUrl(v: string): string | null {
   return v.trim() === '' ? null : JSON.stringify(v);
 }
 
-/** Parses a YYYY-MM-DD string into a local-timezone Date, or returns undefined. */
+/** Parses a YYYY-MM-DD string from a raw JSON cell value into a local-timezone Date. */
 function parseDateString(raw: string | null): Date | undefined {
   const s = parseValue<string>(raw);
-  if (!s) return undefined;
-  const parts = s.split('-');
-  if (parts.length !== 3) return undefined;
-  // Parse each part individually to avoid tuple-element undefined in strict mode.
-  const y = Number(parts[0]);
-  const m = Number(parts[1]);
-  const d = Number(parts[2]);
-  const date = new Date(y, m - 1, d);
-  return Number.isNaN(date.getTime()) ? undefined : date;
+  return parseDateStr(s);
 }
 
-/** Formats a YYYY-MM-DD string for display, e.g. "1 Sep 2026". */
+/** Formats a YYYY-MM-DD JSON cell value for display, e.g. "1 Sep 2026". */
 function formatDate(raw: string | null): string {
-  const d = parseDateString(raw);
-  if (!d) return '';
-  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  // Decode the JSON wrapper ("2026-09-15" → 2026-09-15), then delegate to the shared formatter.
+  const s = parseValue<string>(raw);
+  return formatDateString(s);
 }
 
 /** Ensures a URL has a scheme; prefixes https:// when none is present. */

@@ -1,10 +1,11 @@
 import { cn } from '../../lib/cn';
+import { formatDateString } from '../../lib/dateFormat';
 import { optionColorClass } from '../../lib/optionColors';
 import type { OptionColor, PageRecord, PropertyRecord, PropertyValueRecord } from '../../api/types';
 
 // ── Cell value renderers ──────────────────────────────────────────────────────
 
-/** Renders a single cell value as a plain inline string for the list row. */
+/** Renders a single cell value as a plain inline node for the list row. */
 function renderCellValue(raw: string | null, property: PropertyRecord): React.ReactNode {
   if (raw === null) return null;
   try {
@@ -15,7 +16,8 @@ function renderCellValue(raw: string | null, property: PropertyRecord): React.Re
       case 'number':
         return String(JSON.parse(raw) as number);
       case 'date':
-        return JSON.parse(raw) as string;
+        // Use the shared formatter so dates show as "15 Sept 2026" everywhere (DEF-083).
+        return formatDateString(JSON.parse(raw) as string);
       case 'checkbox':
         return (JSON.parse(raw) as boolean) ? 'Yes' : 'No';
       case 'select': {
@@ -71,13 +73,20 @@ export interface ListViewProps {
   /** All property values across all displayed rows. */
   values: PropertyValueRecord[];
   onSelectRow: (rowPageId: string) => void;
+  /**
+   * Total number of rows before any filter is applied. Used to distinguish a genuinely empty
+   * database ("no rows yet") from one that has rows but they are all filtered out (DEF-085).
+   */
+  totalRowCount?: number;
 }
 
 /**
- * List view: a compact vertical list showing each row's title and its first visible property.
- * Clicking a row opens its row page. Mobile-first: each row is at least 48px tall.
+ * List view: a compact vertical list showing each row's title and up to three labelled property
+ * slots. Each slot always occupies the same horizontal position regardless of whether the value
+ * is empty, so the same property lines up across all rows (DEF-084). Clicking a row opens its
+ * row page. Mobile-first: each row is at least 48px tall.
  */
-export function ListView({ rows, properties, values, onSelectRow }: ListViewProps) {
+export function ListView({ rows, properties, values, onSelectRow, totalRowCount }: ListViewProps) {
   // Build a fast lookup for cell values: rowId → propertyId → raw JSON
   const valuesMap = new Map<string, Map<string, string | null>>();
   for (const v of values) {
@@ -89,9 +98,14 @@ export function ListView({ rows, properties, values, onSelectRow }: ListViewProp
   const visibleProps = properties.slice(0, 3);
 
   if (rows.length === 0) {
+    // Distinguish a genuinely empty database from a filtered-to-empty one (DEF-085).
+    const message =
+      totalRowCount === 0
+        ? 'This database is empty. Add a row to get started.'
+        : 'No rows match the current filters.';
     return (
-      <div className="py-8 text-center text-sm text-text-muted">
-        No rows match the current filters.
+      <div className="py-8 text-center text-sm text-text-muted" data-testid="list-empty-state">
+        {message}
       </div>
     );
   }
@@ -117,20 +131,35 @@ export function ListView({ rows, properties, values, onSelectRow }: ListViewProp
               {row.title}
             </span>
 
-            {/* Property value pills — hidden on mobile (320px base), shown from sm (640px) up */}
+            {/* Property columns: hidden on mobile (320px base), shown from sm (640px) up (DEF-069).
+                Each slot always renders — empty values show "—" so column positions are consistent
+                across all rows (DEF-084). The label above the value associates the value with its
+                property, replacing the invisible title-attribute-only approach. */}
             {visibleProps.length > 0 && (
-              <span className="hidden flex-shrink-0 items-center gap-2 sm:flex">
+              <span className="hidden flex-shrink-0 items-start gap-4 sm:flex">
                 {visibleProps.map((prop) => {
                   const raw = rowValues.get(prop.id) ?? null;
                   const rendered = renderCellValue(raw, prop);
-                  if (!rendered) return null;
                   return (
                     <span
                       key={prop.id}
-                      className="max-w-[120px] truncate text-xs text-text-muted"
-                      title={prop.name}
+                      className="flex max-w-[120px] min-w-[72px] flex-col gap-0.5"
+                      aria-label={prop.name}
                     >
-                      {rendered}
+                      {/* Property label — tiny, muted, all-caps, visible (DEF-084) */}
+                      <span className="truncate text-[10px] font-medium tracking-wide text-text-muted/60 uppercase">
+                        {prop.name}
+                      </span>
+                      {/* Property value — dash when empty so the slot is never absent (DEF-084) */}
+                      <span className="truncate text-xs text-text-muted">
+                        {rendered !== null ? (
+                          rendered
+                        ) : (
+                          <span className="text-text-muted/30" aria-label="empty">
+                            —
+                          </span>
+                        )}
+                      </span>
                     </span>
                   );
                 })}

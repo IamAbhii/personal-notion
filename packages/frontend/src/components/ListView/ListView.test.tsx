@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { ListView } from './ListView';
@@ -30,6 +30,17 @@ const textProp: PropertyRecord = {
   updatedAt: 0,
 };
 
+const dateProp: PropertyRecord = {
+  id: 'p-date',
+  databasePageId: 'db-1',
+  name: 'Due date',
+  type: 'date',
+  options: [],
+  sortKey: 'b',
+  version: 1,
+  updatedAt: 0,
+};
+
 const val = (rowPageId: string, propertyId: string, value: string | null): PropertyValueRecord => ({
   rowPageId,
   propertyId,
@@ -55,9 +66,24 @@ describe('ListView', () => {
     expect(screen.getByText('Beta')).toBeInTheDocument();
   });
 
-  it('shows an empty message when the row list is empty', () => {
+  it('shows "empty database" message when rows and totalRowCount are both zero (DEF-085)', () => {
+    render(
+      <ListView rows={[]} totalRowCount={0} properties={[]} values={[]} onSelectRow={vi.fn()} />,
+    );
+    expect(screen.getByTestId('list-empty-state').textContent).toMatch(/empty/i);
+    expect(screen.getByTestId('list-empty-state').textContent).not.toMatch(/filter/i);
+  });
+
+  it('shows "no rows match filters" message when rows is empty but totalRowCount > 0 (DEF-085)', () => {
+    render(
+      <ListView rows={[]} totalRowCount={3} properties={[]} values={[]} onSelectRow={vi.fn()} />,
+    );
+    expect(screen.getByTestId('list-empty-state').textContent).toMatch(/no rows match/i);
+  });
+
+  it('falls back to "no rows match" when totalRowCount is not provided and rows is empty', () => {
     render(<ListView rows={[]} properties={[]} values={[]} onSelectRow={vi.fn()} />);
-    expect(screen.getByText(/no rows match/i)).toBeInTheDocument();
+    expect(screen.getByTestId('list-empty-state').textContent).toMatch(/no rows match/i);
   });
 
   it('calls onSelectRow with the row id when a row is clicked', async () => {
@@ -85,6 +111,51 @@ describe('ListView', () => {
       />,
     );
     expect(screen.getByText('Some note')).toBeInTheDocument();
+  });
+
+  it('formats date values as "D Mon YYYY" rather than raw ISO string (DEF-083)', () => {
+    render(
+      <ListView
+        rows={[row('r1', 'Alpha')]}
+        properties={[dateProp]}
+        values={[val('r1', 'p-date', JSON.stringify('2026-09-15'))]}
+        onSelectRow={vi.fn()}
+      />,
+    );
+    // Should see formatted "15 Sept 2026" style, not the raw ISO string.
+    expect(screen.queryByText('2026-09-15')).not.toBeInTheDocument();
+    // The formatted value contains "2026".
+    expect(screen.getByText(/2026/)).toBeInTheDocument();
+  });
+
+  it('shows the property label for each property slot (DEF-084)', () => {
+    render(
+      <ListView
+        rows={[row('r1', 'Alpha')]}
+        properties={[textProp]}
+        values={[val('r1', 'p-text', JSON.stringify('hello'))]}
+        onSelectRow={vi.fn()}
+      />,
+    );
+    // The property name "Notes" must be visible (not just in a title attribute).
+    expect(screen.getByText('Notes')).toBeInTheDocument();
+  });
+
+  it('shows a dash placeholder for empty property values instead of omitting the slot (DEF-084)', () => {
+    render(
+      <ListView
+        rows={[row('r1', 'Alpha')]}
+        properties={[textProp]}
+        values={[]} // no value for textProp
+        onSelectRow={vi.fn()}
+      />,
+    );
+    // The slot should still render (with an empty/dash indicator).
+    const listRow = screen.getByTestId('list-row');
+    // The prop label should be present.
+    expect(within(listRow).getByText(/notes/i)).toBeInTheDocument();
+    // There should be no "Notes" value text - the empty indicator should show.
+    expect(within(listRow).getByLabelText(/empty/i)).toBeInTheDocument();
   });
 
   it('property value container does not use an undefined breakpoint prefix', () => {

@@ -97,6 +97,79 @@ describe('usePropertyMutations — updateProperty', () => {
     vi.clearAllMocks();
   });
 
+  it('returns null on a successful options update (DEF-079)', async () => {
+    const prop = makeProperty({ id: 'p1', databasePageId: 'db1', name: 'Status', type: 'select' });
+    seedSnapshot(queryClient, { properties: [prop] });
+
+    const { result } = renderHook(() => usePropertyMutations(userId, workspaceId, [prop], notify), {
+      wrapper: makeWrapper(queryClient),
+    });
+
+    let returnValue: string | null = 'sentinel';
+    await act(async () => {
+      returnValue = await result.current.updateProperty(prop, { options: [] });
+    });
+
+    expect(returnValue).toBeNull();
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it('returns the rejection reason (not a toast) when the server rejects an options update (DEF-079)', async () => {
+    const { submitOps } = await import('../sync/ops');
+    const { OpRejectedError } = await import('../sync/ops');
+    vi.mocked(submitOps).mockRejectedValueOnce(
+      new OpRejectedError([
+        { opId: 'op1', status: 'rejected', reason: 'option name must be unique' },
+      ]),
+    );
+
+    const prop = makeProperty({ id: 'p1', databasePageId: 'db1', name: 'Status', type: 'select' });
+    seedSnapshot(queryClient, { properties: [prop] });
+
+    const { result } = renderHook(() => usePropertyMutations(userId, workspaceId, [prop], notify), {
+      wrapper: makeWrapper(queryClient),
+    });
+
+    let returnValue: string | null = null;
+    await act(async () => {
+      returnValue = await result.current.updateProperty(prop, {
+        options: [
+          { id: 'o1', name: 'Done', color: 'teal' },
+          { id: 'o2', name: 'Done', color: 'gray' },
+        ],
+      });
+    });
+
+    // The rejection reason must be returned for inline display.
+    expect(returnValue).toMatch(/option name must be unique/i);
+    // No toast for options rejections — the dialog shows the error inline.
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it('shows a toast (not inline) when the server rejects a name update (DEF-079)', async () => {
+    const { submitOps } = await import('../sync/ops');
+    const { OpRejectedError } = await import('../sync/ops');
+    vi.mocked(submitOps).mockRejectedValueOnce(
+      new OpRejectedError([{ opId: 'op1', status: 'rejected', reason: 'name too long' }]),
+    );
+
+    const prop = makeProperty({ id: 'p1', databasePageId: 'db1', name: 'Status', type: 'select' });
+    seedSnapshot(queryClient, { properties: [prop] });
+
+    const { result } = renderHook(() => usePropertyMutations(userId, workspaceId, [prop], notify), {
+      wrapper: makeWrapper(queryClient),
+    });
+
+    let returnValue: string | null = 'sentinel';
+    await act(async () => {
+      returnValue = await result.current.updateProperty(prop, { name: 'x'.repeat(200) });
+    });
+
+    // Name update failure shows a toast and returns null (not the reason string).
+    expect(returnValue).toBeNull();
+    expect(notify).toHaveBeenCalledOnce();
+  });
+
   it('patches the property name optimistically', async () => {
     const prop = makeProperty({ id: 'p1', databasePageId: 'db1', name: 'Old', type: 'text' });
     seedSnapshot(queryClient, { properties: [prop] });

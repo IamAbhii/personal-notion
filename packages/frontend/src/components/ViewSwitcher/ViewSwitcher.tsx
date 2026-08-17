@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { Kanban, LayoutList, Table } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import type { ViewKind } from '../../api/types';
@@ -26,24 +27,56 @@ export interface ViewSwitcherProps {
 
 /**
  * A compact tab row that switches between the three view kinds (table, board, list).
- * Each tab is at least 44px tall so it meets the touch-target requirement on narrow screens.
+ * Implements the ARIA roving-tabindex tabs pattern: ArrowLeft/Right move between tabs,
+ * Home/End jump to the first/last tab, and only the active tab is reachable with Tab so
+ * the control behaves as a single stop in the page's tab order (DEF-080).
  */
 export function ViewSwitcher({ activeKind, onSwitch, className }: ViewSwitcherProps) {
+  // One ref per tab button so we can focus the target after an arrow-key move.
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const currentIndex = TABS.findIndex((t) => t.kind === activeKind);
+    let nextIndex: number | null = null;
+
+    if (e.key === 'ArrowRight') nextIndex = (currentIndex + 1) % TABS.length;
+    else if (e.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + TABS.length) % TABS.length;
+    else if (e.key === 'Home') nextIndex = 0;
+    else if (e.key === 'End') nextIndex = TABS.length - 1;
+
+    if (nextIndex !== null) {
+      e.preventDefault();
+      const next = TABS[nextIndex];
+      if (next) {
+        onSwitch(next.kind);
+        // Move DOM focus to the newly activated tab.
+        tabRefs.current[nextIndex]?.focus();
+      }
+    }
+  };
+
   return (
     <div
       role="tablist"
       aria-label="View type"
       className={cn('flex items-center gap-0.5', className)}
+      onKeyDown={handleKeyDown}
     >
-      {TABS.map((tab) => {
+      {TABS.map((tab, index) => {
         const isActive = tab.kind === activeKind;
         return (
           <button
             key={tab.kind}
+            ref={(el) => {
+              tabRefs.current[index] = el;
+            }}
             role="tab"
             type="button"
             aria-selected={isActive}
             aria-label={`${tab.label} view`}
+            // Roving tabindex: only the active tab is reachable with Tab so the tablist is a
+            // single focus stop. Arrow keys navigate within the list (ARIA tabs pattern, DEF-080).
+            tabIndex={isActive ? 0 : -1}
             onClick={() => onSwitch(tab.kind)}
             className={cn(
               'flex min-h-9 min-w-16 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium transition-colors',

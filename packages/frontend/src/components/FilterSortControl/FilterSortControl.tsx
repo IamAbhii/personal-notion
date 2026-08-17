@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { ChevronDown, Filter, Plus, SortAsc, SortDesc, X } from 'lucide-react';
 import { Popover } from '../ui/Popover/Popover';
 import { cn } from '../../lib/cn';
-import { LEGAL_OPERATORS, OPERATOR_LABELS } from '../../lib/viewData';
+import { LEGAL_OPERATORS, OPERATOR_LABELS, TITLE_FILTER_OPERATORS } from '../../lib/viewData';
 import type {
   FilterOperator,
   PageRecord,
@@ -39,11 +39,25 @@ interface FilterRowProps {
  * server never rejects an operator–type mismatch.
  */
 function FilterRow({ filter, properties, onChange, onRemove }: FilterRowProps) {
-  const property = properties.find((p) => p.id === filter.propertyId) ?? properties[0];
-  const legalOps = property ? LEGAL_OPERATORS[property.type] : [];
+  // 'title' is a synthetic property id — it is not in the properties array but is a valid filter
+  // target with contains/notContains operators (DEF-088).
+  const isTitleFilter = filter.propertyId === 'title';
+  const property = isTitleFilter
+    ? null
+    : (properties.find((p) => p.id === filter.propertyId) ?? properties[0]);
+  const legalOps = isTitleFilter
+    ? TITLE_FILTER_OPERATORS
+    : property
+      ? LEGAL_OPERATORS[property.type]
+      : [];
 
   // When the user changes the property, reset the operator and value to valid defaults.
   const handlePropertyChange = (propId: string) => {
+    if (propId === 'title') {
+      // Title uses text-style operators; reset to 'contains' on property change.
+      onChange({ ...filter, propertyId: 'title', operator: 'contains', value: null });
+      return;
+    }
     const nextProp = properties.find((p) => p.id === propId);
     if (!nextProp) return;
     const firstOp = LEGAL_OPERATORS[nextProp.type][0];
@@ -61,13 +75,14 @@ function FilterRow({ filter, properties, onChange, onRemove }: FilterRowProps) {
 
   return (
     <div className="flex min-h-10 items-center gap-1.5">
-      {/* Property picker */}
+      {/* Property picker — Title is included because it is a valid text-style filter target (DEF-088). */}
       <select
         aria-label="Filter property"
         className="min-h-9 flex-1 rounded-sm border border-border bg-surface px-2 py-1 text-xs text-text focus:border-blue focus:outline-none"
         value={filter.propertyId}
         onChange={(e) => handlePropertyChange(e.target.value)}
       >
+        <option value="title">Title</option>
         {properties.map((p) => (
           <option key={p.id} value={p.id}>
             {p.name}
@@ -183,15 +198,12 @@ export function FilterSortControl({
   // Select-type properties for the group-by picker.
   const selectProperties = properties.filter((p) => p.type === 'select');
 
-  // Add a new blank filter for the first available property.
+  // Add a new blank filter defaulting to Title contains, matching what users typically try first.
   const handleAddFilter = () => {
-    const firstProp = properties[0];
-    if (!firstProp) return;
-    const firstOp = LEGAL_OPERATORS[firstProp.type][0];
     const newFilter: ViewFilter = {
       id: crypto.randomUUID(),
-      propertyId: firstProp.id,
-      operator: firstOp ?? 'is',
+      propertyId: 'title',
+      operator: 'contains',
       value: null,
     };
     onUpdate({ filters: [...filters, newFilter] });
@@ -229,6 +241,7 @@ export function FilterSortControl({
     <Popover
       open={open}
       onOpenChange={setOpen}
+      contentLabel="Filter and sort"
       trigger={
         <button
           type="button"
