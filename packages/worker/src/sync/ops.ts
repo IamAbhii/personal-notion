@@ -408,6 +408,10 @@ function propertyRejection(op: PropertyWriteOp): string | null {
 }
 
 // Validates an array of SelectOption definitions, returning a rejection reason or null.
+// Duplicate name detection is case-insensitive and compares trimmed values so that "Done" and
+// "done " are treated as the same name — two options that differ only in case or surrounding
+// whitespace produce identical columns on a board and identical chips in every picker, which is
+// the same usability problem as an exact duplicate.
 function validateOptions(
   options: Array<{ id: string; name: string; color: string }>,
 ): string | null {
@@ -415,14 +419,22 @@ function validateOptions(
     return `options must have at most ${MAX_OPTIONS_PER_PROPERTY} entries`;
   }
   const seenIds = new Set<string>();
+  const seenNames = new Set<string>();
   for (const opt of options) {
-    if (opt.name.trim() === '') return 'option name must not be empty';
+    const trimmedName = opt.name.trim();
+    if (trimmedName === '') return 'option name must not be empty';
     if (opt.name.length > MAX_OPTION_NAME_LENGTH) {
       return `option name must be at most ${MAX_OPTION_NAME_LENGTH} characters`;
     }
     if (!isOptionColor(opt.color)) return 'unknown option color';
     if (seenIds.has(opt.id)) return 'duplicate option id';
     seenIds.add(opt.id);
+    // Normalise to lowercase for the duplicate-name check so "Done" and "done" are the same key.
+    const normalizedName = trimmedName.toLowerCase();
+    if (seenNames.has(normalizedName)) {
+      return `duplicate option name: option names must be unique (case-insensitive)`;
+    }
+    seenNames.add(normalizedName);
   }
   return null;
 }
