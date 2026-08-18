@@ -173,6 +173,45 @@ describe('seedWorkspace', () => {
     }
   });
 
+  // Regression guard for DEF-102: every non-row page must have at least one block so the workspace
+  // never shows "This page is empty" on first launch, and every top-level page area must have enough
+  // content to read as inhabited. Thresholds are set from the actual seed with headroom, so the test
+  // is meaningful — a future empty page will fail it immediately.
+  it('every non-row page has at least one block, and every top-level area has at least three', async () => {
+    const owner = await createAccount();
+    await seedWorkspace(owner.db, owner.ctx);
+    const allPages = await listPages(owner.db, owner.ctx);
+    const allBlocks = await listBlocks(owner.db, owner.ctx);
+
+    const blockCountByPage = new Map<string, number>();
+    for (const block of allBlocks) {
+      blockCountByPage.set(block.pageId, (blockCountByPage.get(block.pageId) ?? 0) + 1);
+    }
+
+    // Every kind='page' must have at least one block — the empty-page placeholder must never appear
+    // in the seeded workspace on first launch. kind='database' pages show their rows and views
+    // rather than blocks, so they are excluded. kind='row' pages are optional; some rows carry
+    // prose and some carry only property values.
+    const contentPages = allPages.filter((p) => p.kind === 'page');
+    for (const page of contentPages) {
+      expect(
+        blockCountByPage.get(page.id) ?? 0,
+        `page "${page.title}" has no blocks`,
+      ).toBeGreaterThanOrEqual(1);
+    }
+
+    // Top-level page areas (parentId=null, kind='page') are the sidebar entries a new user clicks
+    // first. They must have at least three blocks so they read as inhabited, not as stubs.
+    const topLevelPages = allPages.filter((p) => p.kind === 'page' && p.parentId === null);
+    expect(topLevelPages.length, 'no top-level pages found').toBeGreaterThan(0);
+    for (const page of topLevelPages) {
+      expect(
+        blockCountByPage.get(page.id) ?? 0,
+        `top-level page "${page.title}" has fewer than 3 blocks`,
+      ).toBeGreaterThanOrEqual(3);
+    }
+  });
+
   it('seeds enough distinctly-titled items for search to narrow meaningfully', async () => {
     const owner = await createAccount();
     await seedWorkspace(owner.db, owner.ctx);
