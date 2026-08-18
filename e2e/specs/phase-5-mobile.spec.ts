@@ -104,6 +104,55 @@ test.describe('Phase 5 — mobile search and theme (Pixel 5)', () => {
     await expect(page.getByTestId('quickfind-input')).toBeFocused();
   });
 
+  // ── DEF-094: Drawer closes on quickfind navigation ────────────────────────
+  // Fix: WorkspaceShell's onSelect handler calls closeSidebar() after navigating.
+  // The drawer is open; QuickFind is opened from inside the drawer via the sidebar
+  // "Search pages" button (the topbar search button is blocked by the scrim when the drawer
+  // is open). After choosing a result, the drawer must close.
+  test('DEF-094: drawer closes after quickfind navigation on mobile', async ({ page }) => {
+    // Open the sidebar drawer.
+    await page.getByRole('button', { name: 'Open navigation' }).tap();
+    await page.waitForTimeout(300);
+    await expect(page.getByTestId('sidebar')).toBeVisible({ timeout: 5000 });
+
+    // Verify the drawer is open at x ≈ 0.
+    const drawerXBefore = await page
+      .getByTestId('sidebar')
+      .evaluate((el) => el.getBoundingClientRect().x);
+    console.log(`DEF-094: drawer x when open=${drawerXBefore}`);
+    expect(drawerXBefore).toBeGreaterThanOrEqual(-5); // open = near x=0
+
+    // Open quick-find from inside the sidebar drawer using the "Search pages" button.
+    // The sidebar search button is inside the drawer and not blocked by the scrim.
+    const sidebarSearchBtn = page.getByRole('button', { name: 'Search pages' });
+    await expect(sidebarSearchBtn).toBeVisible({ timeout: 5000 });
+    await sidebarSearchBtn.tap();
+    await expect(page.getByTestId('quickfind-dialog')).toBeVisible({ timeout: 5000 });
+
+    // Type a query and choose the first result.
+    await page.getByTestId('quickfind-input').fill('recipes');
+    await page.waitForTimeout(150);
+    const firstResult = page.getByTestId('quickfind-result').first();
+    await expect(firstResult).toBeVisible({ timeout: 3000 });
+    await firstResult.tap();
+
+    // After navigation, dialog must close and drawer must close.
+    await expect(page.getByTestId('quickfind-dialog')).not.toBeVisible({ timeout: 5000 });
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(400);
+
+    // Verify the drawer is closed: x should be well off-screen (negative and far from 0).
+    const drawerXAfter = await page
+      .getByTestId('sidebar')
+      .evaluate((el) => el.getBoundingClientRect().x);
+    console.log(`DEF-094: drawer x after navigation=${drawerXAfter}`);
+    // A fully open drawer has x ≈ 0; a closed drawer has x < -200 (translated off-canvas).
+    expect(drawerXAfter).toBeLessThan(-100);
+
+    // Take evidence screenshot.
+    await page.screenshot({ path: `${SCREENSHOTS}/phase-5-mobile-topbar.png` });
+  });
+
   // ── No horizontal overflow at 320px with quick-find open ──────────────────
   test('no horizontal overflow at 320px with quick-find open', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 640 });
