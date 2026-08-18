@@ -32,9 +32,12 @@ test.describe('Block typing and autosave', () => {
     // Wait for autosave to settle (debounced ~500ms)
     await page.waitForTimeout(1000);
 
-    // Reload the page
+    // Reload the page. Use 'load' rather than 'networkidle': the app makes background
+    // requests that can keep networkidle from settling within the 30s test budget when
+    // the suite is running sequentially with a shared Worker. The block editor data is
+    // present as soon as the page's initial HTML + API response arrives.
     await page.reload();
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('load');
 
     // Verify the text persists - look for the unique text we typed
     const blockContent = page.locator('[data-testid="block-editor"]').locator('text=' + testText);

@@ -36,14 +36,15 @@ test.describe('DEF-014: Large paste truncation and feedback', () => {
     console.log(`Large text length: ${largeText.length}`);
     expect(largeText.length).toBeGreaterThan(10000);
 
-    // Type it using fillText with a delay between characters (simulating rapid paste)
-    // Use type with minimal delay
-    for (let i = 0; i < largeText.length; i += 100) {
-      const chunk = largeText.slice(i, i + 100);
-      await page.keyboard.type(chunk, { delay: 1 });
-    }
+    // Simulate a paste by using fill() on the textarea inside the block. fill() dispatches
+    // the same onChange / input path as a real paste — confirmed by DEF-021's analysis that
+    // the clamp fires from the generic onChange handler, not from a paste-specific handler.
+    // This is instant (no per-character CDP round-trips) and exercises the correct code path.
+    const blockTextarea = firstBlock.locator('textarea');
+    await expect(blockTextarea).toBeVisible();
+    await blockTextarea.fill(largeText);
 
-    console.log('Large text typed');
+    console.log('Large text filled via textarea.fill()');
 
     // The paste-clamp notice must be visible immediately after the clamping fires. Assert before
     // the reload because the 2 s auto-dismiss lifetime means the notice will be gone by then.
