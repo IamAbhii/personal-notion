@@ -1,22 +1,26 @@
-## DEF-089: Server becomes unresponsive mid-suite; the /test/reset endpoint times out and later tests fail with ECONNREFUSED
+## DEF-089: resetWorkspace silently skips the reset when the app has not yet redirected; tests run against stale state and become order-dependent
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: HIGH
 - Found by: qa
 - Phase: 4
 
 Steps to reproduce:
 
-1. Launch the app: `npm run kill-servers && npm run test:e2e` (the full e2e suite, chromium project, all spec files in alphabetical order).
-2. Watch the run through the database-persistence and database-table spec files.
+1. Launch the app (`npm start`) and open the e2e suite with `npx playwright test e2e/specs/database-persistence.spec.ts --project=chromium`.
+2. Observe that `database-persistence.spec.ts:303` ("block added on the row page persists across reload") times out waiting for the URL to change after `createDatabase()`.
 
-Expected: every test completes and the server stays responsive throughout the full suite run. The `POST /api/workspaces/:workspaceId/test/reset` endpoint responds within 30 seconds for every call.
+Expected: each test starts from a clean seeded state; `resetWorkspace` always POSTs to `/test/reset` before the test body runs.
 
-Actual: during the `database-persistence.spec.ts` run, the "url cell value survives a page reload (Book Tracker — Link)" test hits its 30-second timeout. The immediately following test in `database-table.spec.ts` times out in its `beforeEach` waiting on `page.request.post('/api/workspaces/:workspaceId/test/reset')` — the reset endpoint itself hangs. In the full suite run (all 139+ tests), the server eventually becomes completely unresponsive: later spec files get `net::ERR_CONNECTION_REFUSED` on every `page.goto`, and `defect-037-040-regressions.spec.ts`'s DEF-039 test fails in 1.1 s with a connection-refused error rather than the 4 s it takes when the server is healthy. The ordering dependency is in the server: DEF-039 passes when the server is stable (isolated run or subset that does not include the database-persistence/database-table path). No code path in DEF-039 or its `resetWorkspace` beforeEach leaks state.
+Actual: `resetWorkspace` wraps the entire reset in `if (urlMatch)`, where `urlMatch` comes from matching `/\/w\/([^/]+)/` against the URL immediately after `page.goto('/') + waitForLoadState('networkidle')`. When the app has not yet redirected to `/w/<workspaceId>` at that moment, the match fails and the function returns without POSTing, without asserting, and without any visible error. Every subsequent test then runs against whatever state the previous test left behind. The suite becomes order-dependent: a test that mutates the workspace (e.g. creating a database) pollutes every later test in the same file.
+
+Note: the server is healthy throughout. 30 consecutive POSTs to the reset endpoint completed in ~10 ms each with flat RSS. The Worker answered `GET /api/me` on every poll during a 16-minute slow run. The root cause is in the fixture, not the server.
 
 History:
 
-- qa: opened. Root cause is server-side: the reset endpoint hangs after database-persistence / database-table operations (possibly a D1 lock or a long-running sync operation left open). Confirmed by running `database-create|database-mobile|database-persistence|database-table|def-021|defect-037-040` together: database-persistence:79 timed out, database-table:312 beforeEach timed out on the reset POST, and DEF-039 passed only because the server recovered before defect-037-040 ran. In the full 139-test suite the server does not recover and DEF-039 fails. Developer must investigate why the reset endpoint hangs after database-persistence/table writes.
+- qa: opened with wrong server-crash diagnosis (reset endpoint hanging, ECONNREFUSED).
+- qa: diagnosis corrected by direct measurement. Server is healthy; the reset endpoint never times out in isolation. The actual defect is in `e2e/fixtures/reset-workspace.ts`: the `if (urlMatch)` guard silently skips the POST when the redirect has not yet occurred, leaving tests with shared mutable state. This is the Phase 1 lesson from CLAUDE.md repeating: a cleanup step that is never asserted is worse than none. Fixed in the fixture: now calls `waitForURL(/\/w\/[^/]+/)` before extracting the id, and `expect`s the match is non-null so any failure is loud.
+- qa: CLOSED. After the fixture fix, `database-persistence.spec.ts` ran 10/10 passed in 30.1s. The `:303` failure did not recur — it was purely caused by stale workspace state from silently-skipped resets. Per-test timings: 1.4s–4.2s per test. The 16.1-minute previous run was entirely explained by accumulated stale state: skipped resets left extra databases in the workspace, subsequent `createDatabase()` calls waited out their full timeout before each test completed. No product defect; fixture-only fix.
 
 ## DEF-070: Creating a database sends invalid sortKeys; server rejects all three view.create ops; database ends up with no views and navigation never occurs
 
