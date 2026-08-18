@@ -1,8 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Outlet, useNavigate, useParams } from '@tanstack/react-router';
 import { useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
-import { Menu } from 'lucide-react';
+import { Menu, Search } from 'lucide-react';
 import { meQueryOptions, queryKeys, snapshotQueryOptions } from '../../api/queries';
 import { flushStashedOps } from '../../sync/ops';
 import { usePageMutations } from '../../hooks/usePageMutations';
@@ -11,12 +11,14 @@ import { usePropertyMutations } from '../../hooks/usePropertyMutations';
 import { useViewMutations } from '../../hooks/useViewMutations';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { notify } from '../../lib/notify';
+import { QuickFind } from '../../components/QuickFind/QuickFind';
 import { Sidebar } from '../../components/Sidebar/Sidebar';
 import { SkipLink } from '../../components/SkipLink';
 import { IconButton } from '../../components/ui/IconButton/IconButton';
 import { WorkspaceContext } from '../../workspace/context';
 import { descendantIds } from '../../lib/pageTree';
 import { useUiStoreShallow } from '../../stores/uiStore';
+import { useThemeStore } from '../../stores/themeStore';
 import { cn } from '../../lib/cn';
 import type { PageRecord } from '../../api/types';
 
@@ -87,6 +89,37 @@ export function WorkspaceShell() {
   const toggleRef = useRef<HTMLButtonElement>(null);
   const sidebarRef = useRef<HTMLElement>(null);
 
+  // Quick-find dialog state. lastFocusRef holds the element that was active when the dialog
+  // opened so we can restore focus when it closes, per the ARIA modal pattern.
+  const [isQuickFindOpen, setIsQuickFindOpen] = useState(false);
+  const lastFocusRef = useRef<Element | null>(null);
+
+  // Opens the dialog and remembers which element had focus so we can restore it on close.
+  const openQuickFind = useCallback(() => {
+    lastFocusRef.current = document.activeElement;
+    setIsQuickFindOpen(true);
+  }, []);
+
+  // Closes the dialog and returns focus to the element that triggered it.
+  const closeQuickFind = useCallback(() => {
+    setIsQuickFindOpen(false);
+    if (lastFocusRef.current instanceof HTMLElement) {
+      lastFocusRef.current.focus();
+    }
+  }, []);
+
+  // Cmd+K / Ctrl+K anywhere in the shell opens the quick-find dialog.
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'k' && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        openQuickFind();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [openQuickFind]);
+
   // Focus the sidebar when the drawer opens so keyboard and screen-reader users land inside it.
   useEffect(() => {
     if (isSidebarOpen) {
@@ -153,9 +186,9 @@ export function WorkspaceShell() {
 
   // Sidebar needs a flat delete that also works for databases and rows.
 
-  // Read the active theme once; tokens handle light/dark switching, so the Toaster's theme prop
-  // is mainly for accessibility metadata rather than visual styling.
-  const appTheme = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+  // Read the active theme from the store so the Toaster's theme prop updates reactively when the
+  // user toggles, rather than snapping a one-time DOM read at mount.
+  const appTheme = useThemeStore((s) => s.theme);
 
   // When viewing a row page, the sidebar should highlight the parent database as current so the
   // user always knows which database they are in (ADV-054). Row pages are not in the sidebar tree,
@@ -211,6 +244,14 @@ export function WorkspaceShell() {
           <span className="min-w-0 flex-1 overflow-hidden text-sm font-bold text-ellipsis whitespace-nowrap text-panel-text">
             {membership?.name ?? 'Workspace'}
           </span>
+          {/* Search icon in the topbar: always visible on mobile so the user can reach quick-find
+              without opening the sidebar drawer first. */}
+          <IconButton
+            icon={<Search size={20} aria-hidden />}
+            aria-label="Search"
+            onClick={openQuickFind}
+            className="text-panel-text hover:bg-panel-hover hover:text-panel-text"
+          />
         </div>
 
         {/* Sidebar wrapper. On mobile it is a fixed overlay (off-canvas drawer); at md+ it
@@ -235,7 +276,10 @@ export function WorkspaceShell() {
               being set at md+ where the sidebar is a permanently visible grid column. */}
           <div
             className={cn(
-              'pointer-events-auto absolute top-0 bottom-0 left-0 flex w-[292px] max-w-[85vw] transition-transform duration-200 motion-reduce:transition-none md:static md:w-auto md:max-w-none md:translate-x-0 md:transition-none',
+              // Mobile: absolute top-0/bottom-0 gives it the height of the fixed inset-0 wrapper.
+              // md+: static, so it no longer has absolute sizing — h-full is needed so the flex
+              // column propagates to the aside, which pins the footer inside the sidebar.
+              'pointer-events-auto absolute top-0 bottom-0 left-0 flex w-[292px] max-w-[85vw] transition-transform duration-200 motion-reduce:transition-none md:static md:h-full md:w-auto md:max-w-none md:translate-x-0 md:transition-none',
               isSidebarOpen ? 'translate-x-0' : '-translate-x-full',
             )}
             inert={(isMobile && !isSidebarOpen) || undefined}
@@ -255,6 +299,7 @@ export function WorkspaceShell() {
               onDeletePage={(page) => void deletePage(page)}
               sidebarRef={sidebarRef}
               onClose={handleCloseSidebar}
+              onOpenSearch={openQuickFind}
             />
           </div>
         </div>
@@ -272,6 +317,18 @@ export function WorkspaceShell() {
           <Outlet />
         </div>
       </div>
+      {/* Quick-find dialog: rendered when open, dismissed on Escape, backdrop click, or item pick.
+          Placed outside the shell grid so its fixed-position overlay is not clipped. */}
+      {isQuickFindOpen ? (
+        <QuickFind
+          pages={pages}
+          onClose={closeQuickFind}
+          onSelect={(pageId) => {
+            selectPage(pageId);
+          }}
+        />
+      ) : null}
+
       {/*
         Toaster is outside the shell grid so it can use a fixed position without being clipped.
         `toastOptions.unstyled` disables sonner's built-in CSS; classNames + project tokens
