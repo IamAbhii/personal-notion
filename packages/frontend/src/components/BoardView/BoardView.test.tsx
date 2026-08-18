@@ -1,7 +1,9 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import { KeyboardCode } from '@dnd-kit/core';
 import { BoardView } from './BoardView';
+import { boardCollisionDetection, createBoardKeyboardCoordinates } from './boardKeyboard';
 import type { BoardColumn } from '../../lib/viewData';
 import type { PageRecord, PropertyRecord } from '../../api/types';
 
@@ -137,7 +139,6 @@ describe('BoardView', () => {
     });
   });
 
-  // DEF-072: when all rows are filtered out, the board shows a "no rows" message.
   it('shows empty state when all rows are filtered out (DEF-072)', () => {
     const emptyColumns: BoardColumn[] = [
       { optionId: 'opt-todo', label: 'Todo', color: 'gray', rows: [] },
@@ -154,5 +155,172 @@ describe('BoardView', () => {
       />,
     );
     expect(screen.getByText(/no rows match the current filters/i)).toBeInTheDocument();
+  });
+});
+
+// ── DEF-077: keyboard coordinate getter ────────────────────────────────────────
+
+/**
+ * Builds a minimal SensorContext mock for testing the keyboard coordinate getter.
+ * Only `droppableContainers`, `droppableRects`, and `over` are exercised by the getter.
+ */
+function makeSensorContext(
+  droppables: Array<{ id: string; left: number; width?: number }>,
+  overColId: string | null,
+) {
+  const droppableContainers = new Map(droppables.map(({ id }) => [id, { id }]));
+  const droppableRects = new Map(
+    droppables.map(({ id, left, width = 260 }) => [
+      id,
+      { left, top: 0, width, height: 400, right: left + width, bottom: 400 },
+    ]),
+  );
+  return {
+    activatorEvent: null,
+    active: null,
+    activeNode: null,
+    collisionRect: null,
+    collisions: null,
+    draggableNodes: new Map(),
+    draggingNode: null,
+    draggingNodeRect: null,
+    droppableRects,
+    droppableContainers,
+    over: overColId
+      ? { id: overColId, rect: { current: null }, disabled: false, data: { current: undefined } }
+      : null,
+    scrollableAncestors: [],
+    scrollAdjustedTranslate: null,
+  };
+}
+
+/** Two-column fixture: col-a at x=0, col-b at x=280; card-1 lives in col-a. */
+const kbdCols: BoardColumn[] = [
+  { optionId: 'col-a', label: 'Col A', color: 'gray', rows: [row('card-1', 'Card 1')] },
+  { optionId: 'col-b', label: 'Col B', color: 'teal', rows: [] },
+];
+const kbdDroppables = [
+  { id: 'col-a', left: 0 },
+  { id: 'col-b', left: 280 },
+];
+
+describe('createBoardKeyboardCoordinates (DEF-077)', () => {
+  it('when over is null and card is in col-a, ArrowRight navigates to col-b', () => {
+    const getter = createBoardKeyboardCoordinates(kbdCols);
+    const preventDefault = vi.fn();
+    const event = { code: KeyboardCode.Right, preventDefault } as unknown as KeyboardEvent;
+
+    const result = getter(event, {
+      active: 'card-1',
+      currentCoordinates: { x: 130, y: 200 },
+      context: makeSensorContext(kbdDroppables, null) as never,
+    });
+
+    // col-b centre: left=280 + width/2=130 = 410, top=0 + height/2=200 = 200
+    expect(result).toEqual({ x: 410, y: 200 });
+    expect(preventDefault).toHaveBeenCalled();
+  });
+
+  it('when already over col-a, ArrowRight navigates to col-b', () => {
+    const getter = createBoardKeyboardCoordinates(kbdCols);
+    const event = { code: KeyboardCode.Right, preventDefault: vi.fn() } as unknown as KeyboardEvent;
+
+    const result = getter(event, {
+      active: 'card-1',
+      currentCoordinates: { x: 130, y: 200 },
+      context: makeSensorContext(kbdDroppables, 'col-a') as never,
+    });
+
+    expect(result).toEqual({ x: 410, y: 200 });
+  });
+
+  it('when already at the last column, ArrowRight returns undefined (no further column)', () => {
+    const getter = createBoardKeyboardCoordinates(kbdCols);
+    const event = { code: KeyboardCode.Right, preventDefault: vi.fn() } as unknown as KeyboardEvent;
+
+    const result = getter(event, {
+      active: 'card-1',
+      currentCoordinates: { x: 410, y: 200 },
+      context: makeSensorContext(kbdDroppables, 'col-b') as never,
+    });
+
+    expect(result).toBeUndefined();
+  });
+
+  it('ArrowLeft from col-b navigates back to col-a', () => {
+    const getter = createBoardKeyboardCoordinates(kbdCols);
+    const event = { code: KeyboardCode.Left, preventDefault: vi.fn() } as unknown as KeyboardEvent;
+
+    const result = getter(event, {
+      active: 'card-1',
+      currentCoordinates: { x: 410, y: 200 },
+      context: makeSensorContext(kbdDroppables, 'col-b') as never,
+    });
+
+    // col-a centre: 0 + 260/2 = 130
+    expect(result).toEqual({ x: 130, y: 200 });
+  });
+
+  it('non-arrow keys return undefined and do not call preventDefault', () => {
+    const getter = createBoardKeyboardCoordinates(kbdCols);
+    const preventDefault = vi.fn();
+    const event = { code: KeyboardCode.Space, preventDefault } as unknown as KeyboardEvent;
+
+    const result = getter(event, {
+      active: 'card-1',
+      currentCoordinates: { x: 130, y: 200 },
+      context: makeSensorContext(kbdDroppables, null) as never,
+    });
+
+    expect(result).toBeUndefined();
+    expect(preventDefault).not.toHaveBeenCalled();
+  });
+});
+
+// ── boardCollisionDetection (DEF-077 / DEF-075) ────────────────────────────────
+
+describe('boardCollisionDetection', () => {
+  // Minimal args that satisfy both pointerWithin and closestCenter signatures.
+  const baseArgs = {
+    active: {
+      id: 'card-1',
+      data: { current: undefined },
+      rect: { current: { initial: null, translated: null } },
+    },
+    collisionRect: { left: 280, top: 0, width: 200, height: 60, right: 480, bottom: 60 },
+    droppableRects: new Map([
+      ['col-a', { left: 0, top: 0, width: 260, height: 400, right: 260, bottom: 400 }],
+      ['col-b', { left: 280, top: 0, width: 260, height: 400, right: 540, bottom: 400 }],
+    ]),
+    droppableContainers: [
+      {
+        id: 'col-a',
+        key: 'col-a',
+        disabled: false,
+        data: { current: undefined },
+        node: { current: null },
+        rect: { current: null },
+      },
+      {
+        id: 'col-b',
+        key: 'col-b',
+        disabled: false,
+        data: { current: undefined },
+        node: { current: null },
+        rect: { current: null },
+      },
+    ],
+  };
+
+  it('uses closestCenter when pointerCoordinates is null (keyboard drag)', () => {
+    // The collisionRect is centred in col-b (left=280). closestCenter should return col-b.
+    const result = boardCollisionDetection({ ...baseArgs, pointerCoordinates: null });
+    expect(result[0]?.id).toBe('col-b');
+  });
+
+  it('uses pointerWithin when pointerCoordinates is provided (pointer drag)', () => {
+    // Pointer is inside col-a (x=100 is within left=0, right=260).
+    const result = boardCollisionDetection({ ...baseArgs, pointerCoordinates: { x: 100, y: 200 } });
+    expect(result[0]?.id).toBe('col-a');
   });
 });

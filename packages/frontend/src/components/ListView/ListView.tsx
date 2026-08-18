@@ -143,7 +143,7 @@ export function ListView({ rows, properties, values, onSelectRow, totalRowCount 
                   return (
                     <span
                       key={prop.id}
-                      className="flex max-w-[120px] min-w-[72px] flex-col gap-0.5"
+                      className="flex w-[120px] flex-shrink-0 flex-col gap-0.5"
                       aria-label={prop.name}
                     >
                       {/* Property label — tiny, muted, all-caps, visible (DEF-084) */}
