@@ -37,22 +37,23 @@ describe('searchWorkspace: basic matching', () => {
   it('matches database titles', () => {
     const results = searchWorkspace(pages, 'tasks');
     expect(results).toHaveLength(1);
-    expect(results[0].pageId).toBe('db1');
-    expect(results[0].kind).toBe('database');
+    expect(results[0]!.pageId).toBe('db1');
+    expect(results[0]!.kind).toBe('database');
   });
 
   it('matches row titles', () => {
     const results = searchWorkspace(pages, 'bug');
     expect(results).toHaveLength(1);
-    expect(results[0].pageId).toBe('r1');
-    expect(results[0].kind).toBe('row');
+    expect(results[0]!.pageId).toBe('r1');
+    expect(results[0]!.kind).toBe('row');
   });
 
-  it('result includes the pageId, title, and kind', () => {
-    const [result] = searchWorkspace(pages, 'roadmap');
+  it('result includes the pageId, title, kind and icon', () => {
+    const result = searchWorkspace(pages, 'roadmap')[0]!;
     expect(result.pageId).toBe('p2');
     expect(result.title).toBe('Project Roadmap');
     expect(result.kind).toBe('page');
+    expect(typeof result.icon).toBe('string');
   });
 });
 
@@ -76,7 +77,7 @@ describe('searchWorkspace: ranking', () => {
     expect(midResults.length).toBeGreaterThan(0);
     // Within mid-string hits, titles are alphabetically ordered
     for (let i = 1; i < midResults.length; i++) {
-      expect(midResults[i - 1].title.localeCompare(midResults[i].title)).toBeLessThanOrEqual(0);
+      expect(midResults[i - 1]!.title.localeCompare(midResults[i]!.title)).toBeLessThanOrEqual(0);
     }
     void prefixResults; // not relevant for this assertion
   });
@@ -84,13 +85,13 @@ describe('searchWorkspace: ranking', () => {
 
 describe('searchWorkspace: row parent context', () => {
   it('includes parentTitle for row pages', () => {
-    const [result] = searchWorkspace(pages, 'Fix login');
+    const result = searchWorkspace(pages, 'Fix login')[0]!;
     expect(result.kind).toBe('row');
     expect(result.parentTitle).toBe('Tasks');
   });
 
-  it('includes undefined parentTitle for non-row pages', () => {
-    const [result] = searchWorkspace(pages, 'meeting');
+  it('includes undefined parentTitle for top-level non-row pages', () => {
+    const result = searchWorkspace(pages, 'meeting')[0]!;
     expect(result.kind).toBe('page');
     expect(result.parentTitle).toBeUndefined();
   });
@@ -99,8 +100,52 @@ describe('searchWorkspace: row parent context', () => {
     const orphanPages = [
       makePage({ id: 'r99', title: 'Orphan row', kind: 'row', parentId: 'missing' }),
     ];
-    const [result] = searchWorkspace(orphanPages, 'orphan');
+    const result = searchWorkspace(orphanPages, 'orphan')[0]!;
     expect(result.parentTitle).toBeUndefined();
+  });
+});
+
+describe('searchWorkspace: parent context for nested pages', () => {
+  it('includes parentTitle for a nested page', () => {
+    const nested: PageRecord[] = [
+      makePage({ id: 'parent-page', title: 'Weekly Review', kind: 'page' }),
+      makePage({
+        id: 'child-page',
+        title: 'Week 32',
+        kind: 'page',
+        parentId: 'parent-page',
+      }),
+    ];
+    const result = searchWorkspace(nested, 'Week 32')[0]!;
+    expect(result.kind).toBe('page');
+    expect(result.parentTitle).toBe('Weekly Review');
+  });
+
+  it('does not include parentTitle for top-level pages', () => {
+    const result = searchWorkspace(pages, 'roadmap')[0]!;
+    expect(result.parentTitle).toBeUndefined();
+  });
+});
+
+describe('searchWorkspace: Unicode folding', () => {
+  it('"cafe" matches "Café notes"', () => {
+    const accented: PageRecord[] = [makePage({ id: 'c1', title: 'Café notes', kind: 'page' })];
+    const results = searchWorkspace(accented, 'cafe');
+    expect(results).toHaveLength(1);
+    expect(results[0]!.pageId).toBe('c1');
+  });
+
+  it('"istanbul" matches "İstanbul guide"', () => {
+    const turkish: PageRecord[] = [makePage({ id: 't1', title: 'İstanbul guide', kind: 'page' })];
+    const results = searchWorkspace(turkish, 'istanbul');
+    expect(results).toHaveLength(1);
+    expect(results[0]!.pageId).toBe('t1');
+  });
+
+  it('case-only matches still work alongside accent folding', () => {
+    const accented: PageRecord[] = [makePage({ id: 'c2', title: 'Résumé', kind: 'page' })];
+    expect(searchWorkspace(accented, 'resume')).toHaveLength(1);
+    expect(searchWorkspace(accented, 'Résumé')).toHaveLength(1);
   });
 });
 

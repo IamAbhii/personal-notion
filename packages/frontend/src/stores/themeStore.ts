@@ -77,3 +77,15 @@ export const useThemeStore = create<ThemeState>()((set) => ({
       return { theme: next };
     }),
 }));
+
+// DEF-101: when another tab changes the theme, the storage event fires on all other tabs.
+// Apply the new theme to the DOM and update the store so the toggle label stays consistent.
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (event: StorageEvent) => {
+    if (event.key === 'personal-space:theme') {
+      const next: Theme = event.newValue === 'dark' ? 'dark' : 'light';
+      applyTheme(next);
+      useThemeStore.setState({ theme: next });
+    }
+  });
+}
