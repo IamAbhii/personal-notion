@@ -225,7 +225,9 @@ test('quick-find: unmatched query shows readable empty state, not blank', async 
   await expect(results).toHaveCount(0);
 
   // A readable message must be visible — not a blank white box.
-  const emptyMsg = page.locator('[data-testid="quickfind-dialog"] li');
+  // DEF-095 removed <li> wrappers; the "no results" state is now a <p> element outside the
+  // listbox so that status messages do not break the listbox owned-element relationship.
+  const emptyMsg = page.locator('[data-testid="quickfind-dialog"] p');
   await expect(emptyMsg).toBeVisible({ timeout: 3000 });
   const msgText = await emptyMsg.textContent();
   console.log(`SEARCH-EMPTY: empty state text="${msgText?.substring(0, 80)}"`);
