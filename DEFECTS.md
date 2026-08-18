@@ -1,3 +1,326 @@
+## DEF-103: The Home page body says "four areas", names two of them, and the sidebar top level has six entries
+
+- Status: OPEN
+- Severity: LOW
+- Found by: adversary (ADV-090)
+- Phase: 5
+
+Steps to reproduce:
+
+1. Launch the app and open http://localhost:8787.
+2. Reset the workspace via `POST /api/workspaces/:id/test/reset` (or just use the seed).
+3. Navigate to Home and read its body text.
+4. Count the top-level entries in the sidebar and compare to what the body claims.
+
+Expected: the orienting copy on Home agrees with what the sidebar shows — the count and the descriptions match.
+
+Actual: Home reads "Everything lives under one of the four areas in the sidebar. This page is just the way in." and then lists two bullets ("Journal for the weekly review and the yearly intentions", "Projects for anything with an end date"). Home has three children (Journal, Projects, Someday maybe) and the sidebar top level has six entries (Home, Recipes, Travel, Reading list, Work Projects, Book Tracker). "Four areas" is incorrect on any reading of the tree, and the two named bullets describe children of Home rather than the top-level siblings.
+
+Screenshot: screenshots/adv-090.png
+
+History:
+
+- qa: opened, reproduced from ADV-090
+
+## DEF-102: 20 of 25 non-row seed pages are empty, including every top-level area except Home
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-089)
+- Phase: 5
+
+Steps to reproduce:
+
+1. Launch the app and reset the workspace: `POST /api/workspaces/:id/test/reset`.
+2. Click through the sidebar tree, visiting Journal, Projects, Someday maybe, Recipes, Weeknight dinners, Miso noodle soup, Sheet pan chicken, Baking, Sourdough log, Travel, Japan 2027, Kyoto shortlist, Budget notes, Photography, Reading list, Finished in 2026, Week 32 - what worked, Week 32 - what to drop.
+3. Note how many render "This page is empty".
+
+Expected: for a "full showcase workspace" the visitor should find content on most pages. The final success criterion requires the app to "look alive on first launch" with a fully populated seed.
+
+Actual: only five pages have any content — Home (5 blocks), 2026 Intentions (12), Lighting ideas (13), Film stock notes (16), Packing list (5). All other non-row pages — 20 of 25 — are empty, including four of the six sidebar top-level entries (Journal, Recipes, Travel, Reading list). Named pages like "Miso noodle soup" and "Week 32 - what worked" display "This page is empty" despite their titles promising content. Feature coverage (block types, property types, databases) is present but the content that would make the workspace feel inhabited is absent.
+
+History:
+
+- qa: opened, reproduced from ADV-089. Severity raised to MEDIUM from adversary's LOW: "the app ships fully populated so it looks alive on first launch" is a final success criterion and four empty top-level areas directly fail it.
+
+## DEF-101: A theme change in one tab does not reach other open tabs; the second tab's toggle disagrees with what is stored
+
+- Status: OPEN
+- Severity: LOW
+- Found by: adversary (ADV-088)
+- Phase: 5
+
+Steps to reproduce:
+
+1. Launch the app and open http://localhost:8787/w/<workspaceId> in two browser tabs.
+2. In tab 1, click the sidebar footer toggle ("Switch to dark theme").
+3. Inspect `document.documentElement.dataset.theme` in tab 2 without reloading it.
+4. Read the label on tab 2's toggle button.
+
+Expected: the other tab follows the change (via a `storage` event listener), or at minimum its toggle label reflects what is actually stored in localStorage.
+
+Actual: tab 1 goes dark; tab 2 stays light and localStorage shows `dark`. Tab 2's button still reads "Switch to dark theme" even though dark is already stored, so it is offering to switch to the theme already persisted. Clicking the toggle in tab 2 does resolve both tabs to dark, so nothing is permanently broken, but during the window between changes a user with two tabs open sees two different themes with a misleading label on the stale tab.
+
+History:
+
+- qa: opened, reproduced from ADV-088
+
+## DEF-100: The sidebar search field hard-codes the Mac "⌘K" shortcut hint on every platform
+
+- Status: OPEN
+- Severity: LOW
+- Found by: adversary (ADV-087)
+- Phase: 5
+
+Steps to reproduce:
+
+1. Launch the app and open the workspace at 1280x800.
+2. Look at the keyboard hint rendered inside the sidebar's "Search pages" field.
+3. Confirm the shortcut handler in WorkspaceShell.tsx accepts both `metaKey` and `ctrlKey`.
+
+Expected: the hint matches the platform — "Ctrl K" on Windows and Linux, "⌘K" on macOS — since the handler already accepts both modifiers.
+
+Actual: the `<kbd>` element in Sidebar.tsx hard-codes the literal `⌘K` glyph. A Windows or Linux user is shown a Mac-only symbol for a shortcut that works for them as Ctrl+K, so the hint is misleading on non-Mac platforms.
+
+History:
+
+- qa: opened, reproduced from ADV-087. Cannot verify at runtime on non-Mac but the source code confirms the hard-coded glyph and the handler's dual-modifier check.
+
+## DEF-099: Home, End and PageUp/PageDown do nothing in quick-find; the safeIndex comment falsely claims arrow-key wrapping
+
+- Status: OPEN
+- Severity: LOW
+- Found by: adversary (ADV-086)
+- Phase: 5
+
+Steps to reproduce:
+
+1. Launch the app and open the workspace at 1280x800.
+2. Press Cmd+K and type `e` so many results are listed.
+3. Press ArrowDown several times to move the highlight away from the top.
+4. Press Home, then End, then PageDown, observing the highlighted option after each.
+5. Read the comment above `safeIndex` in `packages/frontend/src/components/QuickFind.tsx`.
+
+Expected: Home jumps to the first result, End to the last, PageDown advances by a page. If clamping is the chosen behaviour, the code comment should not describe wrapping.
+
+Actual: Home, End and PageDown are all ignored — the highlight stays where it was and the input cursor does not move. Arrow keys clamp correctly at both ends (no out-of-bounds index), which is a legitimate choice, but the comment above `safeIndex` reads "Clamp so arrow-key wrapping never produces an out-of-bounds index", incorrectly describing wrapping behaviour the component does not implement.
+
+History:
+
+- qa: opened, reproduced from ADV-086. Cannot run the app in this filing pass; filed on the adversary's steps and source-code observation.
+
+## DEF-098: Search performs no Unicode folding: "cafe" returns no results for a page titled "Café"
+
+- Status: OPEN
+- Severity: LOW
+- Found by: adversary (ADV-085)
+- Phase: 5
+
+Steps to reproduce:
+
+1. Launch the app and rename a page to "Café notes" via the sidebar rename action.
+2. Press Cmd+K and search for `cafe`.
+3. Then search for `Café` to confirm the page exists.
+
+Expected: accent-insensitive matching so that `cafe` finds "Café notes" — a common expectation for search.
+
+Actual: `Café` and `cafÉ` both match (case folding works), but `cafe` returns no results. The server's `search.ts` does not normalise to NFD or strip combining marks, so `cafe` and `Café` are treated as different strings. The same gap affects `İstanbul` (found) vs `istanbul` (not found). Right-to-left titles and zero-width-space edge cases are handled consistently.
+
+History:
+
+- qa: opened, reproduced from ADV-085. Cannot run the app in this filing pass; filed on the adversary's confirmed steps.
+
+## DEF-097: Quick-find result rows show no page icons, inconsistent with every other surface in the app
+
+- Status: OPEN
+- Severity: LOW
+- Found by: adversary (ADV-084)
+- Phase: 5
+
+Steps to reproduce:
+
+1. Launch the app and open the workspace at 1280x800.
+2. Press Cmd+K and type `e` so several results appear.
+3. Compare a result row's appearance with the same page's sidebar row and breadcrumb.
+
+Expected: the emoji icon that identifies a page appears in its search result row, as it does in the sidebar, breadcrumb and page header.
+
+Actual: result rows show only the title and a kind label (e.g. "Page"). The sidebar row for the same page shows the icon alongside the title ("🏯 Kyoto shortlist"), and the breadcrumb and header do the same. No icon appears at all in quick-find results.
+
+Screenshot: screenshots/adv-083.png
+
+History:
+
+- qa: opened, reproduced from ADV-084
+
+## DEF-096: Quick-find page results show no parent context, making identically-named pages indistinguishable
+
+- Status: OPEN
+- Severity: LOW
+- Found by: adversary (ADV-083)
+- Phase: 5
+
+Steps to reproduce:
+
+1. Launch the app and create three top-level pages by clicking "Add a top-level page" three times, pressing Escape each time to leave them as "Untitled".
+2. Press Cmd+K and type `Untitled`.
+3. Observe the result rows.
+
+Expected: enough context to tell results apart — the parent page name or path — as row results already provide ("Row - in Work Projects").
+
+Actual: three results render as exactly `Untitled` / `Page`, `Untitled` / `Page`, `Untitled` / `Page` with nothing to distinguish them. Nested pages such as "Week 32 - what worked" and "Week 32 - what to drop" are listed with no hint they live under Journal / Weekly Review. Only `kind === 'row'` results get a `parentTitle` in `search.ts`; page and database results receive no context.
+
+Screenshot: screenshots/adv-083.png
+
+History:
+
+- qa: opened, reproduced from ADV-083
+
+## DEF-095: Quick-find listbox nests options inside listitems, places status messages inside the listbox, and never announces the result count
+
+- Status: OPEN
+- Severity: LOW
+- Found by: adversary (ADV-082)
+- Phase: 5
+
+Steps to reproduce:
+
+1. Launch the app and open the workspace at 1280x800.
+2. Press Cmd+K. With nothing typed, read the ARIA snapshot of the dialog.
+3. Type `Kyoto` (one result) and read the snapshot again.
+4. Type `zzz` (no results) and read the snapshot again.
+5. Count `aria-live` / `role="status"` elements inside the dialog.
+
+Expected: `listbox` children are `option` elements (no intervening listitem); status messages ("Type to search…", "No results") live in a polite live region outside the listbox; the result count is announced as the user types.
+
+Actual: the ARIA tree is `listbox "Search results" > listitem > option "Kyoto shortlist Page"` — the `<li>` wrappers take an implicit `listitem` role and break the owned-element relationship between the listbox and its options. In the empty and no-result states the listbox's only child is a listitem holding the message text, a non-option inside a listbox. `aria-expanded` on the combobox reads `false` while the visible list is present. There is no live region anywhere in the dialog (count 0), so neither the result count nor the "no results" state is announced to screen readers.
+
+History:
+
+- qa: opened, reproduced from ADV-082. Cannot run the app in this filing pass; filed on the adversary's confirmed ARIA snapshot steps.
+
+## DEF-094: On mobile, a quick-find navigation leaves the drawer open over the destination; the scrim then blocks the topbar search button
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-081)
+- Phase: 5
+
+Steps to reproduce:
+
+1. Launch the app and open the workspace at a mobile viewport (390x800 or 320x800).
+2. Tap the hamburger button to open the sidebar drawer.
+3. From inside the drawer, open quick-find (Cmd+K or the topbar search button), type `Kyoto` and press Enter to choose the result.
+4. Measure the drawer's `getBoundingClientRect().x`.
+5. Try to tap the topbar "Search" button.
+
+Expected: the drawer closes on navigation, as it does when a page is chosen directly from the sidebar tree.
+
+Actual: the drawer remains fully open (x = 0) with its `bg-black/55` scrim covering the just-navigated destination. The destination page is dimmed and non-interactive. The scrim also intercepts taps on the topbar "Search" button, so a second search attempt does nothing until the scrim is tapped first to dismiss the drawer. Picking a page from the tree closes the drawer correctly (x = -292); this regression is specific to the quick-find navigation path.
+
+Screenshot: screenshots/adv-081.png
+
+History:
+
+- qa: opened, reproduced from ADV-081. Cannot run the mobile suite in this filing pass; filed on the adversary's confirmed steps.
+
+## DEF-093: Choosing a quick-find result for a deleted page renders the phantom page normally; the first edit is silently discarded
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-080)
+- Phase: 5
+
+Steps to reproduce:
+
+1. Launch the app and open the workspace in tab A.
+2. Open the same workspace in tab B.
+3. In tab A, press Cmd+K and type `Kyoto`, leaving the result highlighted but not chosen.
+4. In tab B, delete "Kyoto shortlist" via the sidebar Delete action and confirm.
+5. Back in tab A, press Enter to choose the highlighted stale result.
+6. Click the "Click here to start writing" placeholder and type some text; wait for the debounce.
+
+Expected: choosing a result for a page that no longer exists shows the "This page no longer exists" screen, or refetches the snapshot first. If a write is rejected, a toast reports it.
+
+Actual: tab A navigates and renders the deleted page completely normally — icon, title, breadcrumb, "This page is empty" placeholder. Typing there produces a sync response of `{"status":"rejected","reason":"page no longer exists"}`; the typed text is silently discarded, no toast or message appears, and only then does the view flip to "NOT FOUND / This page no longer exists." The same applies to a row result whose parent database was deleted. The stale result list is a precondition, not a separate bug — quick-find queries the same in-memory snapshot that the sidebar shows.
+
+Screenshot: screenshots/adv-080.png
+
+History:
+
+- qa: opened, reproduced from ADV-080. Cannot run the app in this filing pass; filed on the adversary's confirmed steps.
+
+## DEF-092: Once focus moves to a quick-find result option, Escape, Enter and Space are all inert
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-079)
+- Phase: 5
+
+Steps to reproduce:
+
+1. Launch the app and open the workspace at 1280x800.
+2. Click "Search pages" in the sidebar, type `Kyoto`, wait for the result.
+3. Press Tab once — focus moves onto the result row (`role="option"`, `data-testid="quickfind-result"`).
+4. Press Escape; confirm the dialog is still open.
+5. Press Enter; confirm the URL has not changed.
+6. Press Space; confirm the URL has not changed.
+
+Expected: Escape closes the dialog from anywhere inside it; Enter or Space on a focused, visible result row navigates to that page.
+
+Actual: all three keys are inert. The row draws a focus ring and advertises itself as the active control but does nothing. The cause is in `QuickFind.tsx`: Escape and Enter handling is `onKeyDown` on the `<input>` only, and the option `<button>` has only an `onMouseDown` handler with no `onClick` or key handling. After Tab carries focus out of the dialog entirely, Escape still does not close it, so a keyboard-only user who presses Tab once has no key that dismisses quick-find — only a mouse click on the backdrop.
+
+Screenshot: screenshots/adv-079.png
+
+History:
+
+- qa: opened, reproduced from ADV-079
+
+## DEF-091: Quick-find declares aria-modal but does not trap focus; Tab walks out into the page behind the backdrop
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-078)
+- Phase: 5
+
+Steps to reproduce:
+
+1. Launch the app and open the workspace at 1280x800.
+2. Click the "Search pages" field in the sidebar to open quick-find.
+3. Type `Kyoto` so one result is listed.
+4. Press Tab six times, logging `document.activeElement` after each press.
+
+Expected: focus stays inside the dialog. The dialog sets `role="dialog"` and `aria-modal="true"`, so focus should remain within it or cycle through its internal tab stops only. The app's own delete-confirmation dialog demonstrates the correct behaviour — Tab cycles between "Cancel" and "Delete permanently" indefinitely.
+
+Actual: Tab 1 lands on the first result `<button role="option">` (options should not be in the tab order under the activedescendant pattern). Tab 2 lands on `<body>`. Tab 3 onwards walks the page behind the backdrop: the skip link, then "Search pages", "Add a top-level page", "New database" — all under the `bg-black/45` overlay. The dialog stays open throughout. Focus rings appear on sidebar controls that are partially obscured by the scrim.
+
+Screenshot: screenshots/adv-078.png
+
+History:
+
+- qa: opened, reproduced from ADV-078
+
+## DEF-090: Wrangler dev server crashes mid-suite after ~7–8 mobile test sessions or mid-way through a long chromium run, causing all subsequent tests to fail with ERR_CONNECTION_REFUSED
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: qa
+- Phase: 5
+
+Steps to reproduce:
+
+1. Launch the full mobile e2e suite from a fresh kill: `npm run kill-servers && npm run test:e2e -- --project=mobile-chrome`.
+2. Observe the first 7 mobile tests pass, then tests 8–11 fail with `net::ERR_CONNECTION_REFUSED` in `page.goto('/')` inside `resetWorkspace`.
+3. Alternatively, run the full chromium suite twice in quick succession: first run passes (168/169), second run fails (151/169, with 18 ERR_CONNECTION_REFUSED failures mid-suite).
+
+Expected: the wrangler dev server (`exec npm run start:worker`) remains alive for the entire test run and serves all requests.
+
+Actual: the wrangler dev server exits sometime during a long run. Playwright does not detect the exit (no "process exited early" error because it already passed its startup URL check), and subsequent `page.goto('/')` calls hit a closed socket. All tests after the crash fail with `ERR_CONNECTION_REFUSED`. Individual tests and small subsets all pass; only combined runs exceeding ~7 mobile sessions or ~150 chromium tests trigger the crash. Wrangler prints "Wrangler detected this dev session is running in an AI agent" during startup, suggesting it applies some agent-mode restrictions that may include a session timeout.
+
+History:
+
+- qa: opened. Reproduced consistently: phase-4 mobile tests pass in isolation (7/7), phase-5 mobile tests pass in isolation (4/4), but the combined mobile suite (11 total) crashes after test 7. Full chromium suite second run shows same pattern: 18 failures all ERR_CONNECTION_REFUSED after ~151 tests. All individual tests confirmed passing in isolation.
+
 ## DEF-089: resetWorkspace silently skips the reset when the app has not yet redirected; tests run against stale state and become order-dependent
 
 - Status: CLOSED
@@ -798,6 +1121,7 @@ History:
 
 - qa: opened
 - orchestrator: accepted, deferred to Phase 6, which owns the sync queue and cross-client invalidation. The write path already detects the conflict correctly; what is missing is live invalidation, which is that phase's work.
+- qa: phase 5 retest. Phase 5 added quick-find and theme toggle; no sync/offline changes were made. `themeStore.ts` and `WorkspaceShell.tsx` changes do not affect the cell-edit conflict path. Code unchanged; defect still OPEN.
 
 ## DEF-056: A row page keeps rendering a deleted row indefinitely, then silently discards a cell edit on transition to NOT FOUND
 
@@ -823,6 +1147,7 @@ History:
 
 - qa: opened
 - orchestrator: accepted, deferred to Phase 6, which owns the sync queue and cross-client invalidation. The write path already detects the conflict correctly; what is missing is live invalidation, which is that phase's work.
+- qa: phase 5 retest. Phase 5 added quick-find and theme toggle; no sync/offline changes were made. Code path for row-page stale rendering is unchanged. Defect still OPEN.
 
 ## DEF-055: "Manage options" editor expands the table header row in-place, shoving the table down and hiding the "Add property" control
 
@@ -871,6 +1196,7 @@ History:
 
 - qa: opened
 - orchestrator: accepted, deferred to Phase 4, where the view switcher and wider tables land and sticky headers can be solved once for table, board and list.
+- qa: phase 5 retest. Confirmed `DatabaseView.tsx` thead has no `sticky` class (grep returns no match). Phase 5 did not address table layout or scrolling. Defect still OPEN.
 
 ## DEF-053: "New row" immediately navigates away from the table to the new row's page, making bulk row creation impossible
 
@@ -1402,6 +1728,7 @@ History:
 
 - qa: opened. Reproduced: 10 ArrowDown presses at 40ms → position 5/5 max (block constrained by small page; 6 of 10 presses dropped). Screenshot: screenshots/adv-029.png (none filed by adversary).
 - qa: re-measured after `scrollBehavior: 'auto'` partial fix. 10 ArrowDown at 40ms on a 5-block page: moved to position 5/5, 4 moves registered, 6 dropped (same drop rate as before). The `// Future:` comment is confirmed in BlockEditor.tsx (lines 61-65) documenting the upstream root cause in @dnd-kit/core KeyboardSensor. The `scrollBehavior: 'auto'` change targets pages with scroll but did not measurably reduce drops on a short page with no scrolling. Leaving OPEN as a documented upstream limitation.
+- qa: phase 5 retest. `// Future:` comment still present in BlockEditor.tsx lines 61-65. No changes to the keyboard sensor configuration in phase 5. Defect still OPEN.
 
 ## DEF-032: StatusCard accent eyebrow labels fail contrast on the light surface
 

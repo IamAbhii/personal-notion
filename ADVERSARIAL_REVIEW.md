@@ -1787,3 +1787,353 @@ do to the Notes property, so its absence reads as an oversight rather than a dec
 a database by title is the first thing most people try.
 
 Disposition: ACCEPTED -> DEF-088
+
+## ADV-078: Quick-find is declared aria-modal but does not trap focus, so Tab walks out into the page behind the backdrop
+
+- Session: phase-5 gate
+- Suggested severity: MEDIUM
+
+What I did:
+
+1. Started the app and opened http://localhost:8787/w/&lt;workspaceId&gt; at 1280x800.
+2. Clicked the "Search pages" field at the top of the sidebar to open quick-find.
+3. Typed `Kyoto` so one result was listed.
+4. Pressed Tab six times, logging `document.activeElement` after each press.
+
+Expected: focus stays inside the dialog. The dialog sets `role="dialog"` and `aria-modal="true"`,
+and it uses the `aria-activedescendant` combobox pattern, so the input should be the only tab stop
+and Tab should either cycle within the dialog or do nothing. The app's own delete-confirmation
+dialog behaves that way - I repeated the same test on it and focus cycled between "Cancel" and
+"Delete permanently" forever, and the sidebar controls were not even reachable by role query while
+it was open.
+
+Actual: Tab 1 lands on the first result `<button role="option">` (options should not be in the tab
+order under the activedescendant pattern), Tab 2 lands on `<body>`, and Tab 3 onwards walks the page
+behind the backdrop: the skip link, then "Search pages", "Add a top-level page", "New database" - all
+of them under a `bg-black/45` overlay, so the focus ring is visible through the scrim on a control the
+user cannot see properly and cannot click. The dialog stays open throughout. The screenshot shows the
+focus ring sitting on the sidebar's top-level "New database" button while quick-find is open in front
+of it.
+
+Screenshot: screenshots/adv-078.png
+
+Disposition: ACCEPTED -> DEF-091
+
+## ADV-079: Once focus is on a quick-find result, Escape, Enter and Space all do nothing - the result option is a dead control
+
+- Session: phase-5 gate
+- Suggested severity: MEDIUM
+
+What I did:
+
+1. Started the app and opened http://localhost:8787/w/&lt;workspaceId&gt; at 1280x800.
+2. Clicked "Search pages" in the sidebar, typed `Kyoto`, and waited for the single result.
+3. Pressed Tab once, which moves focus onto the result row itself (`data-testid="quickfind-result"`,
+   `role="option"`) - see ADV-078.
+4. Pressed Escape, then Enter, then Space, checking the URL and whether the dialog closed after each.
+
+Expected: from anywhere inside a modal, Escape closes it; and a focused, focus-ringed row that looks
+like a button navigates on Enter or Space.
+
+Actual: all three keys are inert. Escape does not close the dialog (it stays mounted), Enter does not
+navigate (the URL is unchanged), and Space does not navigate either. The row draws a clear focus ring,
+so it advertises itself as the active control while doing nothing. The cause is visible in
+`QuickFind.tsx`: the Escape/Enter handling is `onKeyDown` on the `<input>` only, and the option
+`<button>` has just an `onMouseDown` handler with no `onClick` or key handling. The same is true after
+Tab has carried focus out of the dialog entirely: Escape no longer closes quick-find, so a
+keyboard-only user who presses Tab once has no key left that dismisses it - only a mouse click on the
+backdrop.
+
+Screenshot: screenshots/adv-079.png
+
+Disposition: ACCEPTED -> DEF-092
+
+## ADV-080: Choosing a quick-find result for a page deleted in another tab renders the deleted page as if it were real, and the first thing typed there is discarded with no message
+
+- Session: phase-5 gate
+- Suggested severity: MEDIUM
+
+What I did:
+
+1. Started the app and opened http://localhost:8787/w/&lt;workspaceId&gt; in tab A at 1280x800.
+2. Opened the same URL in tab B.
+3. In tab A, pressed Cmd+K and typed `Kyoto`, leaving the single result highlighted but not chosen.
+4. In tab B, hovered "Kyoto shortlist" in the sidebar, clicked its Delete action and confirmed with
+   "Delete permanently". Confirmed via `GET /api/workspaces/:id/snapshot` that the page is gone.
+5. Back in tab A, pressed Enter on the still-highlighted stale result.
+6. Clicked the "Click here to start writing" placeholder and typed
+   `This text should not be silently lost`, then waited.
+7. Repeated steps 3-5 with a row result (`Pragmatic`) whose whole database ("Book Tracker") was
+   deleted in tab B instead.
+
+Expected: choosing a result for a page that no longer exists lands on the "This page no longer exists"
+screen (the app has one), or refetches the snapshot first. Failing that, the write that the server
+rejects should surface as a toast rather than vanishing.
+
+Actual: tab A navigates and renders the deleted page as a completely normal page - icon, title,
+breadcrumb ("Travel / Japan 2027 / Kyoto shortlist"), "This page is empty" placeholder - and the
+sidebar still lists it. The deleted row case is worse: the row page renders with its full property
+panel (Status, Topics, Link, Finished, Rating, Notes) for a database that no longer exists. Typing on
+the phantom page produces a sync response of
+`{"status":"rejected","reason":"page no longer exists"}`; the typed text is dropped, no toast, alert
+or console message appears, and only then does the view flip to "NOT FOUND / This page no longer
+exists." So the page recovers, but the user's typing is gone and nothing ever told them why. Note
+this staleness is not unique to quick-find - tab A's sidebar is stale too - but quick-find is the path
+that invites it, because the result list is drawn from the same stale snapshot.
+
+Screenshot: screenshots/adv-080.png
+
+Disposition: ACCEPTED -> DEF-093
+
+## ADV-081: On mobile, choosing a quick-find result while the drawer is open leaves the drawer open over the destination, and its scrim then blocks the topbar search button
+
+- Session: phase-5 gate
+- Suggested severity: MEDIUM
+
+What I did:
+
+1. Started the app and opened http://localhost:8787/w/&lt;workspaceId&gt; at 390x800 (also reproduced at
+   320x800).
+2. Tapped the hamburger ("Open navigation") to open the sidebar drawer.
+3. Pressed Cmd+K (the topbar search button does the same thing), typed `Kyoto`, pressed Enter.
+4. Measured the drawer's `getBoundingClientRect().x`, then tried to tap the topbar "Search" button.
+5. For comparison, repeated step 2 and instead tapped "Journal" in the sidebar tree.
+
+Expected: the drawer closes on navigation, the way it does when you pick a page from the tree.
+Choosing a destination and then having to dismiss the navigation that hid it is a step nobody wants.
+
+Actual: after picking a result from quick-find the drawer is still fully open (x = 0) with its
+`bg-black/55` scrim over the page you just navigated to, so the destination is dimmed and
+non-interactive; picking a page from the tree closes it properly (x = -292). While the drawer is open
+the scrim also intercepts taps on the topbar "Search" button, so the second search attempt does
+nothing until the scrim is tapped first.
+
+Screenshot: screenshots/adv-081.png
+
+Disposition: ACCEPTED -> DEF-094
+
+## ADV-082: The quick-find listbox nests its options inside listitems, puts its empty and no-result messages inside the listbox, and never announces the result count
+
+- Session: phase-5 gate
+- Suggested severity: LOW
+
+What I did:
+
+1. Started the app, opened the workspace at 1280x800, pressed Cmd+K.
+2. Read `ariaSnapshot()` of the dialog in three states: nothing typed, `Kyoto` typed (one result),
+   `zzz` typed (no results).
+3. Counted `aria-live` / `role="status"` elements inside the dialog.
+
+Expected: `listbox` children are `option` elements (or groups of them); status messages such as
+"No results" live outside the listbox in a polite live region; and the number of matches is announced
+as the user types, since nothing else tells a screen-reader user that the list changed.
+
+Actual: the tree is `listbox "Search results" > listitem > option "Kyoto shortlist Page"` - the
+`<li>` wrappers take an implicit `listitem` role and sit between the listbox and its options, which
+breaks the required owned-element relationship. In the two message states the listbox's only child is
+a `listitem` holding "Type to search pages, databases and rows." or "No results for zzz." - a
+non-option inside a listbox - and `aria-expanded` on the combobox is `false` while that visible list
+is present. There is no live region anywhere in the dialog (count 0), so neither the result count nor
+the "no results" state is announced.
+
+Disposition: ACCEPTED -> DEF-095
+
+## ADV-083: Results give no parent context for pages, so several "Untitled" pages are three identical rows
+
+- Session: phase-5 gate
+- Suggested severity: LOW
+
+What I did:
+
+1. Started the app and opened the workspace at 1280x800.
+2. Clicked "Add a top-level page" three times, pressing Escape after each so the titles stayed at
+   the default "Untitled".
+3. Pressed Cmd+K and typed `Untitled`.
+4. Also typed `Week 32` to look at two similarly-named nested pages.
+
+Expected: enough context to tell results apart - the parent page name, or the path - as the row
+results already do ("Row - in Work Projects").
+
+Actual: three results render as exactly `Untitled` / `Page`, `Untitled` / `Page`, `Untitled` / `Page`,
+with nothing to distinguish them; the user has to pick one and see where they end up. The same gap
+shows on nested pages: "Week 32 - what worked" and "Week 32 - what to drop" are listed with no hint
+that they live under Journal / Weekly Review. Only `kind === 'row'` gets a `parentTitle`
+(`search.ts`), so every page and database result is context-free.
+
+Screenshot: screenshots/adv-083.png
+
+Disposition: ACCEPTED -> DEF-096
+
+## ADV-084: Quick-find results show no page icons, though every other surface in the app does
+
+- Session: phase-5 gate
+- Suggested severity: LOW
+
+What I did:
+
+1. Started the app, opened the workspace at 1280x800, pressed Cmd+K and typed `e` so many results
+   were listed.
+2. Compared the result rows with the same pages in the sidebar tree, the breadcrumb and the page
+   header.
+
+Expected: the emoji icon that identifies a page everywhere else in the app appears in its search
+result too - it is the fastest way to recognise the right row, and the seed leans heavily on icons.
+
+Actual: result rows show only the title and a kind label; the sidebar row for the same page shows
+"🏯 Kyoto shortlist" and the breadcrumb and header show the icon as well. Recording this because the
+inconsistency is visible in the same screenshot as the sidebar, not because a requirement names it.
+
+Screenshot: screenshots/adv-083.png
+
+Disposition: ACCEPTED -> DEF-097
+
+## ADV-085: Search does no Unicode folding, so "cafe" does not find "Café" and "istanbul" does not find "İstanbul"
+
+- Session: phase-5 gate
+- Suggested severity: LOW
+
+What I did:
+
+1. Started the app and opened the workspace at 1280x800.
+2. Renamed pages, through the sidebar rename action, to `Café notes`, `İstanbul trip` and
+   `مرحبا بالعالم`.
+3. Pressed Cmd+K and searched, in turn: `cafe`, `Café`, `cafÉ`, `istanbul`, `İstanbul`, `مرحبا`.
+
+Expected: at minimum the case-insensitive behaviour the requirement asks for, which it delivers. I am
+recording the accent case because typing `cafe` for a page called `Café` is a normal thing to do and
+returning "No results" reads as a bug to the user even though the matching rule is as documented.
+
+Actual: `Café` and `cafÉ` both match, so case folding works; `cafe` returns no results. Likewise
+`İstanbul` matches but `istanbul` does not - `'İ'.toLowerCase()` is `i` plus a combining dot, so the
+lowercase forms differ. Right-to-left titles search and render correctly (`مرحبا` finds
+`مرحبا بالعالم`), and a zero-width space inside a title behaves consistently (only a query containing
+the same zero-width space matches). A `normalize('NFD')` plus combining-mark strip in `search.ts`
+would close it.
+
+Disposition: ACCEPTED -> DEF-098
+
+## ADV-086: Home, End and PageUp/PageDown do nothing in quick-find, and the arrow keys do not wrap although the code comment says they do
+
+- Session: phase-5 gate
+- Suggested severity: LOW
+
+What I did:
+
+1. Started the app, opened the workspace at 1280x800, pressed Cmd+K and typed `e` (31 results).
+2. Pressed ArrowDown 36 times, then ArrowUp 36 times, reading the selected option and
+   `aria-activedescendant` after each run.
+3. Pressed Home, End and PageDown, checking the selected option after each.
+
+Expected: clamping at the ends is a legitimate choice, but then Home and End should jump to the first
+and last result - in a list of 31 that is the only quick way to reach the bottom - and the code should
+not claim otherwise.
+
+Actual: overshooting clamps correctly at both ends (option 30 at the bottom, option 0 at the top) and
+`aria-activedescendant` stays in step, which is right. Home, End and PageDown are all ignored: the
+highlight stays where it was and the caret does not move either, because the input is empty of text
+navigation at that point. Separately, the comment above `safeIndex` in `QuickFind.tsx` reads "Clamp so
+arrow-key wrapping never produces an out-of-bounds index" - there is no wrapping, only clamping, so
+the comment describes behaviour the component does not have.
+
+Disposition: ACCEPTED -> DEF-099
+
+## ADV-087: The sidebar search field hard-codes the "⌘K" hint on every platform
+
+- Session: phase-5 gate
+- Suggested severity: LOW
+
+What I did:
+
+1. Started the app and opened the workspace at 1280x800.
+2. Looked at the keyboard hint rendered inside the sidebar's search field, and confirmed against
+   `Sidebar.tsx` that the `<kbd>` content is the literal `⌘K`.
+3. Confirmed the shortcut handler in `WorkspaceShell.tsx` accepts `metaKey || ctrlKey`.
+
+Expected: the hint matches the platform - `Ctrl K` on Windows and Linux - since the handler already
+accepts both.
+
+Actual: the hint is always the Mac glyph. A Windows or Linux user is told to press a key their
+keyboard does not have, for a shortcut that in fact works for them as Ctrl+K. The quick-find dialog's
+own `Esc` hint is fine.
+
+Disposition: ACCEPTED -> DEF-100
+
+## ADV-088: A theme change does not reach other open tabs, so a second tab keeps the old theme and offers a toggle that disagrees with what is stored
+
+- Session: phase-5 gate
+- Suggested severity: LOW
+
+What I did:
+
+1. Started the app and opened http://localhost:8787/w/&lt;workspaceId&gt; in two tabs of one browser
+   context, both at 1280x800 and both in light theme.
+2. In tab 1, clicked the sidebar footer toggle ("Switch to dark theme").
+3. Read `document.documentElement.dataset.theme` in both tabs, then clicked the toggle in tab 2 and
+   read both again along with the stored value.
+
+Expected: either the other tab follows (a `window.addEventListener('storage', ...)` in the theme
+store is three lines), or it is a deliberate decision worth a comment - a PWA that a user has open
+twice showing two different themes is surprising.
+
+Actual: tab 1 goes dark, tab 2 stays light, and localStorage says `dark`. Tab 2's button still reads
+"Switch to dark theme" even though dark is what is stored, so tab 2 is offering a switch to the theme
+that is already persisted. Clicking it in tab 2 does end up dark, so the two tabs converge rather
+than fighting, and nothing breaks. Worth noting alongside this: every corruption case I tried in
+`personal-space:theme` is handled cleanly - `null`, `"dark"` with quotes, a zustand-shaped JSON blob,
+an empty string, `DARK`, ` dark`, and a 200,000-character string all fall back to light, self-heal the
+stored value and log nothing; and with `localStorage` throwing on every access the app still renders
+and the toggle still switches the theme.
+
+Disposition: ACCEPTED -> DEF-101
+
+## ADV-089: In the showcase seed, 20 of the 25 non-row pages are completely empty, including every top-level area
+
+- Session: phase-5 gate
+- Suggested severity: LOW
+
+What I did:
+
+1. Reset the workspace to the seed (`POST /api/workspaces/:id/test/reset`).
+2. Read the snapshot and counted blocks per page, printing the tree.
+3. Opened several of the empty ones in the browser at 1280x800 to confirm what a user sees.
+
+Expected: for "the seed grown into the full showcase workspace", a visitor clicking around should
+find content most places, not the "This page is empty" placeholder on four of the six top-level
+entries.
+
+Actual: only Home (5 blocks), 2026 Intentions (12), Lighting ideas (13), Film stock notes (16) and
+Packing list (5) have any content. Journal, Projects, Someday maybe, Recipes, Weeknight dinners, Miso
+noodle soup, Sheet pan chicken, Baking, Sourdough log, Travel, Japan 2027, Kyoto shortlist, Budget
+notes, Photography, Reading list, Finished in 2026, Week 32 - what worked, Week 32 - what to drop and
+two Book Tracker rows are all empty. The named recipes and both weekly-review pages having no body is
+the most noticeable, because their titles promise content. The feature-coverage half of the criterion
+is met, and I verified it separately: all eleven block types appear (paragraph 15, heading1 3,
+heading2 7, heading3 3, todo 15, bulletedList 10, numberedList 5, quote 3, callout 4, divider 3,
+code 1), all seven property types appear with real values, both databases have table, board and list
+views, Work Projects' list view carries an `isNotChecked` filter, Book Tracker's list view carries a
+descending sort, and both boards group by their Status select.
+
+Disposition: ACCEPTED -> DEF-102
+
+## ADV-090: The seeded Home page says everything lives under "the four areas in the sidebar", then names two, and the sidebar's top level has six entries
+
+- Session: phase-5 gate
+- Suggested severity: LOW
+
+What I did:
+
+1. Reset the workspace to the seed and opened Home at 1280x800 in both themes.
+2. Read its body text against the sidebar tree and against the snapshot's parent relationships.
+
+Expected: the one page written to orient a first-time visitor agrees with what the sidebar shows.
+
+Actual: Home reads "Everything lives under one of the four areas in the sidebar. This page is just the
+way in.", then lists exactly two bullets ("Journal for the weekly review and the yearly intentions",
+"Projects for anything with an end date"). Home has three children (Journal, Projects, Someday maybe),
+and the sidebar's top level has six entries (Home, Recipes, Travel, Reading list, Work Projects, Book
+Tracker), so there is no reading of the tree under which "four areas" is correct, and the two bullets
+point at children of Home rather than at siblings in the sidebar.
+
+Screenshot: screenshots/adv-090.png
+
+Disposition: ACCEPTED -> DEF-103
