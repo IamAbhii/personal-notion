@@ -1741,7 +1741,7 @@ my session, and a reset also produces that screen, so this one may be environmen
 because I could not rule it in or out. The same screen appeared once in a second tab opened on a URL
 the first tab was rendering fine.
 
-Disposition: PENDING
+Disposition: REJECTED - did not reproduce in five isolated runs of the stated steps; the "This page no longer exists" screen came from a concurrent end-to-end run resetting the workspace, which the finding itself flags as the likely cause, not from a redirect race in the product.
 
 ## ADV-075: Sorting by a select property sorts by option name, not by the option order the board and the editor show
 
