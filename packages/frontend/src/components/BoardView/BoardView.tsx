@@ -1,22 +1,15 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   DndContext,
   DragOverlay,
-  KeyboardCode,
   KeyboardSensor,
   PointerSensor,
-  pointerWithin,
   useDraggable,
   useDroppable,
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
-import type {
-  Announcements,
-  DragEndEvent,
-  DragStartEvent,
-  KeyboardCoordinateGetter,
-} from '@dnd-kit/core';
+import type { Announcements, DragEndEvent, DragStartEvent } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { Plus } from 'lucide-react';
 import { cn } from '../../lib/cn';
@@ -24,54 +17,7 @@ import { optionColorClass } from '../../lib/optionColors';
 import { cardMoveNewValue } from '../../lib/viewData';
 import type { BoardColumn } from '../../lib/viewData';
 import type { OptionColor, PageRecord, PropertyRecord } from '../../api/types';
-
-// ── Keyboard coordinate getter ────────────────────────────────────────────────
-
-/**
- * Custom keyboard coordinate getter for board views. ArrowLeft/ArrowRight move the dragged card
- * between columns; other keys are handled by the default sensor (ArrowUp/Down move within the
- * dragged item's current bounds). Returns the center of the target column's droppable rect.
- *
- * Without this, the KeyboardSensor has no reference points to navigate between columns because
- * column droppables are adjacent siblings, not a sortable list (DEF-077).
- */
-const boardKeyboardCoordinates: KeyboardCoordinateGetter = (event, { context }) => {
-  if (event.code !== KeyboardCode.Right && event.code !== KeyboardCode.Left) return;
-  event.preventDefault();
-
-  const { droppableContainers, droppableRects, over } = context;
-
-  // Collect all droppable entries that have a known rect, sorted left-to-right by centre x.
-  const sorted = [...droppableContainers.values()]
-    .map((container) => {
-      const rect = droppableRects.get(container.id);
-      if (!rect) return null;
-      return {
-        id: container.id,
-        cx: rect.left + rect.width / 2,
-        cy: rect.top + rect.height / 2,
-      };
-    })
-    .filter((d): d is NonNullable<typeof d> => d !== null)
-    .sort((a, b) => a.cx - b.cx);
-
-  if (sorted.length === 0) return;
-
-  const currentIndex = sorted.findIndex((d) => d.id === over?.id);
-  if (currentIndex === -1) {
-    // Not yet over any column — navigate to the first one.
-    const first = sorted[0];
-    if (!first) return;
-    return { x: first.cx, y: first.cy };
-  }
-
-  const delta = event.code === KeyboardCode.Right ? 1 : -1;
-  const nextIndex = Math.max(0, Math.min(sorted.length - 1, currentIndex + delta));
-  const next = sorted[nextIndex];
-  const current = sorted[currentIndex];
-  if (!next || !current || next.id === current.id) return;
-  return { x: next.cx, y: next.cy };
-};
+import { boardCollisionDetection, createBoardKeyboardCoordinates } from './boardKeyboard';
 
 // ── Drag announcements ────────────────────────────────────────────────────────
 
@@ -314,10 +260,17 @@ export function BoardView({
 }: BoardViewProps) {
   const [draggingId, setDraggingId] = useState<string | null>(null);
 
+  // Re-create the getter when columns change so it can find the card's source column when `over`
+  // is null at the start of a keyboard drag. During an active drag, columns do not change until
+  // onDragEnd fires, so this memo never updates mid-gesture (DEF-077).
+  const keyboardCoordinateGetter = useMemo(
+    () => createBoardKeyboardCoordinates(columns),
+    [columns],
+  );
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-    // boardKeyboardCoordinates maps ArrowLeft/Right to adjacent column centres (DEF-077).
-    useSensor(KeyboardSensor, { coordinateGetter: boardKeyboardCoordinates }),
+    useSensor(KeyboardSensor, { coordinateGetter: keyboardCoordinateGetter }),
   );
 
   const handleDragStart = ({ active }: DragStartEvent) => {
@@ -395,9 +348,9 @@ export function BoardView({
   return (
     <DndContext
       sensors={sensors}
-      // pointerWithin uses the pointer position as the collision origin rather than the
-      // drag-overlay rectangle, so a card released inside a column always lands there (DEF-075).
-      collisionDetection={pointerWithin}
+      // boardCollisionDetection uses pointerWithin for pointer/touch drags (DEF-075) and falls
+      // back to closestCenter for keyboard drags where pointerCoordinates is null (DEF-077).
+      collisionDetection={boardCollisionDetection}
       accessibility={{ announcements: buildBoardAnnouncements(columns, allRows) }}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
