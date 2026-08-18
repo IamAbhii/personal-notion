@@ -324,7 +324,17 @@ export function WorkspaceShell() {
           pages={pages}
           onClose={closeQuickFind}
           onSelect={(pageId) => {
+            // DEF-093: if the page was deleted in another tab since the snapshot loaded, skip the
+            // navigation and inform the user rather than landing on a phantom page.
+            const pageExists = pages.some((p) => p.id === pageId);
+            if (!pageExists) {
+              notify('This page no longer exists. It may have been deleted in another tab.');
+              return;
+            }
             selectPage(pageId);
+            // DEF-094: close the mobile drawer after a quick-find navigation, matching the
+            // behaviour of picking a page directly from the sidebar tree.
+            closeSidebar();
           }}
         />
       ) : null}
