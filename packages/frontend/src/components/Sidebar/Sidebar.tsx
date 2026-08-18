@@ -3,10 +3,11 @@ import { buildPageTree, descendantIds, type PageNode } from '../../lib/pageTree'
 import { rowIndent } from '../../lib/treeLayout';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { InlineTitleInput } from '../InlineTitleInput/InlineTitleInput';
+import { ThemeToggle } from '../ThemeToggle/ThemeToggle';
 import { Button } from '../ui/Button/Button';
 import { IconButton } from '../ui/IconButton/IconButton';
 import { DropdownMenu, DropdownMenuItem } from '../ui/DropdownMenu/DropdownMenu';
-import { ChevronRight, Ellipsis, Pencil, Plus, Table2, Trash2 } from 'lucide-react';
+import { ChevronRight, Ellipsis, Pencil, Plus, Search, Table2, Trash2 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { useUiStoreShallow } from '../../stores/uiStore';
 import type { PageRecord, PropertyRecord } from '../../api/types';
@@ -40,6 +41,11 @@ export interface SidebarProps {
    * at desktop no-op because the drawer is never open.
    */
   onClose?: () => void;
+  /**
+   * Called when the user activates the search affordance in the sidebar. The shell opens the
+   * quick-find dialog. Optional: tests that do not exercise search need not supply it.
+   */
+  onOpenSearch?: () => void;
 }
 
 /**
@@ -65,6 +71,7 @@ export function Sidebar({
   properties = [],
   sidebarRef,
   onClose,
+  onOpenSearch,
 }: SidebarProps) {
   // collapsedPageIds lives in the global UI store; renamingId and pendingDelete are local because
   // only this component owns the edit-in-progress and the pending confirmation states.
@@ -373,7 +380,7 @@ export function Sidebar({
 
   return (
     <aside
-      className="flex w-full flex-col gap-1.5 overflow-hidden border-r border-panel-border bg-panel px-3.5 pt-4.5 pb-3.5 text-panel-text outline-none"
+      className="flex h-dvh w-full flex-col gap-1.5 overflow-hidden border-r border-panel-border bg-panel px-3.5 pt-4.5 pb-3.5 text-panel-text outline-none"
       data-testid="sidebar"
       // tabIndex -1 lets the drawer receive programmatic focus on open without adding a tab stop.
       tabIndex={-1}
@@ -403,6 +410,25 @@ export function Sidebar({
           </span>
         </span>
       </header>
+
+      {/* Search affordance: a button that looks like a search bar. Visible at all widths inside
+          the sidebar; the mobile topbar provides a second route when the sidebar is off-canvas.
+          Only rendered when the shell provides an onOpenSearch handler. */}
+      {onOpenSearch ? (
+        <button
+          type="button"
+          aria-label="Search pages"
+          onClick={onOpenSearch}
+          className="flex min-h-12 w-full cursor-pointer items-center gap-2.5 rounded-md border border-panel-border bg-transparent px-3 py-2 text-left text-sm text-panel-text-muted transition-colors hover:bg-panel-hover hover:text-panel-text"
+        >
+          <Search size={13} aria-hidden className="flex-none" />
+          <span className="min-w-0 flex-1 truncate">Search...</span>
+          {/* Keyboard shortcut hint: hidden on narrow widths to avoid crowding the 320px layout. */}
+          <kbd className="hidden flex-none items-center rounded border border-panel-border px-1 text-[10px] sm:flex">
+            ⌘K
+          </kbd>
+        </button>
+      ) : null}
 
       <div className="flex items-center justify-between px-1.5 pt-1.5 pb-1">
         <h2 className="m-0 text-xs font-bold tracking-[0.11em] text-panel-text-muted uppercase">
@@ -468,12 +494,15 @@ export function Sidebar({
         >
           {userName.slice(0, 1).toUpperCase()}
         </span>
-        <span className="flex min-w-0 flex-col">
+        <span className="flex min-w-0 flex-1 flex-col">
           <span className="text-sm font-semibold">{userName}</span>
           <span className="overflow-hidden text-[11.5px] text-ellipsis whitespace-nowrap text-panel-text-muted">
             {userEmail}
           </span>
         </span>
+        {/* Light/dark toggle: sits at the end of the footer row and is always reachable, including
+            on mobile after the user opens the sidebar drawer. */}
+        <ThemeToggle />
       </footer>
 
       {pendingDelete ? (
