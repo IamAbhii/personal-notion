@@ -24,8 +24,22 @@ async function openManageOptions(
   page: import('@playwright/test').Page,
   columnName: string,
 ): Promise<void> {
+  // Dismiss any open popover or dialog first, to ensure a clean state.
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+
   const dbView = page.getByTestId('database-view');
-  await dbView.getByRole('columnheader').filter({ hasText: columnName }).click();
+  // Column headers have a trigger button inside the th element that opens the property menu.
+  // Clicking the button directly is more reliable than clicking the th element.
+  const header = dbView.getByRole('columnheader').filter({ hasText: columnName }).first();
+  await expect(header).toBeVisible({ timeout: 5000 });
+  const headerBtnLocator = header.getByRole('button');
+  const btnCount = await headerBtnLocator.count();
+  if (btnCount > 0) {
+    await headerBtnLocator.first().click();
+  } else {
+    await header.click();
+  }
   const popover = page.locator('[data-radix-popper-content-wrapper]');
   await expect(popover).toBeVisible({ timeout: 3000 });
   await popover.getByRole('button', { name: /Manage options/i }).click();

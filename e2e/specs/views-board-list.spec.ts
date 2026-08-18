@@ -178,20 +178,68 @@ test.describe('Phase 4 — view switcher and board', () => {
     await expect(rowAfterReload).toContainText(/In progress/i, { timeout: 8000 });
   });
 
-  // Criterion 5: board grouping property persists across a reload.
-  test('board grouping persists after reload', async ({ page }) => {
+  // Criterion 5: board grouping property and chosen view persist across a reload.
+  // DEF-081 fixed view-tab persistence: the chosen view is now stored and restored on reload.
+  test('board view and grouping persist after reload (criterion 5)', async ({ page }) => {
     await gotoDatabase(page, 'Work Projects');
     await page.getByRole('tab', { name: 'Board view' }).click();
     await expect(page.getByTestId('board-view')).toBeVisible({ timeout: 8000 });
+    // Confirm at least one column appears before reload.
+    await expect(page.getByTestId('board-column').first()).toBeVisible({ timeout: 5000 });
 
-    // Reload: the active view tab may reset to table on reload; switch back to Board.
+    // Reload — the board view should be restored automatically (DEF-081 fixed).
     await page.reload();
     await page.waitForLoadState('networkidle');
-    await page.getByRole('tab', { name: 'Board view' }).click();
-    // Columns appear — grouping property (Status) persists across the reload.
+    // Board view should be visible without manually re-clicking the tab.
     await expect(page.getByTestId('board-view')).toBeVisible({ timeout: 8000 });
-    const columns = page.getByTestId('board-column');
-    await expect(columns.first()).toBeVisible();
+    // Board tab should be selected.
+    const boardTab = page.getByRole('tab', { name: 'Board view' });
+    await expect(boardTab).toHaveAttribute('aria-selected', 'true', { timeout: 5000 });
+    // Columns still appear — grouping property (Status) persists across the reload.
+    await expect(page.getByTestId('board-column').first()).toBeVisible({ timeout: 5000 });
+  });
+});
+
+test.describe('Phase 4 — criterion 5: sort persists across reload', () => {
+  test.beforeEach(async ({ page }) => {
+    await resetWorkspace(page);
+  });
+
+  // Criterion 5: sort setting survives a page reload, per-view.
+  test('sort by Title survives a reload (criterion 5)', async ({ page }) => {
+    await gotoDatabase(page, 'Book Tracker');
+
+    // Apply a sort on Title.
+    await page.getByRole('button', { name: 'Filter and sort' }).click();
+    await expect(page.getByTestId('filter-sort-panel')).toBeVisible({ timeout: 5000 });
+    const sortSelect = page.getByRole('combobox', { name: 'Sort property' });
+    await expect(sortSelect).toBeVisible({ timeout: 5000 });
+    await sortSelect.selectOption({ label: 'Title' });
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(500);
+
+    // Record the title order before reload.
+    const rows = page.locator('[data-testid="database-row"]');
+    await expect(rows.first()).toBeVisible({ timeout: 6000 });
+    const titlesBefore = await rows
+      .locator('[data-testid="row-title-cell"]')
+      .allTextContents()
+      .then((ts) => ts.map((t) => t.trim()).filter(Boolean));
+
+    // Reload.
+    await page.reload();
+    await page.waitForLoadState('networkidle');
+    await expect(rows.first()).toBeVisible({ timeout: 8000 });
+
+    // Title order should be the same (sort survived reload).
+    const titlesAfter = await rows
+      .locator('[data-testid="row-title-cell"]')
+      .allTextContents()
+      .then((ts) => ts.map((t) => t.trim()).filter(Boolean));
+    expect(titlesAfter).toEqual(titlesBefore);
+    // Confirm the order is alphabetically sorted.
+    const sorted = [...titlesAfter].sort((a, b) => a.localeCompare(b));
+    expect(titlesAfter).toEqual(sorted);
   });
 });
 
@@ -339,29 +387,26 @@ test.describe('Phase 4 — list view', () => {
   });
 
   // Criterion 6: assert property values are visible alongside titles in the list view.
-  // This test documents the criterion and will pass once the 'xs:flex hidden' CSS issue is fixed.
+  // DEF-069 was fixed by using sm:flex. DEF-084 then redesigned the list row to show labelled,
+  // aligned property slots using aria-label on the property container span (not span[title]).
+  // This test uses the updated DOM structure.
   test('list view shows at least one property value per row (criterion 6)', async ({ page }) => {
     await gotoDatabase(page, 'Work Projects');
     await page.getByRole('tab', { name: 'List view' }).click();
     await expect(page.getByTestId('list-view')).toBeVisible({ timeout: 8000 });
 
-    // Switch to table to look at a row that has Status set, then back to list.
-    // Work Projects rows have Status values; the list view should show them.
     const listRows = page.getByTestId('list-row');
     await expect(listRows.first()).toBeVisible({ timeout: 8000 });
 
-    // Check whether any list row has a property value element alongside the title.
-    // The ListView renders property values in a <span> with title={prop.name}, inside a container
-    // with class "xs:flex flex hidden ...".  We check offsetHeight which accounts for the full
-    // ancestor chain — an element inside a display:none parent has offsetHeight===0 even if its
-    // own computed display is not 'none'.
-    const propValueSpans = page.locator('[data-testid="list-row"] span[title]');
-    const visiblePropCount = await propValueSpans.evaluateAll(
+    // The ListView now renders property values in spans with aria-label={prop.name} inside a
+    // container with class "hidden sm:flex" (visible at sm+ = 640px+). At 1280x800 this is
+    // visible. Each property slot is a span[aria-label] containing both a label span and a value
+    // span. Check that at least one of these outer property spans has positive offsetHeight.
+    const propSlotSpans = page.locator('[data-testid="list-row"] span[aria-label]');
+    const visiblePropCount = await propSlotSpans.evaluateAll(
       (els) => els.filter((el) => (el as HTMLElement).offsetHeight > 0).length,
     );
-    // Criterion 6: at least one property value must be visible alongside a title.
-    // If this fails it means the property container is hidden (e.g. the "xs" Tailwind breakpoint
-    // is not defined, so "xs:flex hidden" resolves to display:none at all widths).
+    // Criterion 6: at least one labelled property slot must be visible alongside a row title.
     expect(visiblePropCount).toBeGreaterThan(0);
   });
 });

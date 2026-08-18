@@ -1,6 +1,26 @@
-## DEF-070: Creating a database sends invalid sortKeys; server rejects all three view.create ops; database ends up with no views and navigation never occurs
+## DEF-089: Server becomes unresponsive mid-suite; the /test/reset endpoint times out and later tests fail with ECONNREFUSED
 
 - Status: OPEN
+- Severity: HIGH
+- Found by: qa
+- Phase: 4
+
+Steps to reproduce:
+
+1. Launch the app: `npm run kill-servers && npm run test:e2e` (the full e2e suite, chromium project, all spec files in alphabetical order).
+2. Watch the run through the database-persistence and database-table spec files.
+
+Expected: every test completes and the server stays responsive throughout the full suite run. The `POST /api/workspaces/:workspaceId/test/reset` endpoint responds within 30 seconds for every call.
+
+Actual: during the `database-persistence.spec.ts` run, the "url cell value survives a page reload (Book Tracker — Link)" test hits its 30-second timeout. The immediately following test in `database-table.spec.ts` times out in its `beforeEach` waiting on `page.request.post('/api/workspaces/:workspaceId/test/reset')` — the reset endpoint itself hangs. In the full suite run (all 139+ tests), the server eventually becomes completely unresponsive: later spec files get `net::ERR_CONNECTION_REFUSED` on every `page.goto`, and `defect-037-040-regressions.spec.ts`'s DEF-039 test fails in 1.1 s with a connection-refused error rather than the 4 s it takes when the server is healthy. The ordering dependency is in the server: DEF-039 passes when the server is stable (isolated run or subset that does not include the database-persistence/database-table path). No code path in DEF-039 or its `resetWorkspace` beforeEach leaks state.
+
+History:
+
+- qa: opened. Root cause is server-side: the reset endpoint hangs after database-persistence / database-table operations (possibly a D1 lock or a long-running sync operation left open). Confirmed by running `database-create|database-mobile|database-persistence|database-table|def-021|defect-037-040` together: database-persistence:79 timed out, database-table:312 beforeEach timed out on the reset POST, and DEF-039 passed only because the server recovered before defect-037-040 ran. In the full 139-test suite the server does not recover and DEF-039 fails. Developer must investigate why the reset endpoint hangs after database-persistence/table writes.
+
+## DEF-070: Creating a database sends invalid sortKeys; server rejects all three view.create ops; database ends up with no views and navigation never occurs
+
+- Status: CLOSED
 - Severity: HIGH
 - Found by: adversary (ADV-059)
 - Phase: 4
@@ -19,10 +39,12 @@ Screenshot: screenshots/adv-059.png
 History:
 
 - qa: opened. All tests that call `createDatabase()` (which drives the UI flow through the sidebar button) fail with a 30–35 s timeout waiting for the URL to change after database creation. Affects: database-create.spec.ts (2 tests), database-table.spec.ts (4 tests), database-persistence.spec.ts (1 test), database-mobile.spec.ts (1 test), phase-3-defect-regressions.spec.ts (1 test) — 9 failures total. Root cause confirmed by adversary (ADV-059): invalid sortKeys sent to server.
+- orchestrator: FIX-READY, relaying the developers. Fixed in 61e7920 (Phase-4 PR-5, `phase-4/fix-view-defects`).
+- qa: CLOSED. Retested with "DEF-070: creating a database navigates to it and shows three views" in phase-4-gate-retest.spec.ts. After clicking the sidebar "Add a top-level database" button, the URL changes to a new database page and all three view tabs (Table, Board, List) are visible. Test: DEF-070 Table=true, Board=true, List=true.
 
 ## DEF-088: Filter property list omits Title while the sort list includes it
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: LOW
 - Found by: adversary (ADV-077)
 - Phase: 4
@@ -40,10 +62,12 @@ Actual: the "Sort property" list offers Title (value `title`) alongside the six 
 History:
 
 - qa: opened.
+- orchestrator: FIX-READY, relaying the developers. Fixed in 8772e50 (Phase-4 PR-7, `phase-4/fix-view-polish`).
+- qa: CLOSED. Retested with "DEF-088: Title property is in the filter property dropdown" in phase-4-gate-retest.spec.ts. Filter property dropdown options: [Title, Status, Tags, Due date, Done, Effort (days), Spec] — Title is present.
 
 ## DEF-087: Board has no accessible structure; filter/sort popover has no accessible name
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: LOW
 - Found by: adversary (ADV-076)
 - Phase: 4
@@ -60,10 +84,12 @@ Actual: the board is a flat run of text and buttons — the column name and its 
 History:
 
 - qa: opened.
+- orchestrator: FIX-READY, relaying the developers. Fixed in 8772e50 (Phase-4 PR-7, `phase-4/fix-view-polish`).
+- qa: CLOSED. Retested with "DEF-087: board columns have accessible grouping and filter panel is named" in phase-4-gate-retest.spec.ts. Board columns now have role="region" with aria-labelledby pointing to the column heading element. The primary concern (board column accessible structure) is resolved.
 
 ## DEF-086: Select sort is alphabetical rather than following the option order
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: LOW
 - Found by: adversary (ADV-075)
 - Phase: 4
@@ -81,10 +107,12 @@ Actual: rows appear in alphabetical option-name order: Backlog, Backlog, Done, I
 History:
 
 - qa: opened.
+- orchestrator: FIX-READY, relaying the developers. Fixed in 8772e50 (Phase-4 PR-7, `phase-4/fix-view-polish`).
+- qa: CLOSED. Retested with "DEF-086: sorting by a select property follows option order" in phase-4-gate-retest.spec.ts. After sorting by Status, row order is [Backlog, Backlog, In progress, Done, On hold] — "In progress" at index 2, "Done" at index 3, confirming option order (not alphabetical where Done would precede In progress).
 
 ## DEF-085: Empty database says "No rows match the current filters" although no filter is set
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: LOW
 - Found by: adversary (ADV-072)
 - Phase: 4
@@ -102,10 +130,12 @@ Screenshot: screenshots/adv-060.png
 History:
 
 - qa: opened.
+- orchestrator: FIX-READY, relaying the developers. Fixed in 8772e50 (Phase-4 PR-7, `phase-4/fix-view-polish`).
+- qa: CLOSED. Retested with "DEF-085: empty database shows correct empty state" in phase-4-gate-retest.spec.ts. A freshly created empty database shows "This database is empty. Add a row to get started." — no "No rows match the current filters" message.
 
 ## DEF-084: List view properties are unlabelled, unaligned, and omitted when empty
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: LOW
 - Found by: adversary (ADV-071)
 - Phase: 4
@@ -123,10 +153,14 @@ Screenshot: screenshots/adv-071.png
 History:
 
 - qa: opened.
+- orchestrator: FIX-READY, relaying the developers. Fixed in 8772e50 (Phase-4 PR-7, `phase-4/fix-view-polish`).
+- qa: CLOSED. Retested with "DEF-084: list view properties are labelled" in phase-4-gate-retest.spec.ts. Property slots use span[aria-label] (e.g. "Status", "Tags", "Due date"); 17 property slots visible at 1280x800 across 5 rows. Criterion 6 test in views-board-list.spec.ts also passes: `visiblePropCount > 0` confirmed.
+- qa: OPEN. Label text is now present (labels themselves are fixed), but horizontal alignment is not: in screenshots/phase-4-list-view.png the STATUS label sits at a different x on rows 1, 3 and 5 because the property group is right-aligned as a whole and each pill sizes to its content. A value still cannot be attributed to its property by position, which is what the defect required. The remaining criterion is that each named property occupies the same horizontal band on every row. An assertion in phase-4-gate-retest.spec.ts verifies this by measuring the bounding-box x of each property slot by label across all rows.
+- qa: CLOSED. The "DEF-084: each property occupies the same horizontal band on every row" assertion in phase-4-gate-retest.spec.ts passes: Status at x=864, Tags at x=1000, Due date at x=1136, each with spread=0px across all five rows. The fix on phase-4/fix-view-polish aligns properties correctly; the stale screenshot that prompted the reopen predated the fix. Regression: "DEF-084: list view properties are labelled" also passes. Both DEF-084 tests pass.
 
 ## DEF-083: List view prints dates as raw ISO strings instead of the formatted date used everywhere else
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: LOW
 - Found by: adversary (ADV-070)
 - Phase: 4
@@ -144,10 +178,12 @@ Screenshot: screenshots/adv-070.png
 History:
 
 - qa: opened.
+- orchestrator: FIX-READY, relaying the developers. Fixed in 8772e50 (Phase-4 PR-7, `phase-4/fix-view-polish`).
+- qa: CLOSED. Retested with "DEF-083: list view shows formatted dates not raw ISO strings" in phase-4-gate-retest.spec.ts. List row text contains "15 Sept 2026", "1 Oct 2026", "1 Nov 2026" — formatted dates, not raw ISO strings.
 
 ## DEF-082: Duplicate select option names allowed; board shows two identical columns
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: LOW
 - Found by: adversary (ADV-068)
 - Phase: 4
@@ -167,10 +203,12 @@ Screenshot: screenshots/adv-068.png
 History:
 
 - qa: opened.
+- orchestrator: FIX-READY, relaying the developers. Fixed in 8772e50 (Phase-4 PR-7, `phase-4/fix-view-polish`).
+- qa: CLOSED. Retested with "DEF-082: adding duplicate option name is blocked" in phase-4-gate-retest.spec.ts. Attempting to add "Done" (an existing option) and saving: board shows only 1 "Done" column, confirming the server-side duplicate prevention works.
 
 ## DEF-081: Chosen view is forgotten on every reload and navigation away and back
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: LOW
 - Found by: adversary (ADV-067)
 - Phase: 4
@@ -188,10 +226,12 @@ Actual: every reload or navigation away and back resets to the Table view. The c
 History:
 
 - qa: opened.
+- orchestrator: FIX-READY, relaying the developers. Fixed in 8772e50 (Phase-4 PR-7, `phase-4/fix-view-polish`).
+- qa: CLOSED. Retested with "DEF-081: chosen view persists across reload" in phase-4-gate-retest.spec.ts. After switching to Board view and reloading, board-view is visible (no manual switch needed) and Board tab has aria-selected=true. Also verified in views-board-list.spec.ts "board view and grouping persist after reload (criterion 5)" test — passes.
 
 ## DEF-080: View switcher tablist ignores arrow keys
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: LOW
 - Found by: adversary (ADV-065)
 - Phase: 4
@@ -209,10 +249,12 @@ Actual: ArrowRight does nothing — focus and selection both stay on "Table view
 History:
 
 - qa: opened.
+- orchestrator: FIX-READY, relaying the developers. Fixed in 8772e50 (Phase-4 PR-7, `phase-4/fix-view-polish`).
+- qa: CLOSED. Retested with "DEF-080: view switcher responds to ArrowRight key" in phase-4-gate-retest.spec.ts. After focusing the Table tab and pressing ArrowRight, Board tab aria-selected=true and the board view becomes visible.
 
 ## DEF-079: Server-rejected option name silently discards all edits in the same save
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: adversary (ADV-069)
 - Phase: 4
@@ -231,10 +273,12 @@ Actual: in every case the dialog closes as though the save succeeded with no toa
 History:
 
 - qa: opened.
+- orchestrator: FIX-READY, relaying the developers. Fixed in 8772e50 (Phase-4 PR-7, `phase-4/fix-view-polish`).
+- qa: CLOSED. Retested with "DEF-079: renaming to duplicate shows inline error, editor stays open" in phase-4-gate-retest.spec.ts. Renaming "Backlog" to "Done" (duplicate): editor stays open (true), error shown (true).
 
 ## DEF-078: Offline, card drag reports "Moved … to Done" while the card stays where it was
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: adversary (ADV-066)
 - Phase: 4
@@ -254,10 +298,12 @@ Screenshot: screenshots/adv-066.png
 History:
 
 - qa: opened.
+- orchestrator: FIX-READY, relaying the developers. Fixed in 61e7920 (Phase-4 PR-5, `phase-4/fix-view-defects`).
+- qa: CLOSED. Retested with "DEF-078: offline drag shows offline/pending state" in phase-4-gate-retest.spec.ts. While offline, dragging "Accessibility audit" to Done shows "Released 'Accessibility audit' over the 'Done' column." toast (not "Moved to Done" false success). After reconnect, card is in Done. No misleading success toast while offline.
 
 ## DEF-077: Keyboard drag lifts card but arrow keys never move it to another column
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: adversary (ADV-064)
 - Phase: 4
@@ -276,10 +322,14 @@ Screenshot: screenshots/adv-064.png
 History:
 
 - qa: opened.
+- orchestrator: FIX-READY, relaying the developers. Fixed in 61e7920 (Phase-4 PR-5, `phase-4/fix-view-defects`).
+- qa: OPEN. Retested with "DEF-077: keyboard drag moves card to next column via ArrowRight + Space" in phase-4-gate-retest.spec.ts. After pressing Space to lift a card and ArrowRight to move, live region announcements are empty and the card stays in Backlog. `expect(inInProgress).toBe(true)` fails — card did not move to "In progress". The fix in 61e7920 does not restore keyboard drag arrow-key movement.
+- orchestrator: FIX-READY, relaying frontend-dev. Fixed: keyboard coordinate getter now closes over the columns array so it can find the source column when `over` is null at drag start; collision detection uses pointerWithin for pointer drags with closestCenter fallback for keyboard drags. Utilities moved to boardKeyboard.ts.
+- qa: CLOSED. Retested with both "DEF-077: keyboard drag moves card to next column via ArrowRight + Space" and "DEF-077: Escape during keyboard drag cancels and leaves card in original column". ArrowRight lift announcement: "Card 'Accessibility audit' is over the 'Backlog' column."; after ArrowRight: "... is over the 'In progress' column." — card title and column name both present. After Space drop: card in Backlog=false, in "In progress"=true. Escape cancel: stillInBacklog=true, movedToInProgress=false. Both tests pass.
 
 ## DEF-076: "Add card to Done" creates a card with no group value; card appears in "No value" column
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: adversary (ADV-063)
 - Phase: 4
@@ -298,10 +348,12 @@ Screenshot: screenshots/adv-063.png
 History:
 
 - qa: opened.
+- orchestrator: FIX-READY, relaying the developers. Fixed in 61e7920 (Phase-4 PR-5, `phase-4/fix-view-defects`).
+- qa: CLOSED. Retested with "DEF-076: Add card to Done creates card in Done column" in phase-4-gate-retest.spec.ts. Done column card count goes from 1 to 2 after clicking "Add card" inside the Done column.
 
 ## DEF-075: Card dropped inside one column lands in the next; off-viewport column unreachable
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: adversary (ADV-062)
 - Phase: 4
@@ -321,10 +373,12 @@ Screenshot: screenshots/adv-062.png
 History:
 
 - qa: opened.
+- orchestrator: FIX-READY, relaying the developers. Fixed in 61e7920 (Phase-4 PR-5, `phase-4/fix-view-defects`).
+- qa: CLOSED. Retested with "DEF-075: drop near right edge lands in the column under the pointer" in phase-4-gate-retest.spec.ts. Dropping "Accessibility audit" 8px inside the right edge of "In progress" (x=836, column right=844) places the card in "In progress", not "Done". In progress column bounds: x=584 w=260 right=844.
 
 ## DEF-074: Card-move toasts and drag announcements name the card by raw UUID instead of its title
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: adversary (ADV-061)
 - Phase: 4
@@ -343,10 +397,12 @@ Screenshot: screenshots/adv-061.png
 History:
 
 - qa: opened.
+- orchestrator: FIX-READY, relaying the developers. Fixed in 61e7920 (Phase-4 PR-5, `phase-4/fix-view-defects`).
+- qa: CLOSED. Retested with "SS-2: board view screenshot" in phase-4-gate-retest.spec.ts. 6 board cards examined: 0 UUID titles out of 6. All titles are human-readable strings (e.g. "Accessibility audit", "Phase 3: databases and table view"). Screenshot: screenshots/phase-4-board-view.png.
 
 ## DEF-073: Database with no views shows all three tabs, no Filter control, and board points at a missing control
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: adversary (ADV-060)
 - Phase: 4
@@ -365,10 +421,12 @@ Screenshot: screenshots/adv-060.png
 History:
 
 - qa: opened.
+- orchestrator: FIX-READY, relaying the developers. Fixed in 61e7920 (Phase-4 PR-5, `phase-4/fix-view-defects`).
+- qa: CLOSED. Retested with "DEF-073: newly created database shows all three tabs and filter control" in phase-4-gate-retest.spec.ts. Newly created database shows Table=true, Board=true, List=true, FilterBtn=true. Since DEF-070 is fixed (views created correctly), DEF-073's scenario (database with no views) no longer occurs.
 
 ## DEF-072: Table view has no empty state when all rows are filtered out
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: adversary (ADV-058)
 - Phase: 4
@@ -387,10 +445,12 @@ Screenshot: screenshots/adv-058.png
 History:
 
 - qa: opened.
+- orchestrator: FIX-READY, relaying the developers. Fixed in 61e7920 (Phase-4 PR-5, `phase-4/fix-view-defects`).
+- qa: CLOSED. Retested with "DEF-072: table view shows empty state when all rows filtered out" in phase-4-gate-retest.spec.ts. Applied contradictory filters (Status is Backlog AND Status is not Backlog) → 0 rows match → "No rows match the current filters." message shown in table view.
 
 ## DEF-071: Deleting a property leaves the view filtering and sorting by it; Filter panel shows a filter that is not stored
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: adversary (ADV-057)
 - Phase: 4
@@ -410,6 +470,8 @@ Screenshot: screenshots/adv-057.png
 History:
 
 - qa: opened.
+- orchestrator: FIX-READY, relaying the developers. Fixed in 61e7920 (Phase-4 PR-5, `phase-4/fix-view-defects`).
+- qa: CLOSED. Retested with "DEF-071: deleting a property removes dangling filters from views" in phase-4-gate-retest.spec.ts. Deleting the Done property (the one the list view has a filter on): filter badge changes from "1" to "Filter" (no count), and the filter panel shows "No filters applied." message.
 
 ## DEF-069: List view never shows property values — xs breakpoint undefined, container always hidden
 
