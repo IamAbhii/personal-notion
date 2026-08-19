@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import {
   DndContext,
   KeyboardSensor,
@@ -7,7 +8,7 @@ import {
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
-import type { DragEndEvent } from '@dnd-kit/core';
+import type { DragEndEvent, DragMoveEvent } from '@dnd-kit/core';
 import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import {
   SortableContext,
@@ -115,6 +116,21 @@ export function BlockEditor({
     onUpdateBlock(moved, { sortKey: sortKeyForMove(blocks, fromIndex, toIndex) });
   };
 
+  /**
+   * Flushes pending React state updates after each keyboard drag step. Without this, rapid
+   * ArrowDown presses at OS auto-repeat speed (~40ms) fire before React has committed the
+   * previous step's position changes. The droppable coordinate getter then reads stale DOM
+   * positions and most presses are silently dropped. flushSync forces a synchronous commit
+   * so each keydown reads an accurate layout. Only applied for keyboard drag (activatorEvent
+   * is a KeyboardEvent); pointer drag is unaffected.
+   * Future: remove when @dnd-kit/core's KeyboardSensor handles inter-key flush internally.
+   */
+  const handleDragMove = (event: DragMoveEvent) => {
+    if (event.activatorEvent instanceof KeyboardEvent) {
+      flushSync(() => {});
+    }
+  };
+
   // dnd-kit's defaults read raw UUIDs to a screen reader; these name the block and its position.
   const announcements = buildDragAnnouncements(blocks);
 
@@ -126,6 +142,7 @@ export function BlockEditor({
         // A block stack only reorders vertically; sideways movement would just look broken.
         modifiers={[restrictToVerticalAxis]}
         accessibility={{ announcements }}
+        onDragMove={handleDragMove}
         onDragEnd={handleDragEnd}
       >
         <SortableContext

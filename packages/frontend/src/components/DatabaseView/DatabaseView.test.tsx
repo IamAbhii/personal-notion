@@ -274,3 +274,53 @@ describe('DatabaseView — new property with a pre-existing value', () => {
     expect(screen.getByDisplayValue('9')).toBeInTheDocument();
   });
 });
+
+describe('DatabaseView — sticky header and title column (DEF-054)', () => {
+  it('the Title <th> has sticky positioning classes on both axes', () => {
+    // The Title header cell is the "corner" cell and must be sticky on both top and left so it
+    // stays visible when scrolling in either direction. Without this, the table header scrolls
+    // away and cells become unidentifiable (DEF-054).
+    renderDB();
+    const titleHeader = screen.getByText('Title').closest('th');
+    expect(titleHeader).not.toBeNull();
+    // Tailwind's `sticky` sets `position: sticky` (via class), `left-0` and `top-13` pin axes.
+    expect(titleHeader?.className).toContain('sticky');
+    expect(titleHeader?.className).toContain('left-0');
+    expect(titleHeader?.className).toContain('top-13');
+  });
+
+  it('property column <th> cells have sticky top positioning', () => {
+    // Every header cell must stick to the top so the column labels stay visible when
+    // scrolling the table vertically (DEF-054).
+    renderDB();
+    const statusHeader = screen.getByText('Status').closest('th');
+    expect(statusHeader).not.toBeNull();
+    expect(statusHeader?.className).toContain('sticky');
+    expect(statusHeader?.className).toContain('top-13');
+  });
+
+  it('each row title <td> has sticky left positioning', () => {
+    // The first column (title) in every body row must stay visible when scrolling
+    // horizontally, so users always know which row a cell belongs to (DEF-054).
+    renderDB();
+    const titleCells = screen.getAllByTestId('row-title-cell');
+    expect(titleCells.length).toBeGreaterThan(0);
+    // Navigate up to the <td> parent.
+    const firstTd = titleCells[0]!.closest('td');
+    expect(firstTd).not.toBeNull();
+    expect(firstTd?.className).toContain('sticky');
+    expect(firstTd?.className).toContain('left-0');
+  });
+
+  it('sticky cells have a bg-canvas background to occlude scrolling content', () => {
+    // Without a solid background the sticky header/column looks "ghost-like" — content from
+    // other rows or columns shows through. bg-canvas is the page background token (DEF-054).
+    renderDB();
+    const titleHeader = screen.getByText('Title').closest('th');
+    expect(titleHeader?.className).toContain('bg-canvas');
+
+    const titleCells = screen.getAllByTestId('row-title-cell');
+    const firstTd = titleCells[0]!.closest('td');
+    expect(firstTd?.className).toContain('bg-canvas');
+  });
+});
