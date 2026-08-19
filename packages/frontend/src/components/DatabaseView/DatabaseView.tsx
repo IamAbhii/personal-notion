@@ -590,20 +590,27 @@ export function DatabaseView({
     }
   };
 
+  // overflow-x-auto enables horizontal scroll for wide tables. [overflow-y:clip] is required
+  // alongside it: CSS forces overflow-x:auto to compute overflow-y:auto (creating a scroll
+  // container on the Y axis), which makes sticky top-N resolve relative to this div instead
+  // of the WorkspaceShell content area. overflow-y:clip clips without creating a scroll
+  // container, so sticky is resolved against the correct ancestor (DEF-054).
   return (
-    <div className="w-full overflow-x-auto" data-testid="database-view">
+    <div className="w-full overflow-x-auto [overflow-y:clip]" data-testid="database-view">
       <table className="w-full border-collapse text-left">
         <thead>
-          {/* The thead row is sticky on both axes: top-13 clears the 52px breadcrumb bar in
-               PageView, and the title column is also sticky left-0 so each axis stays pinned
-               independently. bg-canvas is required for both so scrolling content does not
-               show through the sticky cells (DEF-054). */}
+          {/* The header row cells use sticky top-0 so they pin to the natural top of the
+               thead row without a relative-offset shift. top-N on a sticky element acts like
+               position:relative top:N in normal flow, so any value > 0 pushes the cells down
+               inside the thead row and creates an empty band (DEF-054). top-0 keeps the cells
+               flush with the row while still allowing sticky left-0 to pin the title column
+               horizontally. bg-canvas prevents scrolling rows from showing through. */}
           <tr className="border-b border-border">
             {/* Title column — min-w-[160px] balances readability and desktop fit (DEF-042):
                  with 6 properties at 120px each, 1 title at 160px, and 40px actions the
                  table minimum (920px) fits within the ~956px content area at 1280x800.
-                 sticky left-0 top-13 z-30 keeps this corner cell above all other sticky cells. */}
-            <th className="sticky top-13 left-0 z-30 min-w-[160px] border-r border-border bg-canvas">
+                 sticky left-0 top-0 z-30 keeps this corner cell above all other sticky cells. */}
+            <th className="sticky top-0 left-0 z-30 min-w-[160px] border-r border-border bg-canvas">
               <span className="block px-3 py-2 text-left text-xs font-semibold tracking-wide text-text-muted uppercase">
                 Title
               </span>
@@ -613,7 +620,7 @@ export function DatabaseView({
             {properties.map((prop) => (
               <th
                 key={prop.id}
-                className="sticky top-13 z-20 min-w-[120px] border-r border-border bg-canvas"
+                className="sticky top-0 z-20 min-w-[120px] border-r border-border bg-canvas"
               >
                 <PropertyHeaderMenu
                   property={prop}
@@ -628,8 +635,8 @@ export function DatabaseView({
                 />
               </th>
             ))}
-            {/* "Add property" header cell — sticky top-13 z-20 keeps it in the header row. */}
-            <th className="sticky top-13 z-20 w-10 border-r-0 bg-canvas">
+            {/* "Add property" header cell — sticky top-0 z-20 keeps it in the header row. */}
+            <th className="sticky top-0 z-20 w-10 border-r-0 bg-canvas">
               {addingProperty ? (
                 <DropdownMenu
                   open
