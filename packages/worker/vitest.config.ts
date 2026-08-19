@@ -27,5 +27,17 @@ export default defineConfig({
     setupFiles: ['./test/setup.ts'],
     // Test files share one local D1, so they run one at a time.
     fileParallelism: false,
+    coverage: {
+      // V8 native coverage requires node:inspector which is a non-functional stub in workerd.
+      // @cloudflare/vitest-pool-workers explicitly rejects the v8 provider and requires Istanbul,
+      // which instruments source code at build time and works on any JavaScript runtime.
+      provider: 'istanbul',
+      reporter: ['text', 'json-summary'],
+      include: ['src/**'],
+      exclude: ['src/index.ts', 'src/env.ts', 'src/types.ts', 'src/**/*.d.ts', 'src/db/schema.ts'],
+      thresholds: {
+        statements: 80,
+      },
+    },
   },
 });
