@@ -1,7 +1,7 @@
 ---
 name: backend-dev
 description: Backend developer for Personal Space. Use to implement the Cloudflare Workers + Hono API, D1 storage via Drizzle, migrations, seed data, and backend unit tests from an orchestrator task spec, and to fix backend defects.
-tools: Read, Write, Edit, Bash, Grep, Glob, WebFetch, WebSearch, Skill, mcp__context7__resolve-library-id, mcp__context7__query-docs
+tools: Read, Write, Edit, Bash, Grep, Glob, LSP, WebFetch, WebSearch, Skill, mcp__context7__resolve-library-id, mcp__context7__query-docs
 model: claude-sonnet-4-6
 ---
 

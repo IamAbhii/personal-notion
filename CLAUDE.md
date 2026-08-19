@@ -180,6 +180,12 @@ needed, and neither implies the other:
 1. **The binary** — `npm install -g typescript-language-server typescript`. It must be **global**, on
    `PATH`: the plugin spawns it by name, so a root devDependency in `node_modules/.bin` is invisible to
    it. The devcontainer installs it in `.devcontainer/setup.sh` alongside Claude Code itself.
+
+   **Under nvm, a global install lands in the active Node version's `bin`**, so it is installed per
+   Node version, not per machine: `nvm use` a version that never had it and the plugin is back to
+   `Executable not found in $PATH` with nothing else having changed. This project pins Node 22 via
+   `.nvmrc`, and the machine's nvm `default` alias is 22, so the binary is on `PATH` without a manual
+   selection. Verify with `which typescript-language-server`, not by assuming.
 2. **The Claude Code plugin** — `/plugin install typescript-lsp@claude-plugins-official`. Claude Code's
    LSP tool ships built in but is **inactive until a code-intelligence plugin activates it**, and the
    plugin configures the connection without installing the binary. Installing one without the other
@@ -200,11 +206,20 @@ Once both are in place, use it:
   context for the rest of the session. Reach for the LSP first on every type question.
 - **Diagnostics after every edit are the fast feedback loop.** Read them and fix before moving on;
   `npm run typecheck` is the gate at commit time, not the way to find a type error you just wrote.
-- **Subagents do not get the LSP tool.** It is main-session configuration, and plugin inheritance into
-  Task agents is not a documented guarantee. So frontend-dev, backend-dev, qa and adversary verify
-  types the way they always have — `npx tsc --noEmit` through Bash — and report the output. The
-  orchestrator, which is the main session, is the one that uses the LSP: for reviewing a diff's blast
-  radius and confirming a change reached every call site, without reading whole files to do it.
+- **Every agent gets the LSP, and every agent is expected to use it.** `LSP` is listed in the `tools:`
+  frontmatter of all four subagents, so frontend-dev, backend-dev, qa and adversary each have it
+  alongside the orchestrator. Reach for it instead of grep whenever the question is "what is this
+  type", "where is this defined" or "who calls this". The orchestrator's own use is reviewing a diff's
+  blast radius and confirming a change reached every call site without reading whole files to do it.
+- **The LSP replaces grep for type questions; it does not replace the typecheck.** `npx tsc --noEmit`
+  stays the gate every agent runs before reporting done, because the language server answers about the
+  symbol you asked about while the compiler answers about the whole workspace. Use the LSP while
+  working, the typecheck before reporting.
+- **A tools-list change only takes effect in a new session.** Agent definitions are read at session
+  start, so adding `LSP` to an agent's frontmatter does nothing for subagents already dispatched in
+  the current session — they report the tool as absent. This was verified rather than assumed: a
+  subagent dispatched immediately after the edit had no `LSP` in its tool list at all. If a subagent
+  reports the tool missing, that is the reason, and the fix is a fresh session rather than a retry.
 
 ## Lessons carried forward
 
