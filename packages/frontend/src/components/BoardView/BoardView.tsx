@@ -175,7 +175,10 @@ function BoardColumnCard({ column, draggingId, onOpenRow, onCreateRow }: BoardCo
         role="list"
         className={cn(
           'flex min-h-[120px] flex-col gap-2 rounded-lg border-2 p-2 transition-colors',
-          isOver ? 'border-blue/60 bg-blue/5' : 'border-transparent bg-surface/40',
+          // border-border/60 gives each column a visible outline in dark theme where bg-surface/40
+          // alone creates near-zero contrast against the canvas (surface at 40% opacity on #100f14
+          // produces #0d1019, indistinguishable from the canvas itself).
+          isOver ? 'border-blue/60 bg-blue/5' : 'border-border/60 bg-surface/50',
         )}
       >
         {column.rows.map((row) => (
