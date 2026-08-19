@@ -43,6 +43,22 @@ describe('block op builders', () => {
     expect('sortKey' in op.payload).toBe(false);
   });
 
+  it('includes checked and props when provided (optional field paths)', () => {
+    const op = buildBlockCreateOp({
+      workspaceId: 'ws-1',
+      blockId: 'b-1',
+      pageId: 'p-1',
+      type: 'todo',
+      checked: true,
+      props: JSON.stringify({ language: 'typescript' }),
+    });
+
+    expect(op.payload).toMatchObject({
+      checked: true,
+      props: JSON.stringify({ language: 'typescript' }),
+    });
+  });
+
   it('builds a block.update op carrying only the changed fields and the base version', () => {
     const op = buildBlockUpdateOp({
       workspaceId: 'ws-1',

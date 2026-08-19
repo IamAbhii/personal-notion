@@ -151,6 +151,11 @@ export function useViewMutations(
     return `"${name.length > 60 ? `${name.slice(0, 60)}...` : name}"`;
   };
 
+  // Suppress "views is declared but never read" — views is the snapshot projection needed for
+  // future sort-key calculations. Currently unused but mirrors the pattern in usePropertyMutations
+  // where siblings are read to compute the next sort key.
+  void views;
+
   return {
     createView: async ({ databasePageId, name, kind, groupPropertyId, filters, sort, sortKey }) => {
       const viewId = crypto.randomUUID();
@@ -251,9 +256,4 @@ export function useViewMutations(
       return ids;
     },
   };
-
-  // Suppress "views is declared but never read" — views is the snapshot projection needed for
-  // future sort-key calculations. Currently unused but mirrors the pattern in usePropertyMutations
-  // where siblings are read to compute the next sort key.
-  void views;
 }

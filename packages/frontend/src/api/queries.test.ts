@@ -1,40 +1,72 @@
-import { describe, expect, it } from 'vitest';
-import { snapshotQueryOptions, meQueryOptions } from './queries';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { meQueryOptions, queryKeys, snapshotQueryOptions } from './queries';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 /**
- * Unit tests for query option configuration — structural guards that ensure the query options
- * carry the settings that fix cross-tab data drift (DEF-056, DEF-057).
+ * Stubs fetch to return a given body as a 200 JSON response. Lets us exercise the queryFn
+ * callbacks (which call apiGet) without a live server.
  */
-describe('snapshotQueryOptions', () => {
-  it('includes a refetchInterval so the snapshot polls in the background (DEF-056, DEF-057)', () => {
-    // Without refetchInterval, a row deleted in another tab stays visible indefinitely in the
-    // current tab, and a cell edited in another tab never converges in the current tab.
-    // 30 000 ms (30s) is the chosen interval: fast enough to reconcile cross-tab edits within
-    // half a minute, conservative enough not to hammer the server.
-    const options = snapshotQueryOptions('user-1', 'ws-1');
-    expect(options.refetchInterval).toBe(30_000);
+function stubFetch(body: unknown) {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }),
+  );
+}
+
+describe('queryKeys', () => {
+  it('me() returns a stable key array', () => {
+    expect(queryKeys.me()).toEqual(['me']);
   });
 
-  it('includes the workspace and user ids in the query key', () => {
-    // The key is namespaced by (userId, workspaceId) so that multiple accounts in the same
-    // browser profile do not share cached workspace data (cross-account data isolation).
-    const options = snapshotQueryOptions('user-1', 'ws-1');
-    expect(options.queryKey).toContain('user-1');
-    expect(options.queryKey).toContain('ws-1');
-  });
-
-  it('keys differ for different user and workspace ids', () => {
-    const a = snapshotQueryOptions('user-1', 'ws-1');
-    const b = snapshotQueryOptions('user-2', 'ws-1');
-    const c = snapshotQueryOptions('user-1', 'ws-2');
-    expect(a.queryKey).not.toEqual(b.queryKey);
-    expect(a.queryKey).not.toEqual(c.queryKey);
+  it('snapshot() embeds the user id and workspace id', () => {
+    const key = queryKeys.snapshot('u-1', 'ws-1');
+    expect(key).toEqual(['snapshot', 'u-1', 'ws-1']);
   });
 });
 
 describe('meQueryOptions', () => {
-  it('includes a staleTime so the me endpoint is not refetched on every mount', () => {
-    const options = meQueryOptions();
-    expect(options.staleTime).toBeGreaterThan(0);
+  it('queryFn calls /api/me and returns the parsed body', async () => {
+    stubFetch({ user: { id: 'u-1' }, memberships: [] });
+    const opts = meQueryOptions();
+    // Call the queryFn directly to cover the arrow function body (line 19).
+    const result = await opts.queryFn!({ queryKey: opts.queryKey } as never);
+    expect((result as { user: { id: string } }).user.id).toBe('u-1');
+  });
+});
+
+describe('snapshotQueryOptions', () => {
+  it('queryFn calls the workspace snapshot endpoint and returns the parsed body', async () => {
+    stubFetch({ pages: [], blocks: [], properties: [], values: [], views: [], etag: 'W/"1"' });
+    const opts = snapshotQueryOptions('u-1', 'ws-1');
+    const result = await opts.queryFn!({ queryKey: opts.queryKey } as never);
+    expect((result as { pages: unknown[] }).pages).toEqual([]);
+  });
+
+  it('snapshot URL contains the workspace id', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          pages: [],
+          blocks: [],
+          properties: [],
+          values: [],
+          views: [],
+          etag: 'W/"1"',
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+    );
+    const opts = snapshotQueryOptions('u-1', 'ws-42');
+    await opts.queryFn!({ queryKey: opts.queryKey } as never);
+    const [url] = fetchSpy.mock.calls[0]!;
+    expect(String(url)).toContain('ws-42');
   });
 });

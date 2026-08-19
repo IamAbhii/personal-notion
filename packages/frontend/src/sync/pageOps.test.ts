@@ -34,6 +34,34 @@ describe('page op builders', () => {
     expect(Number.isInteger(op.createdAt)).toBe(true);
   });
 
+  it('includes kind in the payload when it is not the default "page"', () => {
+    const op = buildPageCreateOp({
+      workspaceId: 'ws-1',
+      pageId: 'page-1',
+      parentId: null,
+      title: 'My DB',
+      icon: '',
+      sortKey: 'a0',
+      kind: 'database',
+    });
+
+    expect(op.payload).toMatchObject({ kind: 'database' });
+  });
+
+  it('omits kind from the payload when it is the default "page" to stay backward compatible', () => {
+    const op = buildPageCreateOp({
+      workspaceId: 'ws-1',
+      pageId: 'page-1',
+      parentId: null,
+      title: 'My Page',
+      icon: '',
+      sortKey: 'a0',
+      kind: 'page',
+    });
+
+    expect('kind' in op.payload).toBe(false);
+  });
+
   it('builds a page.update op carrying only the changed fields and the base version', () => {
     const op = buildPageUpdateOp({
       workspaceId: 'ws-1',
