@@ -121,18 +121,21 @@ helper command lines. To see what holds a port:
 
 All from the repo root. It is an npm workspace (`packages/frontend`, `packages/worker`).
 
-| Command                                         | Does                                                                        |
-| ----------------------------------------------- | --------------------------------------------------------------------------- |
-| `npm install`                                   | Install everything                                                          |
-| `npm start`                                     | Build frontend, apply local migrations, serve on **8787**. This is the app. |
-| `npm run dev`                                   | Worker on 8787 **and** Vite on 5173, concurrently. Development only.        |
-| `npm run test`                                  | Worker unit tests, then frontend unit tests                                 |
-| `npm run test:worker` / `npm run test:frontend` | One side only (`vitest run`)                                                |
-| `npm run test:e2e`                              | Playwright, config at `e2e/playwright.config.ts`                            |
-| `npm run migrate:local`                         | Apply D1 migrations to the local database                                   |
-| `npm run typecheck` / `lint` / `format:check`   | The three pre-commit gates                                                  |
-| `npm run lint:fix` / `format`                   | Mechanical fixes                                                            |
-| `npm run kill-servers`                          | Kill stale wrangler/workerd and assert 8787 and 8788 are free               |
+| Command                                         | Does                                                                                                        |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `npm install`                                   | Install everything                                                                                          |
+| `npm start`                                     | Build frontend, apply local migrations, serve on **8787**. This is the app.                                 |
+| `npm run dev`                                   | Worker on 8787 **and** Vite on 5173, concurrently. Development only.                                        |
+| `npm run test`                                  | Worker unit tests, then frontend unit tests                                                                 |
+| `npm run test:worker` / `npm run test:frontend` | One side only (`vitest run`)                                                                                |
+| `npm run test:coverage`                         | Worker coverage (Istanbul), then frontend coverage (v8), both with text summary and 80% statement threshold |
+| `npm run test:coverage:worker`                  | Worker coverage only — prints the Istanbul text table to stdout                                             |
+| `npm run test:coverage:frontend`                | Frontend coverage only — prints the v8 text table to stdout                                                 |
+| `npm run test:e2e`                              | Playwright, config at `e2e/playwright.config.ts`                                                            |
+| `npm run migrate:local`                         | Apply D1 migrations to the local database                                                                   |
+| `npm run typecheck` / `lint` / `format:check`   | The three pre-commit gates                                                                                  |
+| `npm run lint:fix` / `format`                   | Mechanical fixes                                                                                            |
+| `npm run kill-servers`                          | Kill stale wrangler/workerd and assert 8787 and 8788 are free                                               |
 
 **Always `vitest run`, never bare `vitest`** — the bare form watches forever.
 
