@@ -59,7 +59,9 @@ export function ViewSwitcher({ activeKind, onSwitch, className }: ViewSwitcherPr
     <div
       role="tablist"
       aria-label="View type"
-      className={cn('flex items-center gap-0.5', className)}
+      // bg-surface-sunken track: the active tab (bg-surface) lifts visibly above it in both
+      // themes — in dark #191820 on #14131a, in light #ffffff on #faf9f7.
+      className={cn('flex items-center gap-0.5 rounded-lg bg-surface-sunken p-0.5', className)}
       onKeyDown={handleKeyDown}
     >
       {TABS.map((tab, index) => {
