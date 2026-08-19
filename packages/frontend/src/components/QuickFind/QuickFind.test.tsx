@@ -145,6 +145,21 @@ describe('QuickFind: keyboard navigation', () => {
     expect(results[5]).toHaveAttribute('aria-selected', 'true');
   });
 
+  it('PageUp moves the selection back by five positions (lines 89-91)', async () => {
+    const user = userEvent.setup();
+    // Need enough results: search for 'e' to get ten pages.
+    const manyPages: PageRecord[] = Array.from({ length: 10 }, (_, i) =>
+      makePage({ id: `pg-${i}`, title: `Entry ${i}`, kind: 'page' }),
+    );
+    renderQuickFind({ pages: manyPages });
+    await user.type(screen.getByTestId('quickfind-input'), 'e');
+    // PageDown from 0 → position 5. PageDown again → 9 (clamped). PageUp → max(9-5, 0) = 4.
+    await user.keyboard('{PageDown}{PageDown}');
+    await user.keyboard('{PageUp}');
+    const results = screen.getAllByTestId('quickfind-result');
+    expect(results[4]).toHaveAttribute('aria-selected', 'true');
+  });
+
   it('Enter calls onSelect with the highlighted page id and calls onClose', async () => {
     const user = userEvent.setup();
     const props = renderQuickFind();

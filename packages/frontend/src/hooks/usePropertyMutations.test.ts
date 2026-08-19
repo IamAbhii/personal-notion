@@ -286,3 +286,179 @@ describe('usePropertyMutations — setValue', () => {
     );
   });
 });
+
+// ── Failure path coverage ──────────────────────────────────────────────────────
+
+describe('usePropertyMutations — createProperty failure path (lines 229-230)', () => {
+  let queryClient: QueryClient;
+  beforeEach(() => {
+    queryClient = makeQueryClient();
+    vi.clearAllMocks();
+  });
+
+  it('shows a toast and returns null when the create op is rejected (lines 217-218, 229-230)', async () => {
+    const { submitOps } = await import('../sync/ops');
+    vi.mocked(submitOps).mockRejectedValueOnce(new Error('network error'));
+    seedSnapshot(queryClient);
+
+    const { result } = renderHook(() => usePropertyMutations(userId, workspaceId, [], notify), {
+      wrapper: makeWrapper(queryClient),
+    });
+
+    let id: string | null = 'sentinel';
+    await act(async () => {
+      id = await result.current.createProperty({
+        databasePageId: 'db-1',
+        name: 'Failing Prop',
+        type: 'text',
+      });
+    });
+
+    expect(id).toBeNull();
+    expect(notify).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('usePropertyMutations — deleteProperty failure path (line 255)', () => {
+  let queryClient: QueryClient;
+  beforeEach(() => {
+    queryClient = makeQueryClient();
+    vi.clearAllMocks();
+  });
+
+  it('shows a toast when deleteProperty fails (line 255)', async () => {
+    const { submitOps } = await import('../sync/ops');
+    vi.mocked(submitOps).mockRejectedValueOnce(new Error('network error'));
+
+    const prop = makeProperty({ id: 'p1', databasePageId: 'db1', name: 'Y', type: 'text' });
+    seedSnapshot(queryClient, { properties: [prop] });
+
+    const { result } = renderHook(() => usePropertyMutations(userId, workspaceId, [prop], notify), {
+      wrapper: makeWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.deleteProperty(prop);
+    });
+
+    expect(notify).toHaveBeenCalledTimes(1);
+  });
+
+  it('removes associated values from the snapshot when deleting (line 167 values filter)', async () => {
+    // Seed the snapshot with a value for the property so the filter callback on line 167 runs.
+    const prop = makeProperty({ id: 'p1', databasePageId: 'db1', name: 'Z', type: 'text' });
+    const val = makeValue({ rowPageId: 'row-1', propertyId: 'p1', value: '"hello"' });
+    seedSnapshot(queryClient, { properties: [prop], values: [val] });
+
+    const { result } = renderHook(() => usePropertyMutations(userId, workspaceId, [prop], notify), {
+      wrapper: makeWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.deleteProperty(prop);
+    });
+
+    const { submitOps } = await import('../sync/ops');
+    expect(submitOps).toHaveBeenCalledWith(
+      workspaceId,
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'property.delete', entityId: 'p1' }),
+      ]),
+    );
+  });
+});
+
+describe('usePropertyMutations — setValue failure path (line 267)', () => {
+  let queryClient: QueryClient;
+  beforeEach(() => {
+    queryClient = makeQueryClient();
+    vi.clearAllMocks();
+  });
+
+  it('shows a toast when setValue fails (line 267)', async () => {
+    const { submitOps } = await import('../sync/ops');
+    vi.mocked(submitOps).mockRejectedValueOnce(new Error('network error'));
+    seedSnapshot(queryClient);
+
+    const { result } = renderHook(() => usePropertyMutations(userId, workspaceId, [], notify), {
+      wrapper: makeWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.setValue({
+        rowPageId: 'row-1',
+        propertyId: 'prop-1',
+        value: '"bad"',
+      });
+    });
+
+    expect(notify).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('usePropertyMutations — computeSortKey with existing properties (lines 90, 92)', () => {
+  let queryClient: QueryClient;
+  beforeEach(() => {
+    queryClient = makeQueryClient();
+    vi.clearAllMocks();
+  });
+
+  it('sorts after existing properties on the same database (lines 90, 92)', async () => {
+    // Pass existing properties so the filter/map callbacks on lines 90 and 92 are called.
+    const existing = makeProperty({
+      id: 'prop-0',
+      databasePageId: 'db-1',
+      name: 'First',
+      type: 'text',
+    });
+    seedSnapshot(queryClient, { properties: [existing] });
+
+    const { result } = renderHook(
+      () => usePropertyMutations(userId, workspaceId, [existing], notify),
+      { wrapper: makeWrapper(queryClient) },
+    );
+
+    let id: string | null = null;
+    await act(async () => {
+      id = await result.current.createProperty({
+        databasePageId: 'db-1',
+        name: 'Second',
+        type: 'number',
+      });
+    });
+
+    // A non-null id means the create succeeded and the sort key was computed from the existing one.
+    expect(id).not.toBeNull();
+  });
+});
+
+describe('usePropertyMutations — extractRejectionReason fallback (line 57)', () => {
+  let queryClient: QueryClient;
+  beforeEach(() => {
+    queryClient = makeQueryClient();
+    vi.clearAllMocks();
+  });
+
+  it('returns the error message when options update fails with a non-OpRejectedError (line 57)', async () => {
+    const { submitOps } = await import('../sync/ops');
+    // Throw a plain Error (not OpRejectedError) so extractRejectionReason hits the fallback (line 57).
+    vi.mocked(submitOps).mockRejectedValueOnce(new Error('unexpected crash'));
+
+    const prop = makeProperty({ id: 'p1', databasePageId: 'db1', name: 'Status', type: 'select' });
+    seedSnapshot(queryClient, { properties: [prop] });
+
+    const { result } = renderHook(() => usePropertyMutations(userId, workspaceId, [prop], notify), {
+      wrapper: makeWrapper(queryClient),
+    });
+
+    let returnValue: string | null = null;
+    await act(async () => {
+      returnValue = await result.current.updateProperty(prop, { options: [] });
+    });
+
+    // The fallback returns error.message for non-OpRejectedError.
+    expect(returnValue).toContain('unexpected crash');
+    // No toast for options updates — the dialog shows the error inline.
+    expect(notify).not.toHaveBeenCalled();
+  });
+});

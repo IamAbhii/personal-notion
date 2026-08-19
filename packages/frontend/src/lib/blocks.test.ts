@@ -6,6 +6,7 @@ import {
   clampBlockText,
   blocksForPage,
   filterBlockTypes,
+  isTextualBlock,
   numberedListNumber,
   parseBlockProps,
   sortKeyAfterIndex,
@@ -159,6 +160,18 @@ describe('numberedListNumber', () => {
     expect(blocks.map((_block, index) => numberedListNumber(blocks, index))).toEqual([
       1, 2, 3, 1, 1,
     ]);
+  });
+});
+
+describe('isTextualBlock', () => {
+  it('returns false for divider (the only non-textual block)', () => {
+    expect(isTextualBlock('divider')).toBe(false);
+  });
+
+  it('returns true for every other block type', () => {
+    expect(isTextualBlock('paragraph')).toBe(true);
+    expect(isTextualBlock('heading1')).toBe(true);
+    expect(isTextualBlock('code')).toBe(true);
   });
 });
 

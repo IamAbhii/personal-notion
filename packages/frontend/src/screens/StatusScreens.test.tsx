@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { AppError } from './StatusScreens';
+import { AppError, AppLoading, NoWorkspace } from './StatusScreens';
 import { ApiError } from '../api/client';
 
 // A reload with no network used to show the raw fetch text ("Failed to fetch"), which reads as a bug
@@ -28,5 +28,29 @@ describe('AppError', () => {
 
     expect(screen.getByText('Something went wrong')).toBeInTheDocument();
     expect(screen.getByText('snapshot parse failed')).toBeInTheDocument();
+  });
+});
+
+describe('AppLoading', () => {
+  it('renders the loading message', () => {
+    render(<AppLoading />);
+    expect(screen.getByText(/loading your workspace/i)).toBeInTheDocument();
+  });
+
+  it('renders the Personal Space eyebrow', () => {
+    render(<AppLoading />);
+    expect(screen.getByText('Personal Space')).toBeInTheDocument();
+  });
+});
+
+describe('NoWorkspace', () => {
+  it('renders the no-workspace message', () => {
+    render(<NoWorkspace />);
+    expect(screen.getByText(/you do not belong to a workspace yet/i)).toBeInTheDocument();
+  });
+
+  it('renders a hint about how to get access', () => {
+    render(<NoWorkspace />);
+    expect(screen.getByText(/invitation/i)).toBeInTheDocument();
   });
 });
