@@ -1,6 +1,6 @@
 ## DEF-107: UrlCell edit-mode draft is not protected against refetch arriving while the user is typing
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: qa
 - Phase: 6
@@ -24,6 +24,7 @@ Root cause: same pattern as DEF-105. UrlCell has no guard equivalent to TextCell
 History:
 
 - qa: opened. Identified as a latent bug during DEF-105 investigation. The same `useState` initialiser pattern that caused DEF-105 exists in UrlCell's edit path.
+- qa: CLOSED. Fix mirrors DEF-105: UrlCell now uses `focused` state alongside `editing`; view mode guard is `!editing && !focused && raw`; displayed value is `focused || editing ? draft : raw`. Two tests added in `phase-6-defect-retests.spec.ts`: Part A (convergence — idle cell shows value updated by tab A after refetch, passes at ~31.8s) and Part B (mid-edit protection — refetch arriving while input is focused does not overwrite the draft, passes at ~3.7s). Both passed on first run. Regression: all 16 walkthrough tests and the full suite (batch 1–3) pass.
 
 ## DEF-106: defect-037-040-regressions "Enter on a non-empty bulleted list item" fails intermittently under batch load
 
@@ -1230,7 +1231,7 @@ History:
 
 ## DEF-057: The losing tab in a two-tab cell edit keeps showing its own value with no sign it lost
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: LOW
 - Found by: adversary (ADV-048)
 - Phase: 3
@@ -1256,6 +1257,7 @@ History:
 - qa: phase 5 retest. Phase 5 added quick-find and theme toggle; no sync/offline changes were made. `themeStore.ts` and `WorkspaceShell.tsx` changes do not affect the cell-edit conflict path. Code unchanged; defect still OPEN.
 - qa: OPEN (partial). Phase 6 added `refetchInterval: 30_000` to the snapshot query. The checkbox and derived-value cell types (CheckboxCell, SelectCell, etc.) DO converge within 30 seconds because they read the `value` prop directly each render. A two-tab test with a checkbox confirmed this (DEF-057 test in `phase-6-defect-retests.spec.ts` passes at ~32s). However, text cells (TextCell in `CellEditor.tsx`) use a local `draft` useState that does NOT sync with prop changes from refetches, so text cell values in a passive tab never update — tracked as DEF-105. DEF-057 is left OPEN until TextCell is fixed.
 - qa: Phase 6 final verification. Checkbox two-tab convergence test (`phase-6-defect-retests.spec.ts` line 370) passed in all 3 isolated and all 3 batch-2 runs (31.7–32s each, triggered via visibility-change trick). DEF-057 remains OPEN because the partial fix (checkbox convergence) is confirmed working but the text-cell path (DEF-105) is not fixed. Status unchanged.
+- qa: CLOSED. DEF-105 (text cell) is now CLOSED: TextCell uses `focused ? draft : parseValue(value)` so passive cells converge on refetch, and DEF-105 Part A convergence test passes. DEF-107 (url cell) is now CLOSED with the same pattern. With both the text path and url path fixed, and the checkbox path confirmed via the DEF-057 test in this spec, all cell types that participate in the two-tab scenario now converge via the 30-second refetchInterval. All three paths are covered by passing automated tests. DEF-057 is fully resolved.
 
 ## DEF-056: A row page keeps rendering a deleted row indefinitely, then silently discards a cell edit on transition to NOT FOUND
 
