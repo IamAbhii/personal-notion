@@ -1,6 +1,33 @@
-## DEF-106: defect-037-040-regressions "Enter on a non-empty bulleted list item" fails intermittently under batch load
+## DEF-107: UrlCell edit-mode draft is not protected against refetch arriving while the user is typing
 
 - Status: OPEN
+- Severity: MEDIUM
+- Found by: qa
+- Phase: 6
+
+Steps to reproduce:
+
+1. Launch the app: `npm start` then open http://localhost:8787.
+2. Open the Book Tracker database.
+3. Click the pencil icon on the Link (url) column for any row to open the url editor.
+4. Begin typing a new URL (e.g., "https://example") but do not blur.
+5. In a second browser tab, change that row's Link value to a different URL and save it.
+6. In the first tab, simulate a refetch (e.g., wait 30 seconds for `refetchInterval`, or cycle tab visibility).
+7. Continue typing in the url input.
+
+Expected: the user's in-progress draft ("https://example...") is preserved; refetch updates only the stored representation, not the active input.
+
+Actual: UrlCell's draft state is initialised once via `useState(() => parseValue<string>(value) ?? '')`. When the row is non-empty, the component renders in view mode (`!editing && raw` is truthy) and shows a hyperlink. Clicking the pencil sets `editing = true`; at that point the input is initialised from `raw` (the current prop value). If a refetch arrives and the `value` prop changes while `editing = true`, the `raw` expression updates but the `useState` draft does not re-initialise (it only runs once). However, if a refetch fires between when the user clicks the pencil and when the input mounts — or if the component unmounts and remounts — the draft can receive a stale or unexpected value. For an empty cell (where `!editing && raw` is always false) the input is always visible, and a refetch changing `value` from empty to non-empty will switch the component into view mode mid-typing, discarding the user's draft entirely.
+
+Root cause: same pattern as DEF-105. UrlCell has no guard equivalent to TextCell's `focused ? draft : parseValue<string>(value)` pattern. The `editing` state is local, but there is no mechanism to prevent `raw` from changing under the user's active input.
+
+History:
+
+- qa: opened. Identified as a latent bug during DEF-105 investigation. The same `useState` initialiser pattern that caused DEF-105 exists in UrlCell's edit path.
+
+## DEF-106: defect-037-040-regressions "Enter on a non-empty bulleted list item" fails intermittently under batch load
+
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: qa
 - Phase: 6
@@ -21,10 +48,11 @@ History:
 
 - qa: opened. Observed in 1 of 3 full-suite runs during Phase 6 gate testing. Passes in isolation (`npx playwright test --grep "Enter on a non-empty bulleted"`).
 - qa: extended observation. Across 6 full-suite runs during Phase 6 final verification, two distinct tests in `defect-037-040-regressions.spec.ts` were observed failing under batch load: (1) `DEF-037: handle centre is within 4 px of the first text line for every block type` (line 89) — failed in 1 of 6 runs; (2) `DEF-038: Enter on a non-empty to-do item creates the next to-do item` (line 248) — failed in 1 of 6 runs. Neither is the bulleted-list test in the original filing. The spec file as a whole has timing fragility in multiple `assertListContinuation` and `assertBlockVisible` calls that use `waitForTimeout` instead of web-first assertions. Root cause diagnosis and scope remain unchanged; only the breadth is wider than originally observed (3 tests affected, not 1).
+- qa: CLOSED. Replaced all `waitForTimeout(300)` calls in `defect-037-040-regressions.spec.ts` with web-first assertions: `assertListContinuation` now uses `toHaveCount(N)` + explicit CDP `locator.focus()` after each Enter; DEF-039 spacing test and DEF-037 block-type loop use the same `waitForLastBlockFocused` helper. Ran full suite 3 times — all 203 tests passed in every run with no flaky failures in this spec.
 
 ## DEF-105: TextCell local draft state does not sync with snapshot refetches — text cell changes in another tab never converge
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: qa
 - Phase: 6
@@ -50,6 +78,7 @@ Screenshot: none at filing time; steps above are deterministic.
 History:
 
 - qa: opened. Found while attempting to write a real two-tab convergence test for DEF-057. The 35-second assertion never passed even though the 30-second refetch fired; investigation showed TextCell's draft is not synced.
+- qa: CLOSED. Phase 6 fix added `displayValue = focused ? draft : (parseValue<string>(value) ?? '')` pattern to TextCell so when the cell is not being actively edited, it shows the prop value from the latest refetch. Retested both halves: (A) convergence — two tabs open Book Tracker, Tab A sets Notes on "The Design of Everyday Things" to a unique value, Tab B triggers refetch via visibility-change, Tab B's text input shows the new value within 35s (`toHaveValue` passed); (B) mid-edit protection — Tab B has its own draft typed, refetch arrives from Tab A's update, Tab B's draft is preserved unchanged. Both assertions passed in `phase-6-defect-retests.spec.ts` and in all 3 batch-2 runs of the full suite.
 
 ## DEF-104: Multiple specs fail intermittently under batch load — a pattern of timing and shared-state fragility
 
@@ -1282,7 +1311,7 @@ History:
 
 ## DEF-054: Table header row and title column are not sticky — a large table becomes unreadable when scrolled
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: LOW
 - Found by: adversary (ADV-045)
 - Phase: 3
@@ -1307,6 +1336,7 @@ History:
 - qa: CLOSED. Phase 6 applied `sticky top-0` to thead cells with `overflow-y: clip` on the scroll container so the sticky context resolves correctly. Retested with three specs in `phase-6-defect-retests.spec.ts`: (1) header row bounding box y-position unchanged after 800px vertical scroll (drift ≤ 4px); (2) title column x-position unchanged after 600px horizontal scroll (drift ≤ 4px); (3) gap between header bottom and first data row ≤ 2px. All three passed.
 - qa: REOPENED. Phase 6 final verification found the two scroll tests in the above closure were false passes. (1) Vertical scroll: the test scrolled `[data-testid="workspace-content"]` which does not exist in the DOM; the fallback chain (`main` with `overflow:visible`, then `document.documentElement` with `scrollHeight === clientHeight === 800`) all are no-ops. The scroll operation changed nothing, so yDrift was trivially 0. When the correct scroll container (`#page-body`, `overflow-y: auto`) is used, the header drifts 137px after a 600px scroll — far above the ≤ 4px threshold. Screenshots `screenshots/phase-6-def054-before-scroll.png` and `screenshots/phase-6-def054-after-scroll.png` show the column headers absent from the viewport after scrolling. The CSS IS present (`position: sticky; top: 0px; z-index: 30` on thead th) but `database-view` has `overflow-y: hidden` which the CSS spec treats as a sticky containing block. The sticky header is trapped inside `database-view`, which does not itself scroll, so the sticky constraint never pins the header to the visible area. Root cause: `overflow-y: hidden` on `database-view` should be `overflow-y: clip` (clip creates a visual overflow boundary without creating a scroll container, so sticky propagates to `page-body`). (2) Horizontal scroll: `database-view.scrollLeft += 600` left scrollLeft = 0 because the seeded 6-column table does not overflow the 1280px viewport. The test skips now instead of false-passing. (3) No-gap test is valid and continues to pass. Test file updated to use the correct scroll containers.
   Screenshot evidence: `screenshots/phase-6-def054-before-scroll.png` (header off-screen before any deliberate scroll), `screenshots/phase-6-def054-after-scroll.png` (header remains off-screen after scroll).
+- qa: CLOSED. Phase 6 final fix changed the scroll container from `overflow-y: hidden` to `overflow-auto` on `[data-testid="database-view"]`, so the sticky context resolves correctly and horizontal overflow now has a real scroll container. Retested all three conditions in `phase-6-defect-retests.spec.ts`: (1) vertical — scrolled `database-view` 800px, header y-drift ≤ 4px; (2) horizontal — added 8 extra properties (8×120px = 960px extra width) to force overflow, scrolled 600px, title column x-drift ≤ 4px; (3) gap ≤ 2px between header bottom and first data row. All three passed in all 3 batch-2 runs of the full suite. Screenshot: `screenshots/phase-6-def054-sticky-closed.png`.
 
 ## DEF-053: "New row" immediately navigates away from the table to the new row's page, making bulk row creation impossible
 

@@ -133,17 +133,20 @@ test.describe('DEF-054: sticky table header and title column geometry', () => {
     const beforeBox = await firstHeaderCell.boundingBox();
     expect(beforeBox).not.toBeNull();
 
-    // Scroll the correct page scroll container: #page-body (overflow-y: auto).
-    // The prior implementation fell back to workspace-content (absent) → main (overflow:visible)
-    // → documentElement (same clientHeight as scrollHeight) — all no-ops — producing a false
-    // pass. page-body is the element whose scrollTop actually changes when the user scrolls.
-    await page.evaluate(() => {
-      const scrollable =
-        (document.getElementById('page-body') as HTMLElement) ??
-        document.querySelector('[data-testid="page-body"]') ??
-        document.documentElement;
-      scrollable.scrollTop += 600;
+    // After the DEF-054 fix, the database-view div is the scroll container for BOTH axes
+    // (overflow-auto on both). The old approach scrolled #page-body, which is no longer the
+    // vertical scroll ancestor for the table — the table is contained within database-view and
+    // only scrolls that container. Scrolling #page-body would now be a no-op, producing a
+    // false pass (the header y never changes, so the ≤4px drift assertion would vacuously pass).
+    const vertScrolled = await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="database-view"]') as HTMLElement;
+      if (!el) return 0;
+      el.scrollTop += 600;
+      return el.scrollTop;
     });
+    // Sanity-check: if scrollTop is still 0, the table did not overflow vertically — that is a
+    // test-setup failure (not enough rows), not a product bug. Fail loudly rather than pass vacuously.
+    expect(vertScrolled, 'database-view must have scrolled at least 100px vertically').toBeGreaterThan(100);
     await page.waitForTimeout(300);
 
     // The header's y position should be unchanged (it is sticky to the top of the viewport
@@ -164,36 +167,36 @@ test.describe('DEF-054: sticky table header and title column geometry', () => {
     const tableView = page.locator('[data-testid="database-view"]');
     await expect(tableView).toBeVisible();
 
-    // Add enough text properties to force the table to overflow horizontally.
-    // The seeded Work Projects database has 6 properties; at 1280px they fit without scrolling.
-    // We need more columns so scrollLeft > 0 is achievable (otherwise the test passes vacuously
-    // with xDrift=0 because there is nothing to scroll left).
+    // Add text properties to force the table to overflow horizontally.
+    // Work Projects has 6 properties (Title:160px + 6×120px + 40px actions = 920px). The sidebar
+    // is ~256px so the content area at 1280px is ~1024px — not wide enough to overflow with 6 props.
+    // Add 8 more: 8 × 120px = 960px → total ~1880px >> 1024px. The Add-property form requires a
+    // non-empty name before pressing Enter; pressing Escape cancels without adding.
     const addPropertyBtn = page.getByRole('button', { name: /Add property/i });
-    if (await addPropertyBtn.isVisible()) {
-      for (let i = 0; i < 6; i++) {
-        await addPropertyBtn.click();
-        // Accept the defaults (Text type, auto-generated name).
-        await page.keyboard.press('Escape');
-        await page.waitForTimeout(150);
-      }
+    await expect(addPropertyBtn).toBeVisible({ timeout: 5000 });
+    for (let i = 0; i < 8; i++) {
+      await addPropertyBtn.click();
+      // Type a name (the form requires a non-empty name to submit).
+      await page.keyboard.type(`Extra${i + 1}`);
+      await page.keyboard.press('Enter');
+      // Wait for the new header cell to appear before adding the next property.
+      await expect(
+        page.locator('[data-testid="database-view"] thead th'),
+      ).toHaveCount(9 + i, { timeout: 3000 }); // Title + 6 seed + add-property + i new
     }
-    await page.waitForTimeout(300);
 
-    // Verify the table now overflows horizontally.
+    // Verify the table now overflows horizontally by attempting to scroll.
     const actualScrollLeft = await page.evaluate(() => {
       const el = document.querySelector('[data-testid="database-view"]') as HTMLElement;
       if (!el) return -1;
       el.scrollLeft += 600;
       return el.scrollLeft;
     });
-    // If scrollLeft is still 0 the table does not overflow — skip rather than false-pass.
-    if (actualScrollLeft === 0) {
-      test.skip(
-        true,
-        'Table does not overflow horizontally at this viewport; cannot test h-sticky',
-      );
-      return;
-    }
+    // If scrollLeft is still 0 the add-property loop failed silently — fail loudly.
+    expect(
+      actualScrollLeft,
+      'Table must overflow horizontally after adding 8 extra properties',
+    ).toBeGreaterThan(0);
     await page.waitForTimeout(200);
 
     // The first data cell in the Title column.
@@ -464,6 +467,140 @@ test.describe('DEF-057: checkbox cell checked in one tab is visible in another t
       .filter({ has: page2.getByRole('button', { name: /Accessibility audit/i }) });
     const doneCheckbox2 = auditRow2.locator('input[type="checkbox"]');
     await expect(doneCheckbox2).toBeChecked({ timeout: 35_000 });
+
+    await page2.close();
+  });
+});
+
+// ── DEF-105: TextCell draft now derived from focus state, not from useState init ──────────────
+//
+// The DEF-105 fix changed TextCell so that when the cell is NOT focused, it shows the `value`
+// prop directly (not a stale `draft`). This means background refetches update the displayed
+// value whenever the user is not actively editing the cell. Two behaviours must both hold:
+//
+//   A. Convergence: a value set in another tab is visible in this tab after a refetch (when
+//      the user is not editing the cell).
+//   B. Mid-edit protection: a refetch arriving while the user is actively typing does NOT
+//      destroy their draft — the input continues to show what they typed.
+//
+// These are tested separately: (A) uses the same visibility-change refetch trick as DEF-056/057,
+// and (B) stays focused in the input while the refetch fires, then asserts the draft survived.
+
+/** Helper: trigger TanStack Query's refetchOnWindowFocus on the given page. */
+async function triggerRefetch(p: Page): Promise<void> {
+  await p.bringToFront();
+  await p.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', {
+      get: () => 'hidden',
+      configurable: true,
+    });
+    document.dispatchEvent(new Event('visibilitychange'));
+    Object.defineProperty(document, 'visibilityState', {
+      get: () => 'visible',
+      configurable: true,
+    });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+}
+
+test.describe('DEF-105: TextCell convergence — text cell edited in another tab is visible after refetch', () => {
+  test('DEF-105 part A: a text cell edited in tab A shows the new value in tab B after refetch', async ({
+    page,
+    context,
+  }) => {
+    test.setTimeout(70_000);
+    await resetWorkspace(page);
+    // Book Tracker has the "Notes" text-type property (Work Projects has no text property).
+    await gotoDatabase(page, 'Book Tracker');
+    const bookTrackerUrl = page.url();
+
+    const page2 = await context.newPage();
+    await page2.goto(bookTrackerUrl);
+    await page2.waitForLoadState('networkidle');
+
+    // Use "The Design of Everyday Things" — the first seeded row in Book Tracker.
+    const dbView1 = page.locator('[data-testid="database-view"]');
+    const designRow1 = dbView1
+      .getByTestId('database-row')
+      .filter({ has: page.getByRole('button', { name: /Design of Everyday Things/i }) });
+    await expect(designRow1).toBeVisible({ timeout: 8000 });
+
+    // In tab A: fill the Notes cell with a unique value, then blur to save.
+    // Book Tracker's Notes is type 'text' — its cell renders <input aria-label="Notes">.
+    // fill() focuses the input, dispatches an input event that fires React's onChange
+    // (setting draft = uniqueValue), and reliably replaces the existing content.
+    const notesCell1 = designRow1.locator('input[aria-label="Notes"]');
+    const uniqueValue = `notes-converge-${Date.now()}`;
+    await notesCell1.fill(uniqueValue);
+    await page.keyboard.press('Tab');
+    await page.waitForLoadState('networkidle');
+
+    // Trigger a refetch on tab B via the visibility-change trick.
+    await triggerRefetch(page2);
+
+    // Tab B should now show the value from tab A. TextCell's focused-state pattern means
+    // when NOT focused, displayValue = parseValue(value) — the prop-derived value.
+    const dbView2 = page2.locator('[data-testid="database-view"]');
+    const designRow2 = dbView2
+      .getByTestId('database-row')
+      .filter({ has: page2.getByRole('button', { name: /Design of Everyday Things/i }) });
+    const notesCell2 = designRow2.locator('input[aria-label="Notes"]');
+    await expect(notesCell2).toHaveValue(uniqueValue, { timeout: 35_000 });
+
+    await page2.close();
+  });
+});
+
+test.describe('DEF-105: TextCell mid-edit protection — refetch while editing does not destroy draft', () => {
+  test('DEF-105 part B: a refetch arriving while the user is mid-edit does not overwrite their typing', async ({
+    page,
+    context,
+  }) => {
+    test.setTimeout(70_000);
+    await resetWorkspace(page);
+    await gotoDatabase(page, 'Book Tracker');
+    const bookTrackerUrl = page.url();
+
+    const page2 = await context.newPage();
+    await page2.goto(bookTrackerUrl);
+    await page2.waitForLoadState('networkidle');
+
+    // Tab A: edit the Notes cell for "The Design of Everyday Things" and save a known value.
+    const dbView1 = page.locator('[data-testid="database-view"]');
+    const designRow1 = dbView1
+      .getByTestId('database-row')
+      .filter({ has: page.getByRole('button', { name: /Design of Everyday Things/i }) });
+    await expect(designRow1).toBeVisible({ timeout: 8000 });
+
+    const notesCell1 = designRow1.locator('input[aria-label="Notes"]');
+    const savedByA = `from-tab-a-${Date.now()}`;
+    await notesCell1.fill(savedByA);
+    await page.keyboard.press('Tab');
+    await page.waitForLoadState('networkidle');
+
+    // Tab B: fill the same cell to start editing. fill() focuses and sets draft via onChange.
+    const dbView2 = page2.locator('[data-testid="database-view"]');
+    const designRow2 = dbView2
+      .getByTestId('database-row')
+      .filter({ has: page2.getByRole('button', { name: /Design of Everyday Things/i }) });
+    const notesCell2 = designRow2.locator('input[aria-label="Notes"]');
+    const midEditDraft = `mid-edit-draft-${Date.now()}`;
+    await notesCell2.fill(midEditDraft);
+    // Confirm the input shows what was typed (focused=true, draft=midEditDraft is authoritative).
+    await expect(notesCell2).toHaveValue(midEditDraft);
+
+    // Trigger a refetch in tab B while the cell is still focused. The refetch updates `value`
+    // prop to savedByA, but TextCell's focused-state pattern means displayValue = draft when
+    // focused, so the user's typing must survive.
+    await triggerRefetch(page2);
+    // Give TanStack Query time to process the refetch response.
+    await page2.waitForTimeout(500);
+
+    // Assert: the cell still shows the mid-edit draft, not the value that arrived from tab A.
+    await expect(
+      notesCell2,
+      'Draft must survive a background refetch while the cell is focused',
+    ).toHaveValue(midEditDraft);
 
     await page2.close();
   });
