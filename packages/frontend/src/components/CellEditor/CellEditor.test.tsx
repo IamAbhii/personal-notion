@@ -69,6 +69,59 @@ describe('CellEditor — text', () => {
   });
 });
 
+// ---------- Text: prop-sync (DEF-105) ----------
+
+describe('CellEditor — text: incoming value sync (DEF-105)', () => {
+  const prop = makeProperty({ id: 'p1', databasePageId: 'db1', name: 'Notes', type: 'text' });
+
+  it('updates the displayed value when the prop changes while the cell is not focused', () => {
+    // Background refetches deliver a new value prop. When the user is not editing the cell
+    // the displayed value must reflect the latest server state.
+    const { rerender } = render(
+      <CellEditor property={prop} rowPageId="r1" value={JSON.stringify('old')} onSave={onSave} />,
+    );
+    expect(screen.getByDisplayValue('old')).toBeInTheDocument();
+    rerender(
+      <CellEditor
+        property={prop}
+        rowPageId="r1"
+        value={JSON.stringify('updated')}
+        onSave={onSave}
+      />,
+    );
+    expect(screen.getByDisplayValue('updated')).toBeInTheDocument();
+  });
+
+  it('does not overwrite an in-progress edit when the prop changes while focused', async () => {
+    // The draft is authoritative while the user holds focus. A 30-second snapshot refetch
+    // must not clobber what the user is typing.
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <CellEditor
+        property={prop}
+        rowPageId="r1"
+        value={JSON.stringify('original')}
+        onSave={onSave}
+      />,
+    );
+    const input = screen.getByRole('textbox');
+    await user.click(input);
+    await user.clear(input);
+    await user.type(input, 'in-progress');
+    // Simulate a background refetch arriving while the field is focused.
+    rerender(
+      <CellEditor
+        property={prop}
+        rowPageId="r1"
+        value={JSON.stringify('from-server')}
+        onSave={onSave}
+      />,
+    );
+    // The user's draft must survive the refetch.
+    expect(screen.getByDisplayValue('in-progress')).toBeInTheDocument();
+  });
+});
+
 // ---------- Number ----------
 
 describe('CellEditor — number', () => {

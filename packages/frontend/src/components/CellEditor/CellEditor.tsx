@@ -129,21 +129,31 @@ function TextCell({
   onSave: (v: string | null) => void;
   label: string;
 }) {
-  const [draft, setDraft] = useState(() => parseValue<string>(value) ?? '');
-  // Track the value at the time the user focused so Escape can revert correctly (ADV-034).
-  const revertTo = useRef(draft);
+  // The prop value is authoritative when the field is not focused; the draft is authoritative
+  // while the user holds focus. This keeps background refetches (e.g. the 30-second snapshot
+  // poll) from clobbering an in-progress edit, while ensuring the displayed value stays current
+  // when the user is not actively typing. The same pattern is used by NumberCell (DEF-105).
+  const [focused, setFocused] = useState(false);
+  const [draft, setDraft] = useState('');
+  // Track the value at focus-start so Escape can revert correctly (ADV-034).
+  const revertTo = useRef('');
+
+  const displayValue = focused ? draft : (parseValue<string>(value) ?? '');
 
   return (
     <input
       type="text"
       aria-label={label}
       className={inputBase}
-      value={draft}
+      value={displayValue}
       placeholder="Empty"
-      onChange={(e) => setDraft(e.target.value)}
       onFocus={() => {
-        revertTo.current = parseValue<string>(value) ?? '';
+        const decoded = parseValue<string>(value) ?? '';
+        revertTo.current = decoded;
+        setDraft(decoded);
+        setFocused(true);
       }}
+      onChange={(e) => setDraft(e.target.value)}
       onKeyDown={(e) => {
         if (e.key === 'Enter') {
           e.preventDefault();
@@ -154,7 +164,10 @@ function TextCell({
           setDraft(revertTo.current);
         }
       }}
-      onBlur={() => onSave(encodeText(draft))}
+      onBlur={() => {
+        onSave(encodeText(draft));
+        setFocused(false);
+      }}
     />
   );
 }
