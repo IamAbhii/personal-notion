@@ -54,7 +54,8 @@ function makePage(
     icon: '',
     parentId: null,
     sortKey: 'a0',
-    workspaceId: 'ws-1',
+    version: 0,
+    updatedAt: 0,
     ...overrides,
   };
 }
@@ -64,12 +65,14 @@ function makeView(
   overrides: Partial<ViewRecord> & { id: string; databasePageId: string },
 ): ViewRecord {
   return {
+    name: '',
     kind: 'table',
     sortKey: 'a0',
     filters: [],
     sort: null,
     groupPropertyId: null,
-    workspaceId: 'ws-1',
+    version: 0,
+    updatedAt: 0,
     ...overrides,
   };
 }
@@ -168,7 +171,8 @@ describe('PageScreen', () => {
       databasePageId: 'page-1',
       sortKey: 'a0',
       options: [],
-      workspaceId: 'ws-1',
+      version: 0,
+      updatedAt: 0,
     };
     const stub = makeStub({ pages: [dbPage], views: [boardView], properties: [prop] });
     render(<PageScreen />, { wrapper: wrap(stub) });
