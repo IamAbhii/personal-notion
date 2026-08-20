@@ -146,7 +146,10 @@ test.describe('DEF-054: sticky table header and title column geometry', () => {
     });
     // Sanity-check: if scrollTop is still 0, the table did not overflow vertically — that is a
     // test-setup failure (not enough rows), not a product bug. Fail loudly rather than pass vacuously.
-    expect(vertScrolled, 'database-view must have scrolled at least 100px vertically').toBeGreaterThan(100);
+    expect(
+      vertScrolled,
+      'database-view must have scrolled at least 100px vertically',
+    ).toBeGreaterThan(100);
     await page.waitForTimeout(300);
 
     // The header's y position should be unchanged (it is sticky to the top of the viewport
@@ -180,9 +183,9 @@ test.describe('DEF-054: sticky table header and title column geometry', () => {
       await page.keyboard.type(`Extra${i + 1}`);
       await page.keyboard.press('Enter');
       // Wait for the new header cell to appear before adding the next property.
-      await expect(
-        page.locator('[data-testid="database-view"] thead th'),
-      ).toHaveCount(9 + i, { timeout: 3000 }); // Title + 6 seed + add-property + i new
+      await expect(page.locator('[data-testid="database-view"] thead th')).toHaveCount(9 + i, {
+        timeout: 3000,
+      }); // Title + 6 seed + add-property + i new
     }
 
     // Verify the table now overflows horizontally by attempting to scroll.
