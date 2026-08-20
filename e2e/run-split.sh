@@ -59,6 +59,7 @@ $PLAYWRIGHT --project=chromium \
   e2e/specs/phase-4-gate-retest.spec.ts \
   e2e/specs/phase-5-defect-retests.spec.ts \
   e2e/specs/phase-5-search-theme.spec.ts \
+  e2e/specs/phase-6-defect-retests.spec.ts \
   e2e/specs/rename-page.spec.ts \
   e2e/specs/retest-def-035-036.spec.ts \
   e2e/specs/seeded-tree.spec.ts \

@@ -51,6 +51,14 @@ async function convertViaSlash(
   // Select the matching item.
   const item = menu.locator('[data-testid="slash-menu-item"]').filter({ hasText: label }).first();
   await expect(item).toBeVisible();
+  // Wait for any CSS entry animation on the menu to finish before clicking. Under batch load the
+  // menu renders as "visible" before its transition completes; clicking mid-animation misses the
+  // element because the layout position is still changing (DEF-104: ~20% flake rate in batch).
+  await page.waitForFunction(() => {
+    const el = document.querySelector('[data-testid="slash-menu"]');
+    if (!el) return true;
+    return el.getAnimations({ subtree: true }).every((a) => a.playState !== 'running');
+  });
   await item.click();
   await page.waitForTimeout(300);
 }
@@ -102,16 +110,21 @@ test.describe('Tailwind migration regression: list markers', () => {
     await page.keyboard.type('First item');
     await page.waitForTimeout(200);
 
-    // Press Enter → creates a new paragraph block; convert it to numbered list.
+    // Press Enter → creates a new numbered-list block; verify focus landed there before typing.
     await page.keyboard.press('Enter');
-    await page.waitForTimeout(400);
+    // Click the newly created last block to ensure focus before the slash command. Under batch
+    // load the focus transfer after Enter can lag behind the DOM insert, causing '/' to land
+    // in the wrong element and the slash menu never appears (DEF-104 flake pattern).
+    await expect(page.locator('[data-testid="block-editor"] [data-block-type]')).toHaveCount(2);
+    await page.locator('[data-testid="block-editor"] [data-block-type]').last().click();
     await convertViaSlash(page, 'number', 'Numbered list');
     await page.keyboard.type('Second item');
     await page.waitForTimeout(200);
 
     // Block 3.
     await page.keyboard.press('Enter');
-    await page.waitForTimeout(400);
+    await expect(page.locator('[data-testid="block-editor"] [data-block-type]')).toHaveCount(3);
+    await page.locator('[data-testid="block-editor"] [data-block-type]').last().click();
     await convertViaSlash(page, 'number', 'Numbered list');
     await page.keyboard.type('Third item');
     await page.waitForTimeout(300);
@@ -141,9 +154,11 @@ test.describe('Tailwind migration regression: list markers', () => {
     // Now break the run with a paragraph block, then add a fourth numbered item.
     // The fourth run must restart at 1, not continue at 4.
     await page.keyboard.press('Enter');
-    await page.waitForTimeout(500);
     // DEF-038: Enter on a non-empty list creates another same-type block, not a paragraph.
     // Convert the new empty numbered-list block to a paragraph explicitly.
+    // Wait for the new block to appear, then click it to ensure focus before the slash command.
+    await expect(page.locator('[data-testid="block-editor"] [data-block-type]')).toHaveCount(4);
+    await page.locator('[data-testid="block-editor"] [data-block-type]').last().click();
     await convertViaSlash(page, 'Text', 'Text');
     await page.keyboard.type('A paragraph break');
     await page.waitForTimeout(300);

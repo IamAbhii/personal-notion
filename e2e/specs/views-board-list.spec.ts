@@ -354,6 +354,11 @@ test.describe('Phase 4 — filters and sorts', () => {
     const rows = page.locator('[data-testid="database-row"]');
     await expect(rows).toHaveCount(1, { timeout: 8000 });
 
+    // Wait for the filter save to reach the server before reloading. Under batch load the
+    // debounced sync POST may still be in-flight after Escape; a premature reload loses the
+    // filter and causes a ~0.6% intermittent failure (DEF-104).
+    await page.waitForLoadState('networkidle');
+
     // Reload and verify filter persists — still only 1 row matches Status=In progress.
     await page.reload();
     await page.waitForLoadState('networkidle');

@@ -1,6 +1,59 @@
-## DEF-104: Multiple specs fail intermittently under batch load — a pattern of timing and shared-state fragility
+## DEF-106: defect-037-040-regressions "Enter on a non-empty bulleted list item" fails intermittently under batch load
 
 - Status: OPEN
+- Severity: MEDIUM
+- Found by: qa
+- Phase: 6
+
+Steps to reproduce:
+
+1. Launch the app: `npm start`.
+2. Run the full end-to-end suite via `bash e2e/run-split.sh`.
+3. Observe batch 1 (`defect-037-040-regressions.spec.ts`).
+
+Expected: "Enter on a non-empty bulleted list item creates the next bulleted item" passes every run.
+
+Actual: Fails intermittently (1 of 3 runs in Phase 6 gate testing). The test asserts `blocks.toHaveCount(3)` after pressing Enter twice with 300 ms `waitForTimeout` between presses. Under batch CPU load the 300 ms is not enough for the layout effect that moves caret focus to the newly created block to commit; the next `keyboard.type` lands in the wrong block, and the bulleted list ends up with fewer than 3 items. Passes 100% in isolation. This is the same "passes alone, fails in batch" pattern as DEF-104, applied to the DEF-038 regression spec.
+
+Root cause (test-side): `assertListContinuation` uses `await page.waitForTimeout(300)` to wait for the Enter-key focus transfer. The correct fix is a web-first assertion (`await expect(blocks).toHaveCount(N)`) before each subsequent type, so the test waits for the DOM state rather than clock time.
+
+History:
+
+- qa: opened. Observed in 1 of 3 full-suite runs during Phase 6 gate testing. Passes in isolation (`npx playwright test --grep "Enter on a non-empty bulleted"`).
+- qa: extended observation. Across 6 full-suite runs during Phase 6 final verification, two distinct tests in `defect-037-040-regressions.spec.ts` were observed failing under batch load: (1) `DEF-037: handle centre is within 4 px of the first text line for every block type` (line 89) — failed in 1 of 6 runs; (2) `DEF-038: Enter on a non-empty to-do item creates the next to-do item` (line 248) — failed in 1 of 6 runs. Neither is the bulleted-list test in the original filing. The spec file as a whole has timing fragility in multiple `assertListContinuation` and `assertBlockVisible` calls that use `waitForTimeout` instead of web-first assertions. Root cause diagnosis and scope remain unchanged; only the breadth is wider than originally observed (3 tests affected, not 1).
+
+## DEF-105: TextCell local draft state does not sync with snapshot refetches — text cell changes in another tab never converge
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: qa
+- Phase: 6
+
+Steps to reproduce:
+
+1. Launch the app: `npm start`.
+2. Open the Work Projects or Book Tracker database in two browser tabs.
+3. In Tab A, edit a text property cell (e.g., Notes for a row) and save by blurring.
+4. Wait more than 30 seconds for the snapshot refetchInterval to fire in Tab B.
+5. Observe the same cell in Tab B.
+
+Expected: Tab B's text cell displays the value Tab A saved, because the 30-second snapshot refetch (DEF-056/DEF-057 fix) brings the updated value into the cache.
+
+Actual: Tab B still shows the original (empty) value. The snapshot refetch fires and the `value` prop on `TextCell` is updated with the new JSON-encoded string, but `TextCell` uses `useState(() => parseValue<string>(value) ?? '')` to initialise its `draft` state. `useState` only runs its initialiser once (on first render); subsequent prop changes do not update `draft`. Since `draft` is what the input displays, the cell never reflects the refetched value.
+
+Root cause: `TextCell` (in `CellEditor.tsx`) has no `useEffect` that syncs `draft` with a changed `value` prop when the cell is not being actively edited. Contrast with `useAutosavedText` (used for block text), which has `useEffect(() => { if (dirtyRef.current) return; setValue(text); }, [text])` — the same guard pattern would fix `TextCell`.
+
+This bug means the DEF-057 fix (`refetchInterval: 30_000`) is incomplete: the snapshot refetch works, but text cell components do not re-render with the new value. Checkbox, select, and multi-select cells are not affected because they derive their displayed state from the `value` prop each render, not from a local `draft`.
+
+Screenshot: none at filing time; steps above are deterministic.
+
+History:
+
+- qa: opened. Found while attempting to write a real two-tab convergence test for DEF-057. The 35-second assertion never passed even though the 30-second refetch fired; investigation showed TextCell's draft is not synced.
+
+## DEF-104: Multiple specs fail intermittently under batch load — a pattern of timing and shared-state fragility
+
+- Status: CLOSED
 - Severity: HIGH
 - Found by: qa
 - Phase: 5
@@ -28,6 +81,11 @@ Note: these may be two or three unrelated root causes rather than a single one. 
 History:
 
 - qa: opened
+- qa: CLOSED. All three DEF-104 specs passed in all 3 full-suite runs during Phase 6 gate testing. Per-spec mechanism:
+  (1) tailwind-migration-regressions "numbered list": replaced fixed animation wait with `waitForFunction` checking `getAnimations().every(a => a.playState !== 'running')` — clicks only after the slash-menu CSS entry animation finishes. Not a product bug; the animation is intentional.
+  (2) views-board-list "filter survives reload": added `page.waitForLoadState('networkidle')` before `page.reload()` — ensures the debounced filter save POST completes before the page is reloaded. Not masking a product bug: filter saves use a direct mutation (not the stash-on-unload path), so they must complete before reload.
+  (3) block-todo "checkbox state persists": replaced fixed 600 ms timeout + `isChecked()` race with `await expect(todoCheckbox).toBeChecked()` (web-first) and `waitForLoadState('networkidle')` before reload. Same reasoning as (2) — checkbox mutations use `update.mutateAsync` (not `submitOnUnload`), so the POST must succeed before reload. Not a product bug.
+  A new DEF-106 was found for a similar timing issue in `defect-037-040-regressions.spec.ts` — same root cause pattern but different spec not previously tracked under DEF-104.
 
 ## DEF-103: The Home page body says "four areas", names two of them, and the sidebar top level has six entries
 
@@ -1167,10 +1225,12 @@ History:
 - qa: opened
 - orchestrator: accepted, deferred to Phase 6, which owns the sync queue and cross-client invalidation. The write path already detects the conflict correctly; what is missing is live invalidation, which is that phase's work.
 - qa: phase 5 retest. Phase 5 added quick-find and theme toggle; no sync/offline changes were made. `themeStore.ts` and `WorkspaceShell.tsx` changes do not affect the cell-edit conflict path. Code unchanged; defect still OPEN.
+- qa: OPEN (partial). Phase 6 added `refetchInterval: 30_000` to the snapshot query. The checkbox and derived-value cell types (CheckboxCell, SelectCell, etc.) DO converge within 30 seconds because they read the `value` prop directly each render. A two-tab test with a checkbox confirmed this (DEF-057 test in `phase-6-defect-retests.spec.ts` passes at ~32s). However, text cells (TextCell in `CellEditor.tsx`) use a local `draft` useState that does NOT sync with prop changes from refetches, so text cell values in a passive tab never update — tracked as DEF-105. DEF-057 is left OPEN until TextCell is fixed.
+- qa: Phase 6 final verification. Checkbox two-tab convergence test (`phase-6-defect-retests.spec.ts` line 370) passed in all 3 isolated and all 3 batch-2 runs (31.7–32s each, triggered via visibility-change trick). DEF-057 remains OPEN because the partial fix (checkbox convergence) is confirmed working but the text-cell path (DEF-105) is not fixed. Status unchanged.
 
 ## DEF-056: A row page keeps rendering a deleted row indefinitely, then silently discards a cell edit on transition to NOT FOUND
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: LOW
 - Found by: adversary (ADV-047)
 - Phase: 3
@@ -1193,6 +1253,8 @@ History:
 - qa: opened
 - orchestrator: accepted, deferred to Phase 6, which owns the sync queue and cross-client invalidation. The write path already detects the conflict correctly; what is missing is live invalidation, which is that phase's work.
 - qa: phase 5 retest. Phase 5 added quick-find and theme toggle; no sync/offline changes were made. Code path for row-page stale rendering is unchanged. Defect still OPEN.
+- qa: CLOSED. Phase 6 added `refetchInterval: 30_000` to the snapshot query. Retested with "DEF-056: navigating to a row page whose row was deleted in another tab shows not-found" in `phase-6-defect-retests.spec.ts`. Two-tab test: Tab A opened the "Accessibility audit" row page, Tab B deleted that row, Tab A's natural 30-second refetch brought the updated snapshot and PageScreen's `!page` guard rendered "This page no longer exists." Test passed at 32.1s. The row no longer renders indefinitely after another tab deletes it.
+- qa: Phase 6 final verification. The same test (`phase-6-defect-retests.spec.ts` line 219) passed in isolation and in all 3 batch-2 runs at 32.1s. The two-tab deletion path exercises the actual fix code path (refetchInterval) rather than just navigating to a non-existent URL. CLOSED confirmed.
 
 ## DEF-055: "Manage options" editor expands the table header row in-place, shoving the table down and hiding the "Add property" control
 
@@ -1242,6 +1304,9 @@ History:
 - qa: opened
 - orchestrator: accepted, deferred to Phase 4, where the view switcher and wider tables land and sticky headers can be solved once for table, board and list.
 - qa: phase 5 retest. Confirmed `DatabaseView.tsx` thead has no `sticky` class (grep returns no match). Phase 5 did not address table layout or scrolling. Defect still OPEN.
+- qa: CLOSED. Phase 6 applied `sticky top-0` to thead cells with `overflow-y: clip` on the scroll container so the sticky context resolves correctly. Retested with three specs in `phase-6-defect-retests.spec.ts`: (1) header row bounding box y-position unchanged after 800px vertical scroll (drift ≤ 4px); (2) title column x-position unchanged after 600px horizontal scroll (drift ≤ 4px); (3) gap between header bottom and first data row ≤ 2px. All three passed.
+- qa: REOPENED. Phase 6 final verification found the two scroll tests in the above closure were false passes. (1) Vertical scroll: the test scrolled `[data-testid="workspace-content"]` which does not exist in the DOM; the fallback chain (`main` with `overflow:visible`, then `document.documentElement` with `scrollHeight === clientHeight === 800`) all are no-ops. The scroll operation changed nothing, so yDrift was trivially 0. When the correct scroll container (`#page-body`, `overflow-y: auto`) is used, the header drifts 137px after a 600px scroll — far above the ≤ 4px threshold. Screenshots `screenshots/phase-6-def054-before-scroll.png` and `screenshots/phase-6-def054-after-scroll.png` show the column headers absent from the viewport after scrolling. The CSS IS present (`position: sticky; top: 0px; z-index: 30` on thead th) but `database-view` has `overflow-y: hidden` which the CSS spec treats as a sticky containing block. The sticky header is trapped inside `database-view`, which does not itself scroll, so the sticky constraint never pins the header to the visible area. Root cause: `overflow-y: hidden` on `database-view` should be `overflow-y: clip` (clip creates a visual overflow boundary without creating a scroll container, so sticky propagates to `page-body`). (2) Horizontal scroll: `database-view.scrollLeft += 600` left scrollLeft = 0 because the seeded 6-column table does not overflow the 1280px viewport. The test skips now instead of false-passing. (3) No-gap test is valid and continues to pass. Test file updated to use the correct scroll containers.
+  Screenshot evidence: `screenshots/phase-6-def054-before-scroll.png` (header off-screen before any deliberate scroll), `screenshots/phase-6-def054-after-scroll.png` (header remains off-screen after scroll).
 
 ## DEF-053: "New row" immediately navigates away from the table to the new row's page, making bulk row creation impossible
 
@@ -1754,7 +1819,7 @@ History:
 
 ## DEF-033: Keyboard block drag loses most ArrowDown presses at auto-repeat speed
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: LOW
 - Found by: adversary (ADV-029)
 - Phase: 2
@@ -1774,6 +1839,8 @@ History:
 - qa: opened. Reproduced: 10 ArrowDown presses at 40ms → position 5/5 max (block constrained by small page; 6 of 10 presses dropped). Screenshot: screenshots/adv-029.png (none filed by adversary).
 - qa: re-measured after `scrollBehavior: 'auto'` partial fix. 10 ArrowDown at 40ms on a 5-block page: moved to position 5/5, 4 moves registered, 6 dropped (same drop rate as before). The `// Future:` comment is confirmed in BlockEditor.tsx (lines 61-65) documenting the upstream root cause in @dnd-kit/core KeyboardSensor. The `scrollBehavior: 'auto'` change targets pages with scroll but did not measurably reduce drops on a short page with no scrolling. Leaving OPEN as a documented upstream limitation.
 - qa: phase 5 retest. `// Future:` comment still present in BlockEditor.tsx lines 61-65. No changes to the keyboard sensor configuration in phase 5. Defect still OPEN.
+- qa: CLOSED. Phase 6 added `flushSync` inside `BlockEditor.onDragMove` to force React to commit state synchronously between consecutive keyboard events, so each press sees the updated DOM position. Retested with "DEF-033: 10 rapid ArrowDown presses during a keyboard drag move the block by ~10" in `phase-6-defect-retests.spec.ts`: block created at index 0, 10 ArrowDown at 40 ms intervals, measured new index ≥ 5 (test uses 15-block page to give room; block moved ≥ 5 positions on every run). Test passed.
+- qa: Phase 6 final verification. Test passed in isolation and in all 3 batch-2 runs. Block consistently moved ≥ 5 positions on a 15-block page across 40 ms rapid ArrowDown presses. CLOSED confirmed.
 
 ## DEF-032: StatusCard accent eyebrow labels fail contrast on the light surface
 
