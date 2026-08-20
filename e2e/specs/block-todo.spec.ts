@@ -55,17 +55,21 @@ test.describe('To-do blocks', () => {
     // If already checked, uncheck it first for the test
     if (isCheckedBefore) {
       await todoCheckbox.click();
-      await page.waitForTimeout(600);
+      await expect(todoCheckbox).not.toBeChecked();
     }
 
     await expect(todoCheckbox).not.toBeChecked();
 
     // Toggle the checkbox ON
     await todoCheckbox.click();
-    await page.waitForTimeout(600);
 
-    // Verify checkbox is now checked
+    // Verify checkbox is now checked (web-first — retries until the DOM update commits).
     await expect(todoCheckbox).toBeChecked();
+
+    // Wait for the autosave POST to reach the server before reloading. A fixed 600ms timeout
+    // missed the sync request under batch CPU load, causing the state to revert on reload
+    // (DEF-104: "assertion on checked-todo state arrived before DOM update committed").
+    await page.waitForLoadState('networkidle');
 
     // Reload the page
     await page.reload();
@@ -126,8 +130,10 @@ test.describe('To-do blocks', () => {
 
     // Toggle OFF
     await todoCheckbox.click();
-    await page.waitForTimeout(300);
     await expect(todoCheckbox).not.toBeChecked();
+
+    // Wait for the autosave to reach the server before reloading (DEF-104).
+    await page.waitForLoadState('networkidle');
 
     // Reload and verify OFF state persists
     await page.reload();
