@@ -590,21 +590,25 @@ export function DatabaseView({
     }
   };
 
-  // overflow-x-auto enables horizontal scroll for wide tables. [overflow-y:clip] is required
-  // alongside it: CSS forces overflow-x:auto to compute overflow-y:auto (creating a scroll
-  // container on the Y axis), which makes sticky top-N resolve relative to this div instead
-  // of the WorkspaceShell content area. overflow-y:clip clips without creating a scroll
-  // container, so sticky is resolved against the correct ancestor (DEF-054).
+  // This div is the scroll container for both axes (DEF-054).
+  //
+  // The CSS Overflow spec coerces overflow-y:clip to overflow-y:hidden when overflow-x is
+  // anything other than visible (auto/scroll/hidden). overflow-y:hidden creates a scroll
+  // container, so sticky thead and sticky-left td both resolve against this div — which never
+  // itself scrolls when the user scrolls #page-body — meaning pinning never activates.
+  //
+  // The correct fix is to make this div a genuine, bounded scroll container: overflow:auto on
+  // both axes so horizontal and vertical scrolling happen here, not in #page-body. The th cells
+  // use sticky top-0 (no topbar offset needed — the topbar is outside this container). The
+  // ConfirmDialogs use position:fixed (Radix Dialog) and escape overflow clipping. The
+  // max-h leaves ~20rem (~320px) for the topbar, page header and view bar above the table.
   return (
-    <div className="w-full overflow-x-auto [overflow-y:clip]" data-testid="database-view">
+    <div className="max-h-[calc(100dvh-20rem)] w-full overflow-auto" data-testid="database-view">
       <table className="w-full border-collapse text-left">
         <thead>
-          {/* The header row cells use sticky top-0 so they pin to the natural top of the
-               thead row without a relative-offset shift. top-N on a sticky element acts like
-               position:relative top:N in normal flow, so any value > 0 pushes the cells down
-               inside the thead row and creates an empty band (DEF-054). top-0 keeps the cells
-               flush with the row while still allowing sticky left-0 to pin the title column
-               horizontally. bg-canvas prevents scrolling rows from showing through. */}
+          {/* sticky top-0: the topbar is outside this scroll container, so the th cells pin
+               flush to the top of the container's visible area — no offset needed. bg-canvas
+               prevents rows from showing through when they scroll behind the pinned header. */}
           <tr className="border-b border-border">
             {/* Title column — min-w-[160px] balances readability and desktop fit (DEF-042):
                  with 6 properties at 120px each, 1 title at 160px, and 40px actions the

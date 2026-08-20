@@ -281,16 +281,18 @@ describe('DatabaseView — sticky header and title column (DEF-054)', () => {
   // (classes present, scroll container fixed). Screenshots at screenshots/def-054.png and
   // screenshots/phase-6-def054-dark.png demonstrate the actual sticky behaviour.
 
-  it('the outer wrapper enables horizontal scroll without creating a Y-axis scroll container', () => {
-    // overflow-x-auto enables horizontal scrolling. [overflow-y:clip] is the CSS fix for DEF-054:
-    // without it, overflow-x:auto forces overflow-y:auto, which makes this div a scroll container
-    // on both axes, breaking sticky top positioning. overflow-y:clip clips without creating a
-    // scroll container, so sticky is resolved against the correct ancestor (WorkspaceShell's
-    // overflow-auto content area).
+  it('uses semantic table structure with a thead so the sticky header has the right DOM shape (DEF-054)', () => {
+    // Sticky pinning requires a <thead> inside the table so position:sticky on <th> works
+    // across all browsers. jsdom cannot verify actual scroll geometry; screenshots and qa's
+    // geometry assertions cover the behavioural proof.
     renderDB();
     const wrapper = screen.getByTestId('database-view');
-    expect(wrapper.className).toContain('overflow-x-auto');
-    expect(wrapper.className).toContain('[overflow-y:clip]');
+    const table = wrapper.querySelector('table');
+    expect(table).not.toBeNull();
+    const thead = table!.querySelector('thead');
+    expect(thead).not.toBeNull();
+    const firstTh = thead!.querySelector('th');
+    expect(firstTh?.textContent).toContain('Title');
   });
 
   it('the Title <th> corner cell has sticky positioning on both axes', () => {
