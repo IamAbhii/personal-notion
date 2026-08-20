@@ -608,3 +608,152 @@ test.describe('DEF-105: TextCell mid-edit protection — refetch while editing d
     await page2.close();
   });
 });
+
+// ── DEF-107: UrlCell draft protected against refetch arriving mid-edit ──────────
+//
+// The DEF-107 fix mirrors DEF-105: UrlCell now uses a `focused` flag so that
+// displayValue = focused||editing ? draft : raw. A background refetch updates the
+// displayed value in a passive (idle, unfocused) cell, but cannot clobber an
+// in-progress edit in a focused cell.
+//
+// Two behaviours are tested:
+//   A. Convergence: a URL value saved in tab A is visible in an idle tab B after refetch.
+//   B. Mid-edit protection: a refetch arriving while tab B's input is focused does not
+//      overwrite the user's draft.
+
+test.describe('DEF-107: UrlCell convergence — idle cell reflects new URL value after refetch', () => {
+  test('DEF-107 part A: a URL saved in tab A shows in an idle tab B after refetch', async ({
+    page,
+    context,
+  }) => {
+    test.setTimeout(70_000);
+    await resetWorkspace(page);
+    // Book Tracker has a "Link" url-type property.
+    await gotoDatabase(page, 'Book Tracker');
+    const bookTrackerUrl = page.url();
+
+    const page2 = await context.newPage();
+    await page2.goto(bookTrackerUrl);
+    await page2.waitForLoadState('networkidle');
+
+    // Tab A: save a URL for "The Design of Everyday Things" via the Link input.
+    const dbView1 = page.locator('[data-testid="database-view"]');
+    const designRow1 = dbView1
+      .getByTestId('database-row')
+      .filter({ has: page.getByRole('button', { name: /Design of Everyday Things/i }) });
+    await expect(designRow1).toBeVisible({ timeout: 8000 });
+
+    // The Link cell for a row with no value shows an input directly (empty state).
+    // For a row that already has a URL, we click the pencil to enter edit mode.
+    // Either way, the input carries aria-label="Link".
+    const linkInput1 = designRow1.locator('input[aria-label="Link"]');
+    const isInputVisible = await linkInput1.isVisible().catch(() => false);
+    if (isInputVisible) {
+      await linkInput1.fill('https://def107-a.example.com');
+      await page.keyboard.press('Enter');
+    } else {
+      // Cell has a stored value — click the Edit Link button.
+      const editBtn1 = designRow1.getByRole('button', { name: /Edit Link/i });
+      await editBtn1.click();
+      const editInput1 = designRow1.locator('input[aria-label="Link"]');
+      await editInput1.fill('https://def107-a.example.com');
+      await page.keyboard.press('Enter');
+    }
+    await page.waitForLoadState('networkidle');
+
+    // Tab B: trigger a refetch via visibility-change (same trick as DEF-056/057/105).
+    await triggerRefetch(page2);
+
+    // Tab B: the cell must now show the value from tab A. In idle mode (not focused/editing),
+    // UrlCell shows the anchor link text or the input value reflecting `raw` (the prop value).
+    // We look for the URL text anywhere in the row.
+    const dbView2 = page2.locator('[data-testid="database-view"]');
+    const designRow2 = dbView2
+      .getByTestId('database-row')
+      .filter({ has: page2.getByRole('button', { name: /Design of Everyday Things/i }) });
+
+    // After convergence, UrlCell switches to view mode (anchor visible) or input shows new value.
+    await expect(
+      designRow2
+        .getByText('https://def107-a.example.com')
+        .or(designRow2.locator('input[aria-label="Link"][value="https://def107-a.example.com"]')),
+    ).toBeVisible({ timeout: 35_000 });
+
+    await page2.close();
+  });
+});
+
+test.describe('DEF-107: UrlCell mid-edit protection — refetch while editing does not destroy draft', () => {
+  test('DEF-107 part B: a refetch arriving while the URL input is focused does not overwrite the draft', async ({
+    page,
+    context,
+  }) => {
+    test.setTimeout(70_000);
+    await resetWorkspace(page);
+    await gotoDatabase(page, 'Book Tracker');
+    const bookTrackerUrl = page.url();
+
+    const page2 = await context.newPage();
+    await page2.goto(bookTrackerUrl);
+    await page2.waitForLoadState('networkidle');
+
+    // Tab A: save a known URL for "The Design of Everyday Things".
+    const dbView1 = page.locator('[data-testid="database-view"]');
+    const designRow1 = dbView1
+      .getByTestId('database-row')
+      .filter({ has: page.getByRole('button', { name: /Design of Everyday Things/i }) });
+    await expect(designRow1).toBeVisible({ timeout: 8000 });
+
+    const linkInput1 = designRow1.locator('input[aria-label="Link"]');
+    const isInputVisible1 = await linkInput1.isVisible().catch(() => false);
+    const savedByA = 'https://def107-b-saved.example.com';
+    if (isInputVisible1) {
+      await linkInput1.fill(savedByA);
+      await page.keyboard.press('Enter');
+    } else {
+      const editBtn1 = designRow1.getByRole('button', { name: /Edit Link/i });
+      await editBtn1.click();
+      await designRow1.locator('input[aria-label="Link"]').fill(savedByA);
+      await page.keyboard.press('Enter');
+    }
+    await page.waitForLoadState('networkidle');
+
+    // Tab B: begin editing the same row's Link cell.
+    const dbView2 = page2.locator('[data-testid="database-view"]');
+    const designRow2 = dbView2
+      .getByTestId('database-row')
+      .filter({ has: page2.getByRole('button', { name: /Design of Everyday Things/i }) });
+    await expect(designRow2).toBeVisible({ timeout: 8000 });
+
+    // Trigger refetch first so tab B has the value from tab A, then click edit.
+    await triggerRefetch(page2);
+    await page2.waitForTimeout(1000);
+
+    // Now enter edit mode in tab B and type a draft.
+    const linkInput2 = designRow2.locator('input[aria-label="Link"]');
+    const isInput2Visible = await linkInput2.isVisible().catch(() => false);
+    const midEditDraft = 'https://def107-mid-edit.example.com';
+    if (isInput2Visible) {
+      await linkInput2.fill(midEditDraft);
+    } else {
+      const editBtn2 = designRow2.getByRole('button', { name: /Edit Link/i });
+      await editBtn2.click();
+      await designRow2.locator('input[aria-label="Link"]').fill(midEditDraft);
+    }
+    // Confirm draft is in the input now.
+    await expect(designRow2.locator('input[aria-label="Link"]')).toHaveValue(midEditDraft);
+
+    // Trigger refetch while the input is focused. Tab B's UrlCell is focused/editing,
+    // so displayValue = draft — the refetch must not clobber it.
+    await triggerRefetch(page2);
+    await page2.waitForTimeout(500);
+
+    // Draft must survive — the input still shows what the user typed.
+    await expect(
+      designRow2.locator('input[aria-label="Link"]'),
+      'UrlCell draft must survive a background refetch while focused',
+    ).toHaveValue(midEditDraft);
+
+    await page2.close();
+  });
+});
