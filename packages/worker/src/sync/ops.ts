@@ -35,7 +35,7 @@ export const MAX_VALUE_LENGTH = 2000;
 // View name limit: 200 characters is longer than any sensible view name and well under D1's ceiling.
 export const MAX_VIEW_NAME_LENGTH = 200;
 
-// The eleven block types the editor offers, and the only values the type column may hold. Membership
+// The twelve block types the editor offers, and the only values the type column may hold. Membership
 // is checked in payloadRejection rather than by a zod enum, so an unknown type costs the client that
 // op instead of failing the whole batch.
 export const BLOCK_TYPES = [
@@ -50,11 +50,12 @@ export const BLOCK_TYPES = [
   'divider',
   'code',
   'callout',
+  'toggleList',
 ] as const;
 
 export type BlockType = (typeof BLOCK_TYPES)[number];
 
-// True when value is one of the eleven block types.
+// True when value is one of the twelve block types.
 export function isBlockType(value: string): value is BlockType {
   return (BLOCK_TYPES as readonly string[]).includes(value);
 }
