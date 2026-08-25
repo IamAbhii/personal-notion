@@ -257,6 +257,36 @@ toward the coverage target verified in Phase 6.
 5. After the last fix, the full unit and end-to-end suites were rerun and pass.
 6. The look-and-feel rules are met, in both themes, and none of the avoid-list appears anywhere.
 
+### Phase 7 — Toggle list block
+
+**Features**
+
+- A new `toggleList` block type accessible from the `/` slash menu.
+- The block has a header line with a clickable ▼/► arrow and editable text.
+- Clicking the arrow collapses or expands the block's children.
+- When expanded (▼), child blocks appear indented below the header.
+- When collapsed (►), children are hidden.
+- Children are regular paragraph blocks stored with a `parentToggleId` reference in their `props`.
+- Toggle open/closed state is local (not persisted across refresh).
+
+**Keyboard behaviour**
+
+- Enter on the toggle header → creates a first child paragraph inside the toggle (opens it if closed).
+- Enter on a child → creates another child paragraph with the same parent.
+- Enter on the last empty child → exits the toggle: removes the empty child, creates a sibling paragraph after the whole toggle group.
+- Backspace on an empty child → removes it; focus returns to the toggle header or previous child.
+
+**Success criteria**
+
+1. The `/` slash menu includes a "Toggle list" entry with label, hint and keywords (`toggle`, `collapse`, `expand`).
+2. A toggle block renders with a ▼/► arrow; clicking it collapses and expands the children.
+3. Children are visually indented beneath the toggle header.
+4. The Enter and Backspace keyboard behaviours above all work correctly.
+5. Creating a toggle, adding children, collapsing and refreshing: the children survive the refresh; the collapsed state resets to open (expected — state is local).
+6. The new block type is accepted by the backend without rejection.
+7. Unit tests for toggle collapse/expand, slash menu entry, and Enter keyboard flow pass.
+8. End-to-end tests cover: creating a toggle via slash menu, typing a header, adding children, collapsing and expanding — and pass.
+
 ## Final success criteria
 
 The project is complete, and the Coding Agent may stop, when **all** of the following are true:
