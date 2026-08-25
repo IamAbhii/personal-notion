@@ -14,7 +14,7 @@ import type { BlockRecord, BlockType, BlockUpdatePayload } from '../api/types';
 // keystroke that asked for the block.
 
 interface Recorded {
-  created: { type: BlockType; afterBlockId: string | null }[];
+  created: { type: BlockType; afterBlockId: string | null; props?: string | null }[];
   updates: { id: string; changes: BlockUpdatePayload }[];
   deleted: string[];
   notices: string[];
@@ -39,10 +39,19 @@ function renderEditor(initial: BlockRecord[]): Recorded {
               ? ordered.findIndex((block) => block.id === args.afterBlockId)
               : ordered.length - 1;
             const sortKey = sortKeyAfterIndex(ordered, afterIndex);
-            // Use args.type so list continuation creates a block of the same list type, not always
-            // a paragraph. This matches what useBlockMutations does in the real app.
+            // Use args.type and args.props so toggle children carry parentToggleId.
+            // This matches what useBlockMutations does in the real app.
             return blocksForPage(
-              [...current, makeBlock({ id, pageId: 'p-1', sortKey, type: args.type })],
+              [
+                ...current,
+                makeBlock({
+                  id,
+                  pageId: 'p-1',
+                  sortKey,
+                  type: args.type,
+                  props: args.props ?? null,
+                }),
+              ],
               'p-1',
             );
           });
@@ -458,7 +467,7 @@ describe('Backspace', () => {
 });
 
 describe('the slash menu', () => {
-  it('opens on "/" in an empty block and offers all eleven types', async () => {
+  it('opens on "/" in an empty block and offers all twelve types', async () => {
     const user = userEvent.setup();
     renderEditor([makeBlock({ id: 'b-1', pageId: 'p-1', sortKey: 'a0', text: '' })]);
 
@@ -466,7 +475,7 @@ describe('the slash menu', () => {
     await user.keyboard('/');
 
     expect(screen.getByTestId('slash-menu')).toBeInTheDocument();
-    expect(screen.getAllByTestId('slash-menu-item')).toHaveLength(11);
+    expect(screen.getAllByTestId('slash-menu-item')).toHaveLength(12);
   });
 
   it('stays shut when "/" is typed after text, so a slash can be written', async () => {
@@ -524,7 +533,7 @@ describe('the slash menu', () => {
     expect(selected()).toBe('heading1');
     // Up from the first entry wraps to the last rather than sticking.
     await user.keyboard('{ArrowUp}{ArrowUp}');
-    expect(selected()).toBe('callout');
+    expect(selected()).toBe('toggleList');
   });
 
   it('converts the block with Enter, in one update, and clears the query it saved', async () => {
@@ -788,6 +797,275 @@ describe('the empty page', () => {
     await user.click(screen.getByRole('button', { name: 'Add a block at the end of the page' }));
 
     expect(recorded.created).toEqual([{ type: 'paragraph', afterBlockId: 'b-1' }]);
+  });
+});
+
+// ── Toggle list (Phase 7) ────────────────────────────────────────────────────────────────────────
+
+/** Helper: build a toggle header + two children ready to use in toggle tests. */
+function makeToggleWithChildren() {
+  const header = makeBlock({
+    id: 'tgl',
+    pageId: 'p-1',
+    type: 'toggleList',
+    sortKey: 'a0',
+    text: 'Header',
+  });
+  const child1 = makeBlock({
+    id: 'c1',
+    pageId: 'p-1',
+    sortKey: 'a1',
+    text: 'Child one',
+    props: JSON.stringify({ parentToggleId: 'tgl' }),
+  });
+  const child2 = makeBlock({
+    id: 'c2',
+    pageId: 'p-1',
+    sortKey: 'a2',
+    text: 'Child two',
+    props: JSON.stringify({ parentToggleId: 'tgl' }),
+  });
+  return [header, child1, child2];
+}
+
+describe('toggleList — slash menu', () => {
+  it('contains the Toggle list entry', async () => {
+    const user = userEvent.setup();
+    renderEditor([makeBlock({ id: 'b-1', pageId: 'p-1', sortKey: 'a0', text: '' })]);
+
+    await user.click(editorFor('b-1'));
+    await user.keyboard('/');
+
+    const items = screen.getAllByTestId('slash-menu-item');
+    const types = items.map((item) => item.getAttribute('data-block-type'));
+    expect(types).toContain('toggleList');
+  });
+
+  it('matches the "toggle" keyword', async () => {
+    const user = userEvent.setup();
+    renderEditor([makeBlock({ id: 'b-1', pageId: 'p-1', sortKey: 'a0', text: '' })]);
+
+    await user.click(editorFor('b-1'));
+    await user.keyboard('/toggle');
+
+    const items = screen.getAllByTestId('slash-menu-item');
+    expect(items.map((i) => i.getAttribute('data-block-type'))).toContain('toggleList');
+  });
+
+  it('matches the "collapse" keyword', async () => {
+    const user = userEvent.setup();
+    renderEditor([makeBlock({ id: 'b-1', pageId: 'p-1', sortKey: 'a0', text: '' })]);
+
+    await user.click(editorFor('b-1'));
+    await user.keyboard('/collapse');
+
+    const items = screen.getAllByTestId('slash-menu-item');
+    expect(items.map((i) => i.getAttribute('data-block-type'))).toContain('toggleList');
+  });
+
+  it('matches the "expand" keyword', async () => {
+    const user = userEvent.setup();
+    renderEditor([makeBlock({ id: 'b-1', pageId: 'p-1', sortKey: 'a0', text: '' })]);
+
+    await user.click(editorFor('b-1'));
+    await user.keyboard('/expand');
+
+    const items = screen.getAllByTestId('slash-menu-item');
+    expect(items.map((i) => i.getAttribute('data-block-type'))).toContain('toggleList');
+  });
+});
+
+describe('toggleList — rendering', () => {
+  it('renders the toggle header with an arrow button', () => {
+    renderEditor([
+      makeBlock({ id: 'tgl', pageId: 'p-1', type: 'toggleList', sortKey: 'a0', text: 'Section' }),
+    ]);
+
+    expect(document.querySelector('[data-testid="block-toggle-header"]')).toBeInTheDocument();
+    expect(document.querySelector('[data-testid="block-toggle-arrow"]')).toBeInTheDocument();
+    // Arrow starts in the expanded state.
+    expect(document.querySelector('[data-testid="block-toggle-arrow"]')).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+  });
+
+  it('renders children indented beneath the header when the toggle is open', () => {
+    renderEditor(makeToggleWithChildren());
+
+    const childrenContainer = document.querySelector('[data-testid="block-toggle-children"]');
+    expect(childrenContainer).toBeInTheDocument();
+    // Children live inside the indented container.
+    expect(childrenContainer?.querySelector('[data-block-id="c1"]')).toBeInTheDocument();
+    expect(childrenContainer?.querySelector('[data-block-id="c2"]')).toBeInTheDocument();
+  });
+
+  it('hides children when the arrow is clicked to collapse', async () => {
+    const user = userEvent.setup();
+    renderEditor(makeToggleWithChildren());
+
+    const arrow = document.querySelector('[data-testid="block-toggle-arrow"]') as HTMLElement;
+    await user.click(arrow);
+
+    // The children container still exists in the DOM (for aria-controls) but is hidden.
+    const container = document.querySelector('[data-testid="block-toggle-children"]');
+    expect(container).toBeInTheDocument();
+    expect(container).toHaveAttribute('hidden');
+    expect(arrow).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('shows children again when the arrow is clicked a second time to expand', async () => {
+    const user = userEvent.setup();
+    renderEditor(makeToggleWithChildren());
+
+    const arrow = document.querySelector('[data-testid="block-toggle-arrow"]') as HTMLElement;
+    await user.click(arrow);
+    await user.click(arrow);
+
+    const container = document.querySelector('[data-testid="block-toggle-children"]');
+    expect(container).not.toHaveAttribute('hidden');
+    expect(arrow).toHaveAttribute('aria-expanded', 'true');
+  });
+});
+
+describe('toggleList — Enter on header', () => {
+  it('creates a first child paragraph with parentToggleId', async () => {
+    const user = userEvent.setup();
+    const recorded = renderEditor([
+      makeBlock({ id: 'tgl', pageId: 'p-1', type: 'toggleList', sortKey: 'a0', text: 'Header' }),
+    ]);
+
+    await focusAt('tgl', 0);
+    await user.keyboard('{Enter}');
+
+    expect(recorded.created).toHaveLength(1);
+    expect(recorded.created[0]).toMatchObject({
+      type: 'paragraph',
+      afterBlockId: 'tgl',
+      props: JSON.stringify({ parentToggleId: 'tgl' }),
+    });
+  });
+
+  it('opens a collapsed toggle when Enter is pressed on the header', async () => {
+    const user = userEvent.setup();
+    renderEditor([
+      makeBlock({ id: 'tgl', pageId: 'p-1', type: 'toggleList', sortKey: 'a0', text: 'Header' }),
+    ]);
+
+    // Collapse the toggle first.
+    const arrow = document.querySelector('[data-testid="block-toggle-arrow"]') as HTMLElement;
+    await user.click(arrow);
+    expect(arrow).toHaveAttribute('aria-expanded', 'false');
+
+    // Enter on the header opens it.
+    await focusAt('tgl', 0);
+    await user.keyboard('{Enter}');
+
+    expect(arrow).toHaveAttribute('aria-expanded', 'true');
+  });
+});
+
+describe('toggleList — Enter on a child', () => {
+  it('creates another child with the same parentToggleId', async () => {
+    const user = userEvent.setup();
+    const recorded = renderEditor([
+      makeBlock({ id: 'tgl', pageId: 'p-1', type: 'toggleList', sortKey: 'a0', text: 'Header' }),
+      makeBlock({
+        id: 'c1',
+        pageId: 'p-1',
+        sortKey: 'a1',
+        text: 'Child one',
+        props: JSON.stringify({ parentToggleId: 'tgl' }),
+      }),
+    ]);
+
+    await focusAt('c1', 9);
+    await user.keyboard('{Enter}');
+
+    expect(recorded.created).toHaveLength(1);
+    expect(recorded.created[0]).toMatchObject({
+      type: 'paragraph',
+      afterBlockId: 'c1',
+      props: JSON.stringify({ parentToggleId: 'tgl' }),
+    });
+  });
+
+  it('exits the toggle when Enter is pressed on the last empty child', async () => {
+    const user = userEvent.setup();
+    const recorded = renderEditor([
+      makeBlock({ id: 'tgl', pageId: 'p-1', type: 'toggleList', sortKey: 'a0', text: 'Header' }),
+      makeBlock({
+        id: 'c1',
+        pageId: 'p-1',
+        sortKey: 'a1',
+        text: '',
+        props: JSON.stringify({ parentToggleId: 'tgl' }),
+      }),
+    ]);
+
+    await focusAt('c1', 0);
+    await user.keyboard('{Enter}');
+
+    // The empty last child is deleted.
+    expect(recorded.deleted).toContain('c1');
+    // A plain paragraph is created after the toggle group (no parentToggleId).
+    expect(recorded.created).toHaveLength(1);
+    expect(recorded.created[0]).toMatchObject({ type: 'paragraph' });
+    expect(recorded.created[0]?.props).toBeUndefined();
+  });
+});
+
+describe('toggleList — Backspace on a child', () => {
+  it('removes an empty first child and moves focus to the toggle header', async () => {
+    const user = userEvent.setup();
+    const blocks = [
+      makeBlock({ id: 'tgl', pageId: 'p-1', type: 'toggleList', sortKey: 'a0', text: 'Header' }),
+      makeBlock({
+        id: 'c1',
+        pageId: 'p-1',
+        sortKey: 'a1',
+        text: '',
+        props: JSON.stringify({ parentToggleId: 'tgl' }),
+      }),
+    ];
+
+    const recorded = renderEditor(blocks);
+
+    await focusAt('c1', 0);
+    await user.keyboard('{Backspace}');
+
+    expect(recorded.deleted).toContain('c1');
+    // Focus moves to the toggle header, which is the previous block in the flat list.
+    await waitFor(() => expect(document.activeElement).toBe(editorFor('tgl')));
+  });
+
+  it('removes an empty last child and moves focus to the sibling child above', async () => {
+    const user = userEvent.setup();
+    const blocks = [
+      makeBlock({ id: 'tgl', pageId: 'p-1', type: 'toggleList', sortKey: 'a0', text: 'Header' }),
+      makeBlock({
+        id: 'c1',
+        pageId: 'p-1',
+        sortKey: 'a1',
+        text: 'First child',
+        props: JSON.stringify({ parentToggleId: 'tgl' }),
+      }),
+      makeBlock({
+        id: 'c2',
+        pageId: 'p-1',
+        sortKey: 'a2',
+        text: '',
+        props: JSON.stringify({ parentToggleId: 'tgl' }),
+      }),
+    ];
+
+    const recorded = renderEditor(blocks);
+
+    await focusAt('c2', 0);
+    await user.keyboard('{Backspace}');
+
+    expect(recorded.deleted).toContain('c2');
+    await waitFor(() => expect(document.activeElement).toBe(editorFor('c1')));
   });
 });
 
