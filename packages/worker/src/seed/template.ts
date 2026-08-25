@@ -74,7 +74,7 @@ export type SeedDatabaseDef = {
 };
 
 // Written out in full on a few pages so a first run reads like a workspace someone actually keeps, and
-// so every one of the eleven block types is visible without the user creating anything.
+// so every one of the twelve block types is visible without the user creating anything.
 const INTENTIONS_BLOCKS: SeedBlock[] = [
   { type: 'heading1', text: '2026 Intentions' },
   {
@@ -93,6 +93,7 @@ const INTENTIONS_BLOCKS: SeedBlock[] = [
   { type: 'heading3', text: 'How I will check in' },
   { type: 'bulletedList', text: 'Sunday evening, ten minutes, in Weekly Review' },
   { type: 'bulletedList', text: 'One photo per month in the film log, no exceptions' },
+  { type: 'toggleList', text: 'Things I considered and set aside' },
   {
     type: 'callout',
     text: 'If a month goes by with no entry here, that is the signal to cut something.',
