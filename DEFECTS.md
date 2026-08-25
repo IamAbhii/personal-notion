@@ -1,3 +1,61 @@
+## DEF-109: views-board-list list view tests fail intermittently in the full suite
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: qa
+- Phase: 7
+
+Steps to reproduce:
+
+1. Launch the app: `npm start`, open http://localhost:8787.
+2. Run the full end-to-end suite from the repo root: `npm run test:e2e`.
+3. Observe the chromium project results for `views-board-list.spec.ts`.
+
+Expected: "list view shows row titles" (line 377) and "list view shows at least one property value per row" (line 398) pass as they do in isolation.
+Actual: Both tests fail intermittently — they failed in one of two consecutive full-suite runs. Each calls `resetWorkspace` in `beforeEach`, navigates to Work Projects, switches to List view, and asserts on `[data-testid="list-row"]` and `span[aria-label]` elements. No assertion error text was captured; the failure may be a timeout waiting for `[data-testid="list-view"]` (8 s timeout).
+
+When run in isolation (`npm run test:e2e --project=chromium --grep "list view shows"`) both pass consistently.
+
+The pattern matches DEF-104 (multiple specs fail intermittently under batch load). Phase-4 PR-10 targeted determinism but did not eliminate intermittent timing failures in a long run. Cause is unknown; leading hypothesis is that the server is under load after ~220 preceding chromium specs, causing the `resetWorkspace` POST or subsequent navigation to be slower than usual.
+
+History:
+
+- qa: opened. Failed in full-suite run 1 (Phase 7), passed in run 2; passed in isolation. Filed as a separate entry from DEF-104 because these specific tests were not covered by that entry.
+
+## DEF-108: mobile-chrome project fails with ERR_CONNECTION_REFUSED in every full-suite run
+
+- Status: OPEN
+- Severity: HIGH
+- Found by: qa
+- Phase: 7
+
+Steps to reproduce:
+
+1. From the repo root, run the full end-to-end suite: `npm run test:e2e`.
+2. Wait for the chromium project to complete (~11 minutes, ~225 specs).
+3. Observe the mobile-chrome project results.
+
+Expected: the mobile-chrome project (views-mobile.spec.ts, phase-5-mobile.spec.ts, toggle-list-mobile.spec.ts) runs against the same server that served the chromium project, because `webServer` in `e2e/playwright.config.ts` is a single top-level block shared by all projects — one server instance, started once, serving the entire run.
+Actual: Every test in the mobile-chrome project immediately fails with `page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:8787/`. The server stops responding after the chromium project finishes and before the mobile project begins.
+
+All affected mobile tests pass 3/3 when run in isolation (`npm run test:e2e --project=mobile-chrome`), confirming the server start-up path is correct and this is a run-time crash.
+
+Technical context:
+
+- `webServer.reuseExistingServer` is `false` — Playwright launches exactly one server per run.
+- `start-server.sh` ends with `exec npm run start:worker`, so the wrangler dev process replaces the shell; Playwright holds a direct reference and kills it at the end of the full run.
+- No per-project `webServer` override exists; both projects share the single instance.
+- The server dies sometime during or after the chromium project (~220 specs, ~11 minutes). Wrangler dev likely crashes under sustained load — possible causes include D1 worker memory exhaustion, the local Miniflare runtime hitting an unhandled error, or a wrangler dev watchdog exiting.
+- This has recurred across Phase 4, 5, 6 and 7 full-suite runs. It blocks the final success criterion ("the full end-to-end suite passes") and will continue to block it until the server is stable for the full run duration.
+
+Per Phase 1's lesson: a dead server in this suite is almost always a foreground-command or webServer lifecycle issue, not a product bug. The developer should inspect wrangler dev's output during a long run and consider either increasing wrangler's stability (longer keepalive, resource limits) or finding a way to detect and restart the server between projects.
+
+Screenshot: screenshots/def-108.png
+
+History:
+
+- qa: opened. Confirmed in two consecutive full-suite runs in Phase 7; same pattern observed (but not filed) in Phases 4–6.
+
 ## DEF-107: UrlCell edit-mode draft is not protected against refetch arriving while the user is typing
 
 - Status: CLOSED
