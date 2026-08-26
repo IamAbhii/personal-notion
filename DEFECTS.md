@@ -175,7 +175,7 @@ History:
 
 ## DEF-113: Block actions menu opens spontaneously on drag end, covering content below drop point
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: adversary (ADV-094)
 - Phase: 7
@@ -197,6 +197,7 @@ History:
 
 - qa: opened. Filed from adversary's account; reproduction requires drag-and-drop with screenshot immediately after mouse-up.
 - qa: retested. STILL OPEN. Pointer drag activated (block order changed, confirming the drag ran), but `[data-testid="block-delete"]` was visible immediately after mouse-up. The `dragJustEndedRef` fix (`useEffect(() => { if (isDragging) dragJustEndedRef.current = true }, [isDragging])`) has a confirmed race condition: React's `useEffect` fires asynchronously after paint, but pointer-up fires synchronously — the `onOpenChange` guard checks a ref that is still `false` at that moment, so the menu opens. The second subtest (toggle-child drag path) passes, suggesting the race is geometry-sensitive. A synchronous detection of drag completion is needed.
+- qa: CLOSED. Retested with the render-phase state update fix (resets `menuOpen` during render when `isDragging` transitions true→false). Three subtests in `phase-7-defect-retests.spec.ts`: (1) plain paragraph block pointer drag — `block-delete` not visible after drag (2.4s); (2) toggle child pointer drag — `block-delete` not visible after drag (7.4s); (3) regression guard — menu opens normally on a genuine click of the handle (1.9s). All three pass. Fix confirmed on the plain paragraph path that originally failed.
 
 ## DEF-112: Toggle child dragged out snaps back visually but corrupts persisted sort order
 
