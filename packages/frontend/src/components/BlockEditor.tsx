@@ -63,6 +63,13 @@ export function BlockEditor({
   // This is intentionally component-local state — never persisted, resets to open on refresh.
   const [collapsedToggles, setCollapsedToggles] = useState<ReadonlySet<string>>(() => new Set());
 
+  // Shared across all BlockRows so the gutter handle's onOpenChange can swallow the spurious click
+  // that the pointer sensor synthesises immediately after drag-end. The flag is set synchronously
+  // at the top of handleDragEnd — before any React state update and therefore before the synthetic
+  // click fires. A useEffect would be too late: effects run after paint, but the click arrives in
+  // the same synchronous tick as the drag-end callback. (DEF-113)
+  const dragJustEndedRef = useRef(false);
+
   const sensors = useSensors(
     // A few pixels of movement before a drag starts, so clicking into a block's text still works.
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -155,6 +162,11 @@ export function BlockEditor({
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
+    // Set synchronously here — before any React state update and before the synthetic click the
+    // pointer sensor fires on pointer-up. BlockRow's onOpenChange reads this flag to swallow that
+    // spurious open request. Setting it unconditionally covers both the no-op (same-position) drag
+    // and the out-of-bounds release cases (DEF-113).
+    dragJustEndedRef.current = true;
     const { active, over } = event;
     if (!over || active.id === over.id) return;
     const fromIndex = blocks.findIndex((block) => block.id === active.id);
@@ -313,6 +325,7 @@ export function BlockEditor({
                     continuesList={continuesList}
                     listNumber={isToggle ? 1 : numberedListNumber(blocks, index)}
                     registerEditor={registerEditor}
+                    dragJustEndedRef={dragJustEndedRef}
                     onChangeText={(text) => onUpdateBlock(block, { text })}
                     // One op carries both: the slash query the user typed was a command, never
                     // content, so the conversion clears the text the same write that changes the type.
@@ -386,6 +399,7 @@ export function BlockEditor({
                             continuesList={false}
                             listNumber={1}
                             registerEditor={registerEditor}
+                            dragJustEndedRef={dragJustEndedRef}
                             onChangeText={(text) => onUpdateBlock(child, { text })}
                             onConvertType={(type) => onUpdateBlock(child, { type, text: '' })}
                             onToggleChecked={(checked) => onUpdateBlock(child, { checked })}
