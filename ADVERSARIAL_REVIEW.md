@@ -2256,7 +2256,7 @@ Expected: either the block is inserted where I dropped it (becoming part of the 
 rendering at that vertical position), or the drop into a toggle group is refused.
 
 Actual: the write lands the block at sortKey a0V, i.e. flat-order position 2, between the header and
-child A — but the render skips children out of the flat list, so "plain two" appears *below* both
+child A — but the render skips children out of the flat list, so "plain two" appears _below_ both
 children, in a position I never dropped it at. Nothing tells the user the drop was relocated. With
 the toggle then collapsed, "plain two" sits flush under the header where the children used to be,
 so it reads as if it were the toggle's content when it is not.
@@ -2361,7 +2361,7 @@ conversion.
 Actual: the block ends up with the single character `"I"` — the other eleven are lost, and the loss
 persists to the database and survives a reload. With an 800ms pause after Enter the same sequence
 keeps the full text, so this is a race in the convert-and-refocus path specific to converting a
-toggle *child*: converting a plain top-level block to `/head` or `/toggle` with the same zero
+toggle _child_: converting a plain top-level block to `/head` or `/toggle` with the same zero
 pause keeps "Hello world" intact. A fast typist loses a line of text with no indication.
 
 Disposition: ACCEPTED -> DEF-118
@@ -2384,7 +2384,7 @@ What I did:
 Expected, per REQUIREMENTS.md Phase 7: "removes the empty child, creates a sibling paragraph after
 the whole toggle group", i.e. below "child B" at the bottom of the page.
 
-Actual: the paragraph is created at sortKey a2l and renders as the *first block on the page*,
+Actual: the paragraph is created at sortKey a2l and renders as the _first block on the page_,
 above "plain one" and four rows above the toggle it came out of, with the caret up there. The exit
 sort key is computed from the last child's flat position, which no longer relates to where the
 toggle is rendered. The user's next sentence lands at the opposite end of the document from where
