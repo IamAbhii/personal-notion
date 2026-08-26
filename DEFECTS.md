@@ -1,6 +1,6 @@
 ## DEF-120: Toggle chevron ignores Space and Enter — keyboard activation completely broken
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: adversary (ADV-101)
 - Phase: 7
@@ -22,10 +22,11 @@ Screenshot: screenshots/adv-101.png
 History:
 
 - qa: opened. Reproduced: focused the chevron via Playwright, pressed Space, asserted `aria-expanded` changed — assertion failed (`Expected: true, Received: false`). Bug confirmed.
+- qa: CLOSED. Retested in `phase-7-defect-retests.spec.ts` (DEF-120 subtests). Space on the focused chevron collapses the toggle (`aria-expanded` becomes `"false"`, children hidden). Enter on the focused chevron re-expands it (`aria-expanded` becomes `"true"`, children visible). Both subtests pass. Regression: DEF-119 pass (pointer drag still works on toggles), full spec 12/13 pass.
 
 ## DEF-119: Enter-to-exit toggle drops new paragraph at top of page after header drag
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: adversary (ADV-100)
 - Phase: 7
@@ -47,10 +48,11 @@ Screenshot: screenshots/adv-100.png
 History:
 
 - qa: opened. Filed from adversary's account; reproduction requires dragging the toggle header, which was not attempted in the qa repro pass.
+- qa: CLOSED. Retested in `phase-7-defect-retests.spec.ts`. Setup: created toggle "Header one" with children "child A" / "child B", added "plain one" and "plain two" after it. Pointer-dragged the toggle header (via `block-toggle-arrow`, the only drag activator for toggle blocks) below "plain two". Then Enter-to-exit from last child and typed "AFTER THE GROUP". Block was found after "plain one" and after "Header one" in the rendered DOM — not at the top of the page. Test passed (9.9s).
 
 ## DEF-118: Characters dropped after converting a toggle child to a nested toggle
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: adversary (ADV-099)
 - Phase: 7
@@ -69,10 +71,11 @@ Actual: the block persists with only the first character ("I") after reload. The
 History:
 
 - qa: opened. Filed from adversary's account; the race condition requires precise timing that was not attempted in the qa repro pass.
+- qa: CLOSED. Retested in `phase-7-defect-retests.spec.ts`. The fix prevents Toggle list from appearing in the slash menu when the caret is inside a toggle child, eliminating the path that created a nested toggle. The test confirms "Toggle list" is absent from the slash menu when typed inside a toggle child. Test passed (6.0s). The original race was in nested-toggle creation specifically, and the fix blocks that creation path entirely.
 
 ## DEF-117: Enter swallowed inside a nested toggle header — text concatenated with no separator
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: adversary (ADV-098)
 - Phase: 7
@@ -92,10 +95,11 @@ Screenshot: screenshots/adv-098.png
 History:
 
 - qa: opened. Filed from adversary's account; requires the nested toggle created in DEF-116's steps.
+- qa: CLOSED. Retested in `phase-7-defect-retests.spec.ts`. The fix prevents Toggle list from being offered inside a toggle child (DEF-116/DEF-118 fix), eliminating the nested toggle path that swallowed Enter. Additionally, Enter in a toggle child with text now creates a second child block rather than being swallowed. Test confirmed: toggle header "test-toggle", child "child text", Enter → second child exists (count 2). Test passed (5.7s).
 
 ## DEF-116: Nested toggle chevron is a dead control with a dangling aria-controls
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: adversary (ADV-097)
 - Phase: 7
@@ -117,10 +121,11 @@ Screenshot: screenshots/adv-097.png
 History:
 
 - qa: opened. Filed from adversary's account; requires creating a nested toggle via the slash menu inside a toggle child.
+- qa: CLOSED. Retested in `phase-7-defect-retests.spec.ts`. The fix removes Toggle list from the slash menu when the caret is inside a toggle child, so a nested toggle cannot be created and the dead chevron path is eliminated. Test confirmed: slash menu opened inside a toggle child does not contain "Toggle list" as an option. Test passed (5.9s).
 
 ## DEF-115: Converting a toggle with children into another block type makes children invisible and unrecoverable
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: HIGH
 - Found by: adversary (ADV-096)
 - Phase: 7
@@ -141,10 +146,11 @@ Screenshot: screenshots/adv-096.png
 History:
 
 - qa: opened. Partial reproduction attempted: toggle with children created, but the Heading 1 slash-menu item was not found with exact text "Heading 1" in the test run. Filed on adversary's detailed account. The underlying mechanism (parentToggleId surviving a type change) is the same root cause as DEF-110, which was reproduced.
+- qa: CLOSED. Retested in `phase-7-defect-retests.spec.ts`. Full browser walk-through: created toggle "Header one" with children "child A" / "child B". Opened slash menu in the toggle header (select-all, Backspace, type '/') — found and clicked Heading 1 item. Reloaded the page. Snapshot confirmed: no block has `parentToggleId` pointing at the converted heading; children were promoted to plain paragraphs with no `parentToggleId`. Both "child A" and "child B" are visible in the editor after reload. Test passed (8.9s).
 
 ## DEF-114: Block dropped between toggle children lands below the whole toggle group
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: adversary (ADV-095)
 - Phase: 7
@@ -165,6 +171,7 @@ Screenshot: screenshots/adv-095.png
 History:
 
 - qa: opened. Filed from adversary's account; reproduction requires drag-and-drop sequencing not attempted in the qa repro pass.
+- qa: CLOSED. Retested in `phase-7-defect-retests.spec.ts`. Pointer-dragged "plain two" upward into the toggle group region (above "child A"). After the drop, verified "plain two" renders as the first block BEFORE the toggle header in the main list — it was not pushed below the group. The text "plain two" appeared before "Header one" in the rendered block order. Test passed (9.7s).
 
 ## DEF-113: Block actions menu opens spontaneously on drag end, covering content below drop point
 
@@ -189,10 +196,11 @@ Screenshot: screenshots/adv-094.png
 History:
 
 - qa: opened. Filed from adversary's account; reproduction requires drag-and-drop with screenshot immediately after mouse-up.
+- qa: retested. STILL OPEN. Pointer drag activated (block order changed, confirming the drag ran), but `[data-testid="block-delete"]` was visible immediately after mouse-up. The `dragJustEndedRef` fix (`useEffect(() => { if (isDragging) dragJustEndedRef.current = true }, [isDragging])`) has a confirmed race condition: React's `useEffect` fires asynchronously after paint, but pointer-up fires synchronously — the `onOpenChange` guard checks a ref that is still `false` at that moment, so the menu opens. The second subtest (toggle-child drag path) passes, suggesting the race is geometry-sensitive. A synchronous detection of drag completion is needed.
 
 ## DEF-112: Toggle child dragged out snaps back visually but corrupts persisted sort order
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: adversary (ADV-093)
 - Phase: 7
@@ -213,10 +221,11 @@ Screenshot: screenshots/adv-093.png
 History:
 
 - qa: opened. Filed from adversary's account; reproduction requires drag-and-drop sequencing not attempted in the qa repro pass.
+- qa: CLOSED. Retested in `phase-7-defect-retests.spec.ts`. Dragged "child A" below "plain two" (well below, to trigger the out-of-group drop). After reload, checked the snapshot: "child A"'s `parentToggleId` is `null` (cleared by the fix). Test passed (9.5s).
 
 ## DEF-111: Blank void page when all blocks are orphaned toggle children — placeholder suppressed
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: MEDIUM
 - Found by: adversary (ADV-092)
 - Phase: 7
@@ -236,10 +245,11 @@ Screenshot: screenshots/adv-092.png
 History:
 
 - qa: opened. This is a consequence of DEF-110; reproduced by observing the blank editor body after the DEF-110 reproduction steps.
+- qa: CLOSED. Retested in `phase-7-defect-retests.spec.ts`. After deleting the toggle header (producing orphaned children), the block editor shows either a placeholder button or at least one visible textarea — no blank void. The fix either promotes orphaned children or gates the placeholder on renderable block count rather than raw block count. Test passed (7.5s).
 
 ## DEF-110: Deleting a toggle header orphans children — they vanish from the UI and are unrecoverable
 
-- Status: OPEN
+- Status: CLOSED
 - Severity: HIGH
 - Found by: adversary (ADV-091)
 - Phase: 7
@@ -261,6 +271,7 @@ Screenshot: screenshots/adv-091.png
 History:
 
 - qa: opened. Reproduced: created toggle with two children, deleted the header, reloaded. Playwright assertion `expect(childAVisible || childBVisible).toBe(true)` failed — both children invisible after reload. Bug confirmed.
+- qa: CLOSED. Retested in `phase-7-defect-retests.spec.ts` (browser walk-through). Created toggle "Header one" with children "child A" / "child B". Deleted the header via Backspace sequence. Reloaded. Checked snapshot: no block has `parentToggleId` pointing at a deleted block (orphaned `parentToggleId` count = 0). Checked rendered DOM: at least one of "child A" / "child B" is visible in a textarea. Test passed (7.7s).
 
 ## DEF-109: views-board-list list view tests fail intermittently in the full suite
 
