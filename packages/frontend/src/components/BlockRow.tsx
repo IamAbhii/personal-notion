@@ -168,6 +168,11 @@ export function BlockRow({
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   // Set when the slash menu converted this block, so the caret returns to it after the remount.
   const refocusAfterConvert = useRef(false);
+  // Set to true when a pointer drag starts; consumed and cleared by the first onOpenChange(true)
+  // that follows the drag end. dnd-kit synthesises a click on pointer-up even after a real drag,
+  // and by the time that click fires isDragging is already false, so the live flag cannot guard it.
+  // Resetting on onPointerDown ensures a fresh pointer interaction does not inherit a stale true.
+  const dragJustEndedRef = useRef(false);
   // null means closed; a string is the text typed after the "/".
   const [slashQuery, setSlashQuery] = useState<string | null>(null);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
@@ -201,6 +206,14 @@ export function BlockRow({
     element.style.height = 'auto';
     element.style.height = `${element.scrollHeight}px`;
   }, [value, block.type]);
+
+  // Record that a drag interaction has occurred for this block so the click synthesised by the
+  // pointer sensor on drag-end can be swallowed in onOpenChange. The flag is set when isDragging
+  // becomes true, consumed by the first open request that follows, and reset on the next
+  // onPointerDown so a stuck true cannot block a genuine click on a subsequent interaction.
+  useEffect(() => {
+    if (isDragging) dragJustEndedRef.current = true;
+  }, [isDragging]);
 
   const attachEditor = (element: HTMLTextAreaElement | null) => {
     textareaRef.current = element;
@@ -477,6 +490,15 @@ export function BlockRow({
           <DropdownMenu
             open={menuOpen && !isDragging}
             onOpenChange={(next) => {
+              // Swallow an open request that immediately follows a pointer drag. The pointer
+              // sensor synthesises a click on pointer-up even after a real drag, and by that
+              // point isDragging is already false, so the live flag cannot guard it. We instead
+              // record that a drag occurred (dragJustEndedRef) and consume the flag on the first
+              // spurious open request. (DEF-113)
+              if (next && dragJustEndedRef.current) {
+                dragJustEndedRef.current = false;
+                return;
+              }
               // Ignore open requests while dragging: the pointer sensor needs 4px before it
               // activates, and a fast tap can set open=true before isDragging becomes true.
               if (!isDragging) setMenuOpen(next);
@@ -494,6 +516,11 @@ export function BlockRow({
                 )}
                 data-testid="block-drag-handle"
                 aria-label={`Move the ${blockTypeLabel(block.type).toLowerCase()} block`}
+                // Reset the drag-end flag at the start of every new pointer interaction so a
+                // stuck true cannot swallow a genuine click on a subsequent non-drag press.
+                onPointerDown={() => {
+                  dragJustEndedRef.current = false;
+                }}
                 {...attributes}
                 {...listeners}
               >
