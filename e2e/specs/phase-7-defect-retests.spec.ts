@@ -180,8 +180,14 @@ test.describe('DEF-110: deleting a toggle header promotes children', () => {
     });
 
     if (childrenInSnapshot.length > 0) {
-      const childACount = await blockEditor.locator('textarea').filter({ hasText: 'child A' }).count();
-      const childBCount = await blockEditor.locator('textarea').filter({ hasText: 'child B' }).count();
+      const childACount = await blockEditor
+        .locator('textarea')
+        .filter({ hasText: 'child A' })
+        .count();
+      const childBCount = await blockEditor
+        .locator('textarea')
+        .filter({ hasText: 'child B' })
+        .count();
       expect(
         childACount + childBCount,
         `Children exist in snapshot (${childrenInSnapshot.length}) but are invisible in the editor — data loss`,
@@ -368,7 +374,10 @@ test.describe('DEF-113: block actions menu must not open after drag end', () => 
     } else {
       // The drag did not activate — this test is inconclusive for DEF-113.
       // Use keyboard drag to verify the menu does not open unexpectedly.
-      const handle = blockEditor.locator('[data-block-id]').first().locator('[data-testid="block-drag-handle"]');
+      const handle = blockEditor
+        .locator('[data-block-id]')
+        .first()
+        .locator('[data-testid="block-drag-handle"]');
       await handle.focus();
       await page.keyboard.press('Space'); // lift
       await page.waitForTimeout(200);
@@ -520,7 +529,11 @@ test.describe('DEF-114: block dropped between toggle children renders correctly'
       const allBlockTexts: string[] = [];
       const count = await allBlocks.count();
       for (let i = 0; i < count; i++) {
-        const t = await allBlocks.nth(i).locator('textarea').inputValue().catch(() => '');
+        const t = await allBlocks
+          .nth(i)
+          .locator('textarea')
+          .inputValue()
+          .catch(() => '');
         allBlockTexts.push(t);
       }
 
@@ -625,8 +638,14 @@ test.describe('DEF-115: converting a toggle to another type promotes children', 
     });
 
     if (childrenInSnapshot.length > 0) {
-      const childACount = await blockEditor.locator('textarea').filter({ hasText: 'child A' }).count();
-      const childBCount = await blockEditor.locator('textarea').filter({ hasText: 'child B' }).count();
+      const childACount = await blockEditor
+        .locator('textarea')
+        .filter({ hasText: 'child A' })
+        .count();
+      const childBCount = await blockEditor
+        .locator('textarea')
+        .filter({ hasText: 'child B' })
+        .count();
       expect(
         childACount + childBCount,
         `Children in snapshot (${childrenInSnapshot.length}) but invisible in editor — data loss`,
@@ -857,7 +876,11 @@ test.describe('DEF-119: Enter-to-exit after header drag lands paragraph after th
     const allRows = blockEditor.locator('[data-block-type]');
     const rowCount = await allRows.count();
     for (let i = 0; i < rowCount; i++) {
-      const val = await allRows.nth(i).locator('textarea').inputValue().catch(() => '');
+      const val = await allRows
+        .nth(i)
+        .locator('textarea')
+        .inputValue()
+        .catch(() => '');
       if (val === 'plain two') {
         plainTwoBox = await allRows.nth(i).boundingBox();
         break;
@@ -904,7 +927,11 @@ test.describe('DEF-119: Enter-to-exit after header drag lands paragraph after th
     const allBlockTexts: string[] = [];
     const count = await allBlocks.count();
     for (let i = 0; i < count; i++) {
-      const t = await allBlocks.nth(i).locator('textarea').inputValue().catch(() => '');
+      const t = await allBlocks
+        .nth(i)
+        .locator('textarea')
+        .inputValue()
+        .catch(() => '');
       allBlockTexts.push(t);
     }
 
