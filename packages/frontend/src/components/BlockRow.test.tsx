@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render } from '@testing-library/react';
+import { render, fireEvent, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BlockRow } from './BlockRow';
 import { makeBlock } from '../test/fixtures';
@@ -197,5 +197,76 @@ describe('drag handle vertical alignment (Problem 1)', () => {
     render(<BlockRow {...defaultProps} block={dividerBlock} />);
     const handle = document.querySelector('[data-testid="block-drag-handle"]');
     expect(handle?.className).toContain('top-0');
+  });
+});
+
+describe('drag handle menu swallow-after-drag (DEF-113)', () => {
+  // In the real browser a pointer drag ends with a synthetic click that has NO preceding
+  // pointerdown (the pointerdown fired at drag start, before any movement). This is exactly what
+  // the browser sends: pointerdown → [4px movement] → pointerup → synthesised click.
+  // userEvent.click() sends a full pointerdown+click sequence, which would reset the guard ref
+  // before the click. So these tests use fireEvent.click() for the post-drag synthetic click
+  // (matching the browser's bare click) and userEvent.click() for the genuine-click cases (where
+  // a real pointerdown correctly precedes the click and resets the guard).
+
+  it('menu stays closed when a bare click fires immediately after a pointer drag ends', async () => {
+    // The useEffect records a drag in dragJustEndedRef; onOpenChange swallows the first open
+    // request that follows, which is the spurious post-drag synthesised click. (DEF-113)
+
+    // Phase 1: render with drag active so the useEffect fires and sets dragJustEndedRef.
+    vi.mocked(useSortable).mockReturnValue(makeSortableReturn(true));
+    const { rerender } = render(<BlockRow {...defaultProps} />);
+
+    // Phase 2: drag ends — isDragging becomes false, as dnd-kit sets it on pointer-up.
+    vi.mocked(useSortable).mockReturnValue(makeSortableReturn(false));
+    act(() => {
+      rerender(<BlockRow {...defaultProps} />);
+    });
+
+    // Phase 3: browser fires the synthesised bare click (no preceding pointerdown).
+    const handle = document.querySelector('[data-testid="block-drag-handle"]') as HTMLElement;
+    fireEvent.click(handle);
+
+    // Radix only renders menu content when open; closed menu means no delete item in the DOM.
+    const deleteItem = document.querySelector('[data-testid="block-delete"]');
+    expect(deleteItem).toBeNull();
+  });
+
+  it('menu opens normally on a genuine click with no prior drag', async () => {
+    // No drag → dragJustEndedRef is never set → a genuine click opens the menu.
+    const user = userEvent.setup();
+    vi.mocked(useSortable).mockReturnValue(makeSortableReturn(false));
+    render(<BlockRow {...defaultProps} />);
+
+    const handle = document.querySelector('[data-testid="block-drag-handle"]') as HTMLElement;
+    await user.click(handle);
+
+    const deleteItem = document.querySelector('[data-testid="block-delete"]');
+    expect(deleteItem).not.toBeNull();
+  });
+
+  it('menu opens on the next genuine click after a drag-then-genuine-click sequence', async () => {
+    // After the drag's spurious click is swallowed, a new pointer interaction begins with
+    // onPointerDown, which resets dragJustEndedRef so the next genuine click opens the menu.
+    // userEvent.click() triggers pointerdown → click, matching a genuine user click.
+    const user = userEvent.setup();
+
+    vi.mocked(useSortable).mockReturnValue(makeSortableReturn(true));
+    const { rerender } = render(<BlockRow {...defaultProps} />);
+
+    vi.mocked(useSortable).mockReturnValue(makeSortableReturn(false));
+    act(() => {
+      rerender(<BlockRow {...defaultProps} />);
+    });
+
+    const handle = document.querySelector('[data-testid="block-drag-handle"]') as HTMLElement;
+
+    // Spurious post-drag bare click — swallowed.
+    fireEvent.click(handle);
+    expect(document.querySelector('[data-testid="block-delete"]')).toBeNull();
+
+    // Genuine subsequent click (pointerdown resets the ref → click is not swallowed).
+    await user.click(handle);
+    expect(document.querySelector('[data-testid="block-delete"]')).not.toBeNull();
   });
 });
