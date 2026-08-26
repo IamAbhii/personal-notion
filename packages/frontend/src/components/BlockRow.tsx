@@ -62,6 +62,13 @@ export interface BlockRowProps {
    * isEmpty=true signals that the last child is empty, which exits the toggle.
    */
   onEnterToggleChild?: (isEmpty: boolean) => void;
+  /**
+   * Shared ref owned by BlockEditor, set synchronously in its handleDragEnd callback so BlockRow's
+   * onOpenChange can swallow the spurious click the dnd-kit pointer sensor synthesises on pointer-up.
+   * A useEffect would be too late: effects run after paint but the click fires in the same
+   * synchronous tick as the drag-end callback. (DEF-113)
+   */
+  dragJustEndedRef: React.MutableRefObject<boolean>;
 }
 
 /** What an empty block of each type invites the user to do. */
@@ -164,15 +171,11 @@ export function BlockRow({
   onToggleOpenChange,
   onEnterToggleHeader,
   onEnterToggleChild,
+  dragJustEndedRef,
 }: BlockRowProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   // Set when the slash menu converted this block, so the caret returns to it after the remount.
   const refocusAfterConvert = useRef(false);
-  // Set to true when a pointer drag starts; consumed and cleared by the first onOpenChange(true)
-  // that follows the drag end. dnd-kit synthesises a click on pointer-up even after a real drag,
-  // and by the time that click fires isDragging is already false, so the live flag cannot guard it.
-  // Resetting on onPointerDown ensures a fresh pointer interaction does not inherit a stale true.
-  const dragJustEndedRef = useRef(false);
   // null means closed; a string is the text typed after the "/".
   const [slashQuery, setSlashQuery] = useState<string | null>(null);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
@@ -198,6 +201,13 @@ export function BlockRow({
     : new Set();
   const options = slashQuery === null ? [] : filterBlockTypes(slashQuery, excludeTypes);
 
+  // Clear the shared drag-end flag when a new drag starts, so a leftover true from a previous
+  // drag cannot swallow the first genuine click of the next interaction. Only mutates a ref —
+  // not a setState call, so the react-hooks/set-state-in-effect rule is satisfied. (DEF-113)
+  useEffect(() => {
+    if (isDragging) dragJustEndedRef.current = false;
+  }, [isDragging, dragJustEndedRef]);
+
   // The textarea grows with its content: a fixed height would either clip a long paragraph or leave
   // a tall empty box on every one-line block.
   useEffect(() => {
@@ -207,13 +217,22 @@ export function BlockRow({
     element.style.height = `${element.scrollHeight}px`;
   }, [value, block.type]);
 
-  // Record that a drag interaction has occurred for this block so the click synthesised by the
-  // pointer sensor on drag-end can be swallowed in onOpenChange. The flag is set when isDragging
-  // becomes true, consumed by the first open request that follows, and reset on the next
-  // onPointerDown so a stuck true cannot block a genuine click on a subsequent interaction.
-  useEffect(() => {
-    if (isDragging) dragJustEndedRef.current = true;
-  }, [isDragging]);
+  // Detect isDragging transitioning from true→false during render and close the menu.
+  // Radix DropdownMenu.Trigger fires onOpenChange(true) on pointerdown (before dnd-kit's 4px
+  // activation threshold), so menuOpen can be true before isDragging becomes true. The existing
+  // `open={menuOpen && !isDragging}` guard hides the menu during a drag, but when isDragging
+  // returns to false at drag-end, menuOpen=true reveals it. This render-phase adjustment closes
+  // menuOpen at drag start so the reveal cannot happen. Calling setState during render is the
+  // React-documented pattern for derived-state adjustment — not an effect, so the
+  // react-hooks/set-state-in-effect rule does not apply. (DEF-113)
+  const [prevIsDragging, setPrevIsDragging] = useState(isDragging);
+  if (prevIsDragging !== isDragging) {
+    setPrevIsDragging(isDragging);
+    if (isDragging) {
+      // Drag started: close the menu so menuOpen=false when isDragging returns to false.
+      setMenuOpen(false);
+    }
+  }
 
   const attachEditor = (element: HTMLTextAreaElement | null) => {
     textareaRef.current = element;
@@ -490,11 +509,11 @@ export function BlockRow({
           <DropdownMenu
             open={menuOpen && !isDragging}
             onOpenChange={(next) => {
-              // Swallow an open request that immediately follows a pointer drag. The pointer
-              // sensor synthesises a click on pointer-up even after a real drag, and by that
-              // point isDragging is already false, so the live flag cannot guard it. We instead
-              // record that a drag occurred (dragJustEndedRef) and consume the flag on the first
-              // spurious open request. (DEF-113)
+              // Swallow the spurious open request fired by the synthetic click the pointer sensor
+              // generates on pointer-up at drag-end. BlockEditor sets dragJustEndedRef synchronously
+              // at the top of handleDragEnd (the DndContext onDragEnd callback), which runs before
+              // the click because both are in the same synchronous tick. A useEffect on isDragging
+              // would fire after paint — too late. (DEF-113)
               if (next && dragJustEndedRef.current) {
                 dragJustEndedRef.current = false;
                 return;
@@ -516,11 +535,6 @@ export function BlockRow({
                 )}
                 data-testid="block-drag-handle"
                 aria-label={`Move the ${blockTypeLabel(block.type).toLowerCase()} block`}
-                // Reset the drag-end flag at the start of every new pointer interaction so a
-                // stuck true cannot swallow a genuine click on a subsequent non-drag press.
-                onPointerDown={() => {
-                  dragJustEndedRef.current = false;
-                }}
                 {...attributes}
                 {...listeners}
               >
