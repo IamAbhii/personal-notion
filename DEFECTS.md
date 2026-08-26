@@ -1,3 +1,267 @@
+## DEF-120: Toggle chevron ignores Space and Enter — keyboard activation completely broken
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-101)
+- Phase: 7
+
+Steps to reproduce:
+
+1. Launch the app: `npm start`, open http://localhost:8787.
+2. Create or navigate to a page with a toggleList block that has at least two children (header "Header one", children "child A", "child B").
+3. Focus the chevron button (`[data-testid="block-toggle-arrow"]`) directly — confirm `document.activeElement` is that element.
+4. Press Space. Observe `aria-expanded` and the rendered children.
+5. Press Escape, refocus the chevron, press Enter. Observe again.
+
+Expected: Space or Enter on a `<button aria-expanded>` collapses or expands the toggle, matching the click behaviour. A keyboard-only user must be able to operate the chevron.
+
+Actual: Neither Space nor Enter does anything. `aria-expanded` stays `true`, children remain visible, and no sort keys change. dnd-kit's activator listeners `preventDefault()` Space/Enter on this button, and unlike the ordinary block handle (which has ArrowDown as its keyboard route) the toggle has no alternative keyboard path to collapse. A control that renders as a button, announces `aria-expanded`, and ignores both activation keys is a complete keyboard accessibility failure.
+
+Screenshot: screenshots/adv-101.png
+
+History:
+
+- qa: opened. Reproduced: focused the chevron via Playwright, pressed Space, asserted `aria-expanded` changed — assertion failed (`Expected: true, Received: false`). Bug confirmed.
+
+## DEF-119: Enter-to-exit toggle drops new paragraph at top of page after header drag
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-100)
+- Phase: 7
+
+Steps to reproduce:
+
+1. Launch the app: `npm start`, open http://localhost:8787.
+2. Create a page with a toggleList "Header one", children "child A" and "child B", then plain paragraphs "plain one" and "plain two".
+3. Drag the toggle header (by its chevron) down below "plain two" so the rendered order becomes: plain one, plain two, Header one, child A, child B.
+4. Click the end of "child B", press Enter (creates a new empty child), then press Enter again (the documented "exit the toggle" gesture).
+5. Type "AFTER THE GROUP".
+
+Expected: the new paragraph is created below "child B" at the bottom of the page, per REQUIREMENTS.md Phase 7: "removes the empty child, creates a sibling paragraph after the whole toggle group".
+
+Actual: the paragraph is created at a sort key corresponding to flat-order position 2 (after the last child's original flat position), and renders as the first block on the page — above "plain one" and four rows above the toggle. The exit sort key is computed from the last child's flat position, which no longer relates to where the toggle is rendered after the header was dragged. The user's next sentence lands at the opposite end of the document from where they were typing.
+
+Screenshot: screenshots/adv-100.png
+
+History:
+
+- qa: opened. Filed from adversary's account; reproduction requires dragging the toggle header, which was not attempted in the qa repro pass.
+
+## DEF-118: Characters dropped after converting a toggle child to a nested toggle
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-099)
+- Phase: 7
+
+Steps to reproduce:
+
+1. Launch the app: `npm start`, open http://localhost:8787.
+2. Create a page with a toggleList "Outer" containing one child.
+3. Place the caret in the child, clear its text, type `/toggle`, press Enter, and immediately start typing "Inner toggle" (15ms per key, no pause after Enter).
+4. Wait for the typing to settle, then reload the page.
+
+Expected: all twelve characters of "Inner toggle" land in the converted block, as they do for every other block type conversion.
+
+Actual: the block persists with only the first character ("I") after reload. The remaining eleven characters are silently dropped. With an 800ms pause after Enter the same sequence keeps the full text, confirming this is a race in the convert-and-refocus path specific to converting a toggle child. A fast typist loses text with no indication.
+
+History:
+
+- qa: opened. Filed from adversary's account; the race condition requires precise timing that was not attempted in the qa repro pass.
+
+## DEF-117: Enter swallowed inside a nested toggle header — text concatenated with no separator
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-098)
+- Phase: 7
+
+Steps to reproduce:
+
+1. Launch the app: `npm start`, open http://localhost:8787.
+2. Create the nested toggle from DEF-116 (a `toggleList` child of another toggle), with header text "Inner toggle".
+3. Press Enter in the nested toggle header, then type "inner child".
+
+Expected: Enter produces something — a child block, a sibling paragraph, or a literal newline.
+
+Actual: Enter is a no-op. `BlockRow` intercepts Enter for `toggleList` and calls `onEnterToggleHeader?.()`, which is `undefined` for a nested row, so the keypress is consumed and discarded. The following typing lands in the same header: the block text becomes "Inner toggleinner child" — two separate thoughts silently merged into one line. See also DEF-116 (nested toggle chevron dead) and DEF-115 (children orphaned by type conversion).
+
+Screenshot: screenshots/adv-098.png
+
+History:
+
+- qa: opened. Filed from adversary's account; requires the nested toggle created in DEF-116's steps.
+
+## DEF-116: Nested toggle chevron is a dead control with a dangling aria-controls
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-097)
+- Phase: 7
+
+Steps to reproduce:
+
+1. Launch the app: `npm start`, open http://localhost:8787.
+2. Create a page with a toggleList "Outer" containing one child.
+3. With the caret in the child, clear its text, type `/toggle`, press Enter — the child is now a `toggleList` that still carries the `parentToggleId` of "Outer".
+4. Inspect the inner chevron's `aria-expanded`, `aria-controls`, and `aria-label`.
+5. Click the inner chevron three times and observe whether `aria-expanded` changes.
+
+Expected: either nested toggles are prevented (the option not offered inside a toggle child), or the nested chevron functions correctly.
+
+Actual: the nested toggle is created and renders inside the outer group with its own chevron, looking fully functional. Clicking the inner chevron does nothing (three clicks, `aria-expanded` stays `true`, nothing changes) because `BlockEditor` only passes `isToggleOpen`/`onToggleOpenChange` to top-level rows. Its `aria-controls="toggle-children-<inner id>"` points at an element that does not exist in the DOM (`document.querySelectorAll` count 0), so a screen reader is told about a region that isn't there, and `aria-expanded="true"` with no children region is a lie. See also DEF-117 (Enter swallowed) and DEF-118 (characters dropped in nested toggle).
+
+Screenshot: screenshots/adv-097.png
+
+History:
+
+- qa: opened. Filed from adversary's account; requires creating a nested toggle via the slash menu inside a toggle child.
+
+## DEF-115: Converting a toggle with children into another block type makes children invisible and unrecoverable
+
+- Status: OPEN
+- Severity: HIGH
+- Found by: adversary (ADV-096)
+- Phase: 7
+
+Steps to reproduce:
+
+1. Launch the app: `npm start`, open http://localhost:8787.
+2. Create a page with a toggleList "Header one" containing children "child A" and "child B".
+3. Click the toggle header, clear its text, type `/head`, press Enter to select Heading 1, then type "Now a heading".
+4. Reload the page and observe whether "child A" and "child B" are visible.
+
+Expected: the children are either promoted to plain paragraphs (still visible) or deleted with the toggle. A type conversion should not be able to hide text.
+
+Actual: the page renders exactly one block — the heading. Both children still exist in the snapshot with `parentToggleId` pointing at the now-heading1 block and survive a reload. Nothing in the UI can reach them: the flat list skips any block with a `parentToggleId`, and only a `toggleList` renders a children region. This is a second, easier route into the same data loss as DEF-110 — it takes six keystrokes and no destructive action at all.
+
+Screenshot: screenshots/adv-096.png
+
+History:
+
+- qa: opened. Partial reproduction attempted: toggle with children created, but the Heading 1 slash-menu item was not found with exact text "Heading 1" in the test run. Filed on adversary's detailed account. The underlying mechanism (parentToggleId surviving a type change) is the same root cause as DEF-110, which was reproduced.
+
+## DEF-114: Block dropped between toggle children lands below the whole toggle group
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-095)
+- Phase: 7
+
+Steps to reproduce:
+
+1. Launch the app: `npm start`, open http://localhost:8787.
+2. Create a page with a toggleList "Header one" containing children "child A" and "child B", then plain paragraphs "plain one" and "plain two".
+3. Drag "plain two" upward and drop it on "child A" — between the two children inside the toggle group, with the drop indicator inside the group.
+4. Read the DOM order, the snapshot, and collapse the toggle.
+
+Expected: either the block is inserted where dropped (at that vertical position inside the group), or the drop into a toggle group is refused visually.
+
+Actual: the write lands the block at a sort key between the header and child A in flat order, but the render skips toggle children out of the flat list, so "plain two" appears below both children — a position never dropped at. Nothing tells the user the drop was relocated. With the toggle collapsed, "plain two" sits flush under the header, reading as if it were the toggle's content when it is not.
+
+Screenshot: screenshots/adv-095.png
+
+History:
+
+- qa: opened. Filed from adversary's account; reproduction requires drag-and-drop sequencing not attempted in the qa repro pass.
+
+## DEF-113: Block actions menu opens spontaneously on drag end, covering content below drop point
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-094)
+- Phase: 7
+
+Steps to reproduce:
+
+1. Launch the app: `npm start`, open http://localhost:8787.
+2. Create a page with a toggleList "Header one" containing children "child A" and "child B", then plain paragraphs "plain one" and "plain two".
+3. Drag a block (a toggle child) by its grip handle down the page with a normal press-move-release.
+4. Observe the UI immediately after mouse-up.
+
+Expected: the drop reorders the block and nothing else opens.
+
+Actual: the dragged block's actions dropdown ("Delete block") opens spontaneously at the drop position and stays open, floating over and completely hiding the paragraph below the drop point. The pointer-up at the end of the drag is being treated as a click on the drag-handle trigger. It is one stray click away from a destructive action the user never requested, and it hides content until dismissed. This likely predates Phase 7 (generic block handle behaviour) but fires on every toggle-child drag.
+
+Screenshot: screenshots/adv-094.png
+
+History:
+
+- qa: opened. Filed from adversary's account; reproduction requires drag-and-drop with screenshot immediately after mouse-up.
+
+## DEF-112: Toggle child dragged out snaps back visually but corrupts persisted sort order
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-093)
+- Phase: 7
+
+Steps to reproduce:
+
+1. Launch the app: `npm start`, open http://localhost:8787.
+2. Create a page with a toggleList "Header one" containing children "child A" and "child B", then plain paragraphs "plain one" and "plain two".
+3. Grab "child A"'s drag handle and drag it below "plain two" (well below the last block), then drop.
+4. Observe the rendered order, read the snapshot sort keys, then reload.
+
+Expected: either child A leaves the toggle and becomes a plain paragraph at the bottom (the drop performed), or the drag is refused visually so the user knows children cannot be dragged out.
+
+Actual: the write goes through — child A's sort key becomes the last on the page — but the render pulls it back into the toggle group by its `parentToggleId`, so on screen it merely swapped places with child B inside the toggle. The flat order and the rendered order permanently disagree (persisted: header, child B, plain one, plain two, child A; rendered: header, [child B, child A], plain one, plain two), and this survives a reload. A drag that appears to do something completely different from what was dropped, and quietly corrupts the ordering underneath, is worse than a refused drag.
+
+Screenshot: screenshots/adv-093.png
+
+History:
+
+- qa: opened. Filed from adversary's account; reproduction requires drag-and-drop sequencing not attempted in the qa repro pass.
+
+## DEF-111: Blank void page when all blocks are orphaned toggle children — placeholder suppressed
+
+- Status: OPEN
+- Severity: MEDIUM
+- Found by: adversary (ADV-092)
+- Phase: 7
+
+Steps to reproduce:
+
+1. Launch the app: `npm start`, open http://localhost:8787.
+2. Follow the steps for DEF-110: create a toggleList "Header one" with children "child A" and "child B", then delete the toggle header block by clearing its text and pressing Backspace twice.
+3. Reload the page and observe the page body below the title.
+
+Expected: if nothing is renderable, the page shows the "This page is empty / Click here to start writing" placeholder that a genuinely empty page shows.
+
+Actual: the placeholder is suppressed because it is gated on `blocks.length === 0` and the page still has two (unrenderable, orphaned) blocks. The body below the title is entirely blank — no blocks, no placeholder, no affordance. The invisible full-width "Add a block at the end of the page" button is the only way to get a caret back, and nothing on screen suggests it exists. Any state where the flat block list and the toggle grouping disagree produces this same void. See also DEF-110 (orphaned children root cause).
+
+Screenshot: screenshots/adv-092.png
+
+History:
+
+- qa: opened. This is a consequence of DEF-110; reproduced by observing the blank editor body after the DEF-110 reproduction steps.
+
+## DEF-110: Deleting a toggle header orphans children — they vanish from the UI and are unrecoverable
+
+- Status: OPEN
+- Severity: HIGH
+- Found by: adversary (ADV-091)
+- Phase: 7
+
+Steps to reproduce:
+
+1. Launch the app: `npm start`, open http://localhost:8787.
+2. Create a new page, type `/toggle`, press Enter, type header text "Header one".
+3. Press Enter, type "child A", press Enter, type "child B" — two children inside the toggle.
+4. Click the toggle header, select all text with Ctrl+A, press Backspace to empty it, then press Backspace again to delete the header block.
+5. Reload the page and observe whether "child A" and "child B" are visible anywhere in the editor.
+
+Expected: deleting the toggle header either deletes its children with it, or promotes them to plain paragraphs so the user's text is still visible and editable.
+
+Actual: the header is deleted and the two children become permanently invisible. The block editor renders zero textareas, and the page body innerText is `""`. The snapshot still holds both paragraphs with `parentToggleId` pointing at the deleted header, and they survive a reload. `BlockEditor` skips every block that has a `parentToggleId` from the flat list when no toggle group exists to render them in, so the content is unreachable through any UI path: not visible, not editable, not deletable. Typed content silently disappearing with no undo is the worst case for a note-taking product. See also DEF-111 (blank void page consequence) and DEF-115 (second route to the same data loss via type conversion).
+
+Screenshot: screenshots/adv-091.png
+
+History:
+
+- qa: opened. Reproduced: created toggle with two children, deleted the header, reloaded. Playwright assertion `expect(childAVisible || childBVisible).toBe(true)` failed — both children invisible after reload. Bug confirmed.
+
 ## DEF-109: views-board-list list view tests fail intermittently in the full suite
 
 - Status: OPEN
