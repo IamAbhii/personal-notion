@@ -185,8 +185,13 @@ export function BlockRow({
     isDragging,
   } = useSortable({ id: block.id });
 
-  const options = slashQuery === null ? [] : filterBlockTypes(slashQuery);
   const props = parseBlockProps(block.props);
+  // Toggle children must not be converted to toggleList, since nested toggles are not
+  // supported in Phase 7 (the chevron would be inert, Enter would be swallowed, DEF-116/117).
+  const excludeTypes: ReadonlySet<BlockType> = props.parentToggleId
+    ? new Set<BlockType>(['toggleList'])
+    : new Set();
+  const options = slashQuery === null ? [] : filterBlockTypes(slashQuery, excludeTypes);
 
   // The textarea grows with its content: a fixed height would either clip a long paragraph or leave
   // a tall empty box on every one-line block.
@@ -437,6 +442,17 @@ export function BlockRow({
             onClick={() => onToggleOpenChange?.(!(isToggleOpen ?? true))}
             {...attributes}
             {...listeners}
+            onKeyDown={(e) => {
+              // Space and Enter must toggle open/closed, not start a keyboard drag.
+              // dnd-kit's {...listeners} spread above registers an onKeyDown that intercepts
+              // both keys to initiate a drag via its KeyboardSensor; this handler, placed after
+              // the spread, overrides it so keyboard collapse/expand works as aria-expanded requires.
+              // Pointer-based drag is unaffected. (DEF-120)
+              if (e.key === ' ' || e.key === 'Enter') {
+                e.preventDefault();
+                onToggleOpenChange?.(!(isToggleOpen ?? true));
+              }
+            }}
           >
             {(isToggleOpen ?? true) ? (
               <ChevronDown size={16} aria-hidden />

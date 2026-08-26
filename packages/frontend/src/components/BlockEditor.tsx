@@ -113,13 +113,45 @@ export function BlockEditor({
     setFocusRequest({ blockId, caret: 'start' });
   };
 
+  /**
+   * Removes the `parentToggleId` field from a child block's props, preserving any other props
+   * (e.g. language, emoji). Called when a toggle header is deleted or converted away from
+   * toggleList so its children become visible top-level paragraphs (DEF-110, DEF-115).
+   */
+  const clearParentToggleId = (child: BlockRecord) => {
+    const childProps = parseBlockProps(child.props);
+    const rest = Object.fromEntries(
+      Object.entries(childProps).filter(([key]) => key !== 'parentToggleId'),
+    );
+    const newProps = Object.keys(rest).length > 0 ? JSON.stringify(rest) : null;
+    onUpdateBlock(child, { props: newProps });
+  };
+
   const deleteEmptyBlock = (index: number) => {
     const block = blocks[index];
     if (!block) return;
     const previous = blocks[index - 1];
+    // Backspace on an empty toggleList header: promote its children before deleting so they
+    // do not become invisible orphans (DEF-110).
+    if (block.type === 'toggleList') {
+      const children = blocks.filter((b) => parseBlockProps(b.props).parentToggleId === block.id);
+      for (const child of children) {
+        clearParentToggleId(child);
+      }
+    }
     onDeleteBlock(block);
     // The caret lands at the end of the block above, which is where the user was heading.
     if (previous) setFocusRequest({ blockId: previous.id, caret: 'end' });
+  };
+
+  /**
+   * Returns the toggle group id that `b` belongs to: the block's own id if it is a toggle header,
+   * its `parentToggleId` if it is a child, or undefined otherwise.
+   */
+  const getToggleGroupId = (b: BlockRecord | null): string | undefined => {
+    if (!b) return undefined;
+    if (b.type === 'toggleList') return b.id;
+    return parseBlockProps(b.props).parentToggleId;
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
@@ -129,8 +161,51 @@ export function BlockEditor({
     const toIndex = blocks.findIndex((block) => block.id === over.id);
     const moved = blocks[fromIndex];
     if (!moved || fromIndex < 0 || toIndex < 0) return;
-    // One op on one row: the fractional key does the reordering, so no sibling is rewritten.
-    onUpdateBlock(moved, { sortKey: sortKeyForMove(blocks, fromIndex, toIndex) });
+
+    const newSortKey = sortKeyForMove(blocks, fromIndex, toIndex);
+
+    // Determine the new flat-order neighbors of `moved` after the reorder.
+    // `remaining` mirrors what `sortKeyForMove` uses, so these are the same neighbors the
+    // new sort key lands between.
+    const remaining = blocks.filter((_, i) => i !== fromIndex);
+    const beforeBlock: BlockRecord | null = remaining[toIndex - 1] ?? null;
+    const afterBlock: BlockRecord | null = remaining[toIndex] ?? null;
+
+    const movedProps = parseBlockProps(moved.props);
+    const movedGroupId = movedProps.parentToggleId;
+
+    if (movedGroupId) {
+      // `moved` is a toggle child. If neither new neighbor belongs to the same toggle group,
+      // the child was dragged outside — promote it to a plain top-level block (DEF-112).
+      if (
+        getToggleGroupId(beforeBlock) !== movedGroupId &&
+        getToggleGroupId(afterBlock) !== movedGroupId
+      ) {
+        const restProps = Object.fromEntries(
+          Object.entries(movedProps).filter(([key]) => key !== 'parentToggleId'),
+        );
+        const newProps = Object.keys(restProps).length > 0 ? JSON.stringify(restProps) : null;
+        onUpdateBlock(moved, { sortKey: newSortKey, props: newProps });
+        return;
+      }
+    } else if (moved.type !== 'toggleList') {
+      // `moved` is a plain block (not a toggle header). If both new neighbors belong to the
+      // same toggle group, adopt `moved` into that group so it renders at the indicated position
+      // rather than below the whole group (DEF-114). Toggle headers are excluded because
+      // adopting one would create an unsupported nested toggle.
+      const beforeGroupId = getToggleGroupId(beforeBlock);
+      const afterGroupId = getToggleGroupId(afterBlock);
+      if (beforeGroupId && beforeGroupId === afterGroupId) {
+        onUpdateBlock(moved, {
+          sortKey: newSortKey,
+          props: JSON.stringify({ ...movedProps, parentToggleId: beforeGroupId }),
+        });
+        return;
+      }
+    }
+
+    // Standard reorder: update the sort key only.
+    onUpdateBlock(moved, { sortKey: newSortKey });
   };
 
   /**
@@ -167,11 +242,20 @@ export function BlockEditor({
           strategy={verticalListSortingStrategy}
         >
           {(() => {
-            // Derive the set of toggle child IDs so they can be rendered inside their parent
-            // toggle group rather than in the flat list. Computed inline so it is always in sync
-            // with the current blocks prop without an effect or memo.
+            // Only blocks whose parentToggleId points at an existing toggleList block are
+            // treated as toggle children. Orphans (missing parent or non-toggle parent) fall
+            // through to the flat list so they remain visible and editable (DEF-110, DEF-111,
+            // DEF-115). Computed inline so it is always in sync with the current blocks prop.
+            const toggleHeaderIds = new Set(
+              blocks.filter((b) => b.type === 'toggleList').map((b) => b.id),
+            );
             const toggleChildIds = new Set(
-              blocks.filter((b) => parseBlockProps(b.props).parentToggleId).map((b) => b.id),
+              blocks
+                .filter((b) => {
+                  const { parentToggleId } = parseBlockProps(b.props);
+                  return parentToggleId != null && toggleHeaderIds.has(parentToggleId);
+                })
+                .map((b) => b.id),
             );
 
             return blocks.map((block, index) => {
@@ -191,9 +275,15 @@ export function BlockEditor({
               // use it without a conditional branch that would change the JSX element type.
               const isToggle = block.type === 'toggleList';
               const isOpen = isToggle ? !collapsedToggles.has(block.id) : false;
-              // Children are paragraphs whose props.parentToggleId points at this block.
+              // Children are blocks in toggleChildIds whose parentToggleId points at this block.
+              // Using toggleChildIds (rather than a raw parentToggleId check) ensures only valid
+              // children are included — orphans of this block are already excluded from the set.
               const toggleChildren = isToggle
-                ? blocks.filter((b) => parseBlockProps(b.props).parentToggleId === block.id)
+                ? blocks.filter(
+                    (b) =>
+                      toggleChildIds.has(b.id) &&
+                      parseBlockProps(b.props).parentToggleId === block.id,
+                  )
                 : [];
               const lastChild = toggleChildren[toggleChildren.length - 1] ?? null;
 
@@ -226,13 +316,31 @@ export function BlockEditor({
                     onChangeText={(text) => onUpdateBlock(block, { text })}
                     // One op carries both: the slash query the user typed was a command, never
                     // content, so the conversion clears the text the same write that changes the type.
-                    onConvertType={(type) => onUpdateBlock(block, { type, text: '' })}
+                    // For toggleList: promote children to top-level before changing the type so
+                    // they do not become invisible orphans (DEF-115).
+                    onConvertType={(type) => {
+                      if (isToggle) {
+                        for (const child of toggleChildren) {
+                          clearParentToggleId(child);
+                        }
+                      }
+                      onUpdateBlock(block, { type, text: '' });
+                    }}
                     onToggleChecked={(checked) => onUpdateBlock(block, { checked })}
                     // onEnter is the fallback for toggleList (onEnterToggleHeader takes over);
                     // for every other type it creates a paragraph below the block.
                     onEnter={(type) => addBlock(block.id, type)}
                     onDeleteEmpty={() => deleteEmptyBlock(index)}
-                    onDelete={() => onDeleteBlock(block)}
+                    // For toggleList: promote children before deleting the header so they do not
+                    // become invisible orphans (DEF-110).
+                    onDelete={() => {
+                      if (isToggle) {
+                        for (const child of toggleChildren) {
+                          clearParentToggleId(child);
+                        }
+                      }
+                      onDeleteBlock(block);
+                    }}
                     onNotice={onNotice}
                     isToggleOpen={isToggle ? isOpen : undefined}
                     onToggleOpenChange={isToggle ? setOpen : undefined}
@@ -287,12 +395,22 @@ export function BlockEditor({
                             onNotice={onNotice}
                             onEnterToggleChild={(isEmpty) => {
                               if (isEmpty && child.id === lastChild?.id) {
-                                // Last empty child: exit the toggle by deleting it and creating a
-                                // plain sibling paragraph positioned after the whole toggle group.
-                                // sortKey is computed from `blocks` (before the optimistic delete),
-                                // so the key correctly lands after the last child's sort position.
+                                // Exit the toggle: delete the empty last child and create a plain
+                                // paragraph after the entire toggle group. The afterBlockId must
+                                // be the group block with the highest sortKey EXCLUDING the child
+                                // being deleted — otherwise, if the header was dragged to a higher
+                                // sortKey than the children, the new paragraph would land at the
+                                // wrong position in the flat order (DEF-119).
+                                const groupBlocks = [block, ...toggleChildren];
+                                const remaining = groupBlocks.filter((b) => b.id !== child.id);
+                                const afterGroup =
+                                  remaining.length > 0
+                                    ? remaining.reduce((max, b) =>
+                                        b.sortKey > max.sortKey ? b : max,
+                                      )
+                                    : null;
                                 onDeleteBlock(child);
-                                addBlock(lastChild.id, 'paragraph');
+                                addBlock(afterGroup?.id ?? null, 'paragraph');
                               } else {
                                 // Create another child with the same parentToggleId.
                                 addBlock(

@@ -104,11 +104,20 @@ export function blockTypeLabel(type: BlockType): string {
 /**
  * The slash menu's filter. Matches the label, the type literal and the keywords, so both "to-do"
  * and "check" land on the to-do entry. An empty query offers everything.
+ * `excludeTypes` removes specific types from results — used to hide `toggleList` inside a toggle
+ * child, where nested toggles are not supported.
  */
-export function filterBlockTypes(query: string): BlockTypeOption[] {
+export function filterBlockTypes(
+  query: string,
+  excludeTypes: ReadonlySet<BlockType> = new Set(),
+): BlockTypeOption[] {
   const needle = query.trim().toLowerCase().replace(/[\s-]/g, '');
-  if (!needle) return BLOCK_TYPE_OPTIONS;
-  return BLOCK_TYPE_OPTIONS.filter((option) =>
+  const base =
+    excludeTypes.size > 0
+      ? BLOCK_TYPE_OPTIONS.filter((option) => !excludeTypes.has(option.type))
+      : BLOCK_TYPE_OPTIONS;
+  if (!needle) return base;
+  return base.filter((option) =>
     [option.label, option.type, ...option.keywords].some((candidate) =>
       candidate.toLowerCase().replace(/[\s-]/g, '').includes(needle),
     ),
