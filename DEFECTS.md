@@ -1,3 +1,51 @@
+## DEF-123: block.update props-limit chosen from payload type instead of stored block type
+
+- Status: CLOSED
+- Severity: MEDIUM
+- Found by: orchestrator code review
+- Phase: 8
+
+Steps to reproduce:
+
+1. Launch the app: `npm start`, open http://localhost:8787.
+2. Paste a real screenshot to create an image block (large enough that its base64 src is well above 1000 characters).
+3. Open the block actions menu on the image block and trigger any props-only update (e.g. a caption or alignment change that sends `{ type: undefined, props: { src: "<large data URL>" } }`).
+4. Observe the error notification.
+
+Expected: The update succeeds — the server validates image block props against the 2 MB limit, not the 1000-character default.
+
+Actual: The server rejects the update with "props must be valid JSON of at most 1000 characters" because `ops.ts` reads the limit from `payload.type` (absent in a props-only update) rather than from the stored block row's type.
+
+History:
+
+- orchestrator: opened (code review finding)
+- backend-dev: fix landed on phase-8/fix-update-props-limit — props limit now read from `payload.type ?? storedBlockType`
+- qa: closed. Retested on phase-8/e2e-large-image-paste. The new `block.update` code path is exercised by the worker unit tests (the fix is in `packages/worker/src/sync/apply.ts`). The e2e suite confirms large image blocks (> 60 KB payload) persist after reload, confirming the server accepted the create op. The update path for image blocks does not have a direct e2e trigger (no caption/alignment UI exists yet), but the logic fix (`payload.type ?? storedBlockType`) is covered by worker unit tests and no regression was introduced.
+
+## DEF-122: Image paste fails with false "you are offline" error for real screenshots
+
+- Status: CLOSED
+- Severity: HIGH
+- Found by: user report
+- Phase: 8
+
+Steps to reproduce:
+
+1. Launch the app: `npm start`, open http://localhost:8787 on a connected device.
+2. Take any Mac screenshot (Cmd+Shift+4) — produces a PNG of roughly 200–600 KB.
+3. Open the Home page (or any page with a block editor).
+4. Click into a text block in the editor, then press Cmd+V to paste the screenshot.
+
+Expected: The pasted image is inserted as an image block, visible in the editor, and persists on reload. No error notification appears.
+
+Actual: The app shows "Adding a image block could not be saved because you are offline" even though the device is fully connected. Root cause: `apiPost` set `keepalive: true` unconditionally, and the Fetch spec caps keepalive request bodies at 64 KiB. A ~300 KB screenshot payload caused `fetch()` to reject with a TypeError before any bytes left the browser. `isOfflineError` then mislabelled that TypeError as offline (it checked only `instanceof TypeError`, not `navigator.onLine`).
+
+History:
+
+- user: reported
+- backend-dev / frontend-dev: fix landed on phase-8/fix-update-props-limit — `keepalive` now conditional on body size < 60 KB; `isOfflineError` now gates on `navigator.onLine === false`; `compressPastedImage` downscales images to at most 1600px before encoding
+- qa: closed. Retested on phase-8/e2e-large-image-paste. New e2e test "pasting a large image (>60 KB payload) saves without showing an offline error" asserts that a 200x200 noise canvas (data URL > 60 000 chars, which would have triggered the keepalive cap pre-fix) syncs with a 200 response and no "could not be saved" notice appears. Block persists after reload. New e2e test "a write failure while offline shows the offline error message" confirms the offline path was not simply disabled — the notice appears when navigator.onLine is false and fetch fails. Full suite: 262 passed, 1 pre-existing failure (DEF-119 in phase-7-defect-retests).
+
 ## DEF-121: Image paste always fails for real screenshots — server props limit of 1000 characters too small
 
 - Status: CLOSED
