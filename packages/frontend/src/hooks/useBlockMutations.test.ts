@@ -137,7 +137,11 @@ describe('useBlockMutations — createBlock', () => {
     });
     expect(notify).toHaveBeenCalledTimes(1);
     const message = String(notify.mock.calls[0]?.[0]);
-    expect(message).toContain('offline');
+    // When navigator.onLine is true (the test default), a TypeError is a transient network error
+    // (e.g. a keepalive body-size rejection) — not an offline condition. The message says to retry
+    // rather than claiming the user is offline, which would be misleading and wrong.
+    expect(message).toContain('Please try again');
+    expect(message).not.toContain('offline');
   });
 });
 

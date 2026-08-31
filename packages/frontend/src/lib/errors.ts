@@ -5,13 +5,21 @@ import { OpRejectedError } from '../sync/ops';
 // the product fails in the same three ways: the server rejected it, the network was not there, or
 // the API answered with a status.
 
-/** True when the failure is the network rather than the server: offline, or the request never landed. */
+/**
+ * True when the failure is because the device is offline. An ApiError always means the server
+ * replied, so it is never offline. A network-ish TypeError (the browser's text for a fetch that
+ * never reached a server) is only treated as offline when navigator.onLine confirms it — if the
+ * device reports online, a TypeError is more likely a large-body keepalive rejection or a CORS
+ * failure, not an actual offline condition, so we return false and let it fall through to a
+ * generic retry message instead of the misleading "you are offline" one.
+ */
 export function isOfflineError(error: unknown): boolean {
   if (error instanceof ApiError) return false;
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
-  const message = error instanceof Error ? error.message : String(error);
-  // TypeError text differs per browser: "Failed to fetch", "NetworkError...", "Load failed".
-  return /failed to fetch|networkerror|network error|load failed|fetch failed/i.test(message);
+  // If the browser says we are online, do not claim the user is offline even if the error looks
+  // network-ish. A TypeError here is more likely a keepalive body-size rejection (64 KiB cap) or
+  // a connection refused — not the absence of network.
+  return false;
 }
 
 /** Every reason the server gave for the ops it refused, deduplicated and lower-cased for a sentence. */
@@ -35,6 +43,12 @@ export function describeWriteFailure(action: string, error: unknown): string {
   if (isOfflineError(error)) {
     // Future: Phase 6 queues the op durably instead, so this becomes "saved locally, will sync".
     return `${action} could not be saved because you are offline. Try again once you are back online.`;
+  }
+  if (error instanceof TypeError) {
+    // A TypeError that is not offline (navigator.onLine is true) is a transient network problem —
+    // a keepalive body-size rejection, a connection reset, or similar. Give a retry prompt without
+    // claiming the user is offline, which would be false and confusing.
+    return `${action} could not be saved. Please try again.`;
   }
   const detail = error instanceof Error ? error.message : String(error);
   return `${action} could not be saved: ${detail}`;
