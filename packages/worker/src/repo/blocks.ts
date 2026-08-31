@@ -42,13 +42,15 @@ export function listBlocks(db: Db, ctx: Ctx): Promise<BlockRow[]> {
 }
 
 // The skeleton the sync applier needs to decide every block op in memory: existence, version
-// comparison, and which page a block belongs to so an append key can be computed.
+// comparison, which page a block belongs to so an append key can be computed, and the stored type
+// so a block.update that omits type can still pick the right props size limit.
 export function listBlockStates(db: Db, ctx: Ctx) {
   return db
     .select({
       id: blocks.id,
       version: blocks.version,
       pageId: blocks.pageId,
+      type: blocks.type,
       sortKey: blocks.sortKey,
     })
     .from(blocks)
