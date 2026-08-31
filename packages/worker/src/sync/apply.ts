@@ -79,8 +79,9 @@ type PageState = {
   kind: 'page' | 'database' | 'row';
 };
 
-// The same for blocks: existence, version, which page it sits on and where in that page.
-type BlockState = { version: number; pageId: string; sortKey: string };
+// The same for blocks: existence, version, which page it sits on, where in that page, and the
+// stored type so a block.update omitting type can still select the right props size limit.
+type BlockState = { version: number; pageId: string; type: string; sortKey: string };
 
 // What the applier needs per property: existence, version, which database it belongs to, its type
 // (for value validation) and its parsed options (for select/multiSelect option id checks).
@@ -136,7 +137,7 @@ export async function applyOps(db: Db, ctx: Ctx, ops: Op[]): Promise<SyncOutcome
   const blockState = new Map<string, BlockState>(
     blockRows.map((row) => [
       row.id,
-      { version: row.version, pageId: row.pageId, sortKey: row.sortKey },
+      { version: row.version, pageId: row.pageId, type: row.type, sortKey: row.sortKey },
     ]),
   );
   const propertyState = new Map<string, PropertyState>(
@@ -246,7 +247,11 @@ export async function applyOps(db: Db, ctx: Ctx, ops: Op[]): Promise<SyncOutcome
 
     // Field limits and sort-key validity are checked here rather than in the zod schema, so one bad
     // field costs the client that op and not the whole batch.
-    const badPayload = payloadRejection(op);
+    // For block.update, pass the stored block type so the props limit is chosen from the effective
+    // type (payload.type when present, stored type when the payload omits it). See ops.ts.
+    const storedBlockType =
+      op.type === 'block.update' ? blockState.get(op.entityId)?.type : undefined;
+    const badPayload = payloadRejection(op, storedBlockType);
     if (badPayload) {
       reject(op, badPayload);
       continue;
