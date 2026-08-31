@@ -85,9 +85,10 @@ export interface PropertyValueRecord {
 }
 
 /**
- * The twelve block types as the server stores them. Phase 2 added the first eleven;
- * Phase 7 adds toggleList. No inline formatting — `text` is plain text throughout.
- * Future: image, embed and database-view blocks join this list in later phases.
+ * The thirteen block types as the server stores them. Phase 2 added the first eleven;
+ * Phase 7 adds toggleList; Phase 8 adds image (created only via clipboard paste, not the slash
+ * menu). No inline formatting — `text` is plain text throughout.
+ * Future: embed and database-view blocks join this list in later phases.
  */
 export type BlockType =
   | 'paragraph'
@@ -101,7 +102,8 @@ export type BlockType =
   | 'divider'
   | 'code'
   | 'callout'
-  | 'toggleList';
+  | 'toggleList'
+  | 'image';
 
 /**
  * A block as the snapshot returns it. `sortKey` is a fractional index, so a reorder is one op on
