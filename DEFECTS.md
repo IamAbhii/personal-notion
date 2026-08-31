@@ -1,3 +1,26 @@
+## DEF-121: Image paste always fails for real screenshots — server props limit of 1000 characters too small
+
+- Status: OPEN
+- Severity: HIGH
+- Found by: qa
+- Phase: 8
+
+Steps to reproduce:
+
+1. Launch the app: `npm start`, open http://localhost:8787.
+2. Open the Home page (or any page with a block editor).
+3. Copy any real screenshot or image to the clipboard (even a small 100×100 PNG).
+4. Click into a text block in the editor, then press Cmd+V (or Ctrl+V).
+
+Expected: The pasted image is inserted as an image block with the image visible in the editor.
+
+Actual: The image block is transiently inserted (optimistic update), then immediately removed. The app shows the error notification: "Adding a image block was dropped by the server: props must be valid JSON of at most 1000 characters." The block disappears after the server rejects it and TanStack Query reverts the optimistic update.
+
+Root cause: `MAX_BLOCK_PROPS_LENGTH = 1000` in `packages/worker/src/sync/ops.ts` caps all block props at 1000 characters. The image paste handler stores the full base64 data URL in props as `{"src":"data:image/png;base64,..."}`. Even a tiny 100×100 PNG produces a base64 data URL of several kilobytes, far exceeding the limit. The feature works only with synthetic 1×1 images produced in tests.
+
+History:
+- qa: opened
+
 ## DEF-120: Toggle chevron ignores Space and Enter — keyboard activation completely broken
 
 - Status: CLOSED
