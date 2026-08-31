@@ -1,6 +1,6 @@
 ## DEF-121: Image paste always fails for real screenshots — server props limit of 1000 characters too small
 
-- Status: OPEN
+- Status: FIX-READY
 - Severity: HIGH
 - Found by: qa
 - Phase: 8
@@ -19,7 +19,9 @@ Actual: The image block is transiently inserted (optimistic update), then immedi
 Root cause: `MAX_BLOCK_PROPS_LENGTH = 1000` in `packages/worker/src/sync/ops.ts` caps all block props at 1000 characters. The image paste handler stores the full base64 data URL in props as `{"src":"data:image/png;base64,..."}`. Even a tiny 100×100 PNG produces a base64 data URL of several kilobytes, far exceeding the limit. The feature works only with synthetic 1×1 images produced in tests.
 
 History:
+
 - qa: opened
+- backend-dev: raised image props limit to 2 000 000 characters
 
 ## DEF-120: Toggle chevron ignores Space and Enter — keyboard activation completely broken
 
