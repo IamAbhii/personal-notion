@@ -17,6 +17,7 @@ import { useAutosavedText } from '../hooks/useAutosavedText';
 import type { BlockRecord, BlockType } from '../api/types';
 import type { BlockTypeOption } from '../lib/blocks';
 import { DropdownMenu, DropdownMenuItem } from './ui/DropdownMenu/DropdownMenu';
+import { ImageBlock } from './ImageBlock/ImageBlock';
 import styles from './BlockRow.module.css';
 
 export interface BlockRowProps {
@@ -69,6 +70,11 @@ export interface BlockRowProps {
    * synchronous tick as the drag-end callback. (DEF-113)
    */
   dragJustEndedRef: React.MutableRefObject<boolean>;
+  /**
+   * Called when the user pastes an image from the clipboard into this block's textarea.
+   * Receives the base64 data URL produced by FileReader; BlockEditor inserts a new image block.
+   */
+  onPasteImage: (dataUrl: string) => void;
 }
 
 /** What an empty block of each type invites the user to do. */
@@ -108,6 +114,8 @@ const textareaTypeClasses: Record<BlockType, string> = {
   divider: '',
   // toggleList textarea shares paragraph styling; visual distinction comes from the arrow button.
   toggleList: '',
+  // image blocks have no textarea; this entry satisfies the exhaustive Record type.
+  image: '',
 };
 
 /**
@@ -172,6 +180,7 @@ export function BlockRow({
   onEnterToggleHeader,
   onEnterToggleChild,
   dragJustEndedRef,
+  onPasteImage,
 }: BlockRowProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   // Set when the slash menu converted this block, so the caret returns to it after the remount.
@@ -367,11 +376,21 @@ export function BlockRow({
     if (event.key === 'Backspace') {
       const element = event.currentTarget;
       const atStart = element.selectionStart === 0 && element.selectionEnd === 0;
-      // Only an empty block is removed by Backspace; merging text into the block above is not in
-      // this phase, so a non-empty block does nothing destructive here.
+      // Only an empty block acts on Backspace here; merging text into the block above is not in
+      // this phase, so a non-empty block does nothing destructive.
       if (atStart && value === '') {
         event.preventDefault();
-        onDeleteEmpty();
+        // toggleList uses Backspace-on-empty as its delete path (no DropdownMenu on the gutter),
+        // so it falls through to onDeleteEmpty even though it is not a paragraph.
+        if (block.type !== 'paragraph' && block.type !== 'toggleList') {
+          // Non-paragraph empty block: reset to paragraph rather than deleting, so the user can
+          // continue typing in place. The same refocusAfterConvert mechanism used by slash-menu
+          // conversions restores focus once the element remounts under the new block type.
+          refocusAfterConvert.current = true;
+          onConvertType('paragraph');
+        } else {
+          onDeleteEmpty();
+        }
       }
     }
   };
@@ -397,6 +416,22 @@ export function BlockRow({
       placeholder={placeholderFor(block.type)}
       onChange={(event) => handleChange(event.target.value)}
       onKeyDown={handleKeyDown}
+      onPaste={(event) => {
+        // Check for an image item in the clipboard before falling through to the default text paste.
+        const items = Array.from(event.clipboardData.items);
+        const imageItem = items.find((item) => item.type.startsWith('image/'));
+        if (!imageItem) return;
+        event.preventDefault();
+        const file = imageItem.getAsFile();
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          if (typeof reader.result === 'string') {
+            onPasteImage(reader.result);
+          }
+        };
+        reader.readAsDataURL(file);
+      }}
       onBlur={() => {
         closeSlashMenu();
         flush();
@@ -634,6 +669,9 @@ export function BlockRow({
            * to child BlockRows whose block.type is also toggleList.
            */
           <div data-testid="block-toggle-header">{editor}</div>
+        ) : block.type === 'image' ? (
+          // Image block: renders the pasted image; no editable text. Deletion via the gutter menu.
+          <ImageBlock src={props.src ?? ''} />
         ) : (
           editor
         )}
