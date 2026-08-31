@@ -112,9 +112,21 @@ export function readStashedOps(): Op[] {
   }
 }
 
-/** Writes ops down synchronously, which is the one thing an unload cannot interrupt. */
+/**
+ * Writes ops down synchronously, which is the one thing an unload cannot interrupt. Swallows a
+ * QuotaExceededError rather than throwing at unload time: a single large image op can hit the
+ * 5 MB origin cap, and an unhandled throw at unload is unrecoverable.
+ * Future: replace this stash with the durable IndexedDB queue from Phase 6, which is not subject
+ * to the localStorage quota and handles large payloads without data loss.
+ */
 export function stashOps(ops: Op[]): void {
-  localStorage.setItem(PENDING_OPS_KEY, JSON.stringify([...readStashedOps(), ...ops]));
+  try {
+    localStorage.setItem(PENDING_OPS_KEY, JSON.stringify([...readStashedOps(), ...ops]));
+  } catch {
+    // QuotaExceededError: the op is too large to stash (e.g. a big image block). Drop it rather
+    // than throwing at unload. The user may lose the edit if they close the tab right now, but
+    // the app stays alive and later writes are not affected.
+  }
 }
 
 /**

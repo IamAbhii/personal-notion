@@ -1,6 +1,6 @@
 ## DEF-121: Image paste always fails for real screenshots — server props limit of 1000 characters too small
 
-- Status: FIX-READY
+- Status: CLOSED
 - Severity: HIGH
 - Found by: qa
 - Phase: 8
@@ -22,6 +22,7 @@ History:
 
 - qa: opened
 - backend-dev: raised image props limit to 2 000 000 characters
+- qa: retested on phase-8/fix-def-121, fix confirmed — props limit raised to 2 000 000 for image blocks
 
 ## DEF-120: Toggle chevron ignores Space and Enter — keyboard activation completely broken
 
