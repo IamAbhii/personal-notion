@@ -367,6 +367,73 @@ describe('per-op rejection of block ops', () => {
     });
   });
 
+  // DEF fix: a block.update carrying only props on an image block was incorrectly capped at the
+  // non-image limit (1000 chars) because blockRejection used the payload's type, which is absent
+  // on a props-only update, instead of the stored block type.
+  it('accepts a props-only update on an image block with props larger than 1000 characters', async () => {
+    const owner = await createAccount();
+    const page = await createPage(owner.db, owner.ctx, { title: 'Photo roll' });
+    const imageId = crypto.randomUUID();
+
+    await syncBody(owner, [
+      makeOp(owner.workspaceId, 'block.create', imageId, {
+        pageId: page.id,
+        type: 'image',
+        props: '{"src":"data:image/png;base64,abc"}',
+      }),
+    ]);
+
+    // A props-only update with a >1000-char string — no type field in the payload.
+    const largeImageProps = JSON.stringify({ src: 'data:image/png;base64,' + 'A'.repeat(1100) });
+    expect(largeImageProps.length).toBeGreaterThan(1000);
+    const body = await syncBody(owner, [
+      makeOp(owner.workspaceId, 'block.update', imageId, { props: largeImageProps }),
+    ]);
+    expect(body.results[0]).toMatchObject({ status: 'applied' });
+  });
+
+  it('still rejects a props-only update on a paragraph block with props larger than 1000 characters', async () => {
+    const owner = await createAccount();
+    const page = await createPage(owner.db, owner.ctx, { title: 'Notes' });
+    const paraId = crypto.randomUUID();
+
+    await syncBody(owner, [
+      makeOp(owner.workspaceId, 'block.create', paraId, {
+        pageId: page.id,
+        type: 'paragraph',
+        props: '{}',
+      }),
+    ]);
+
+    // A props-only update with a >1000-char JSON string — non-image blocks keep the 1000-char cap.
+    const largeProps = JSON.stringify({ data: 'x'.repeat(1001) });
+    expect(largeProps.length).toBeGreaterThan(1000);
+    const body = await syncBody(owner, [
+      makeOp(owner.workspaceId, 'block.update', paraId, { props: largeProps }),
+    ]);
+    expect(body.results[0]).toMatchObject({
+      status: 'rejected',
+      reason: 'props must be valid JSON of at most 1000 characters',
+    });
+  });
+
+  it('accepts a block.create with type image and large props (regression guard)', async () => {
+    const owner = await createAccount();
+    const page = await createPage(owner.db, owner.ctx, { title: 'Gallery' });
+    const imageId = crypto.randomUUID();
+
+    const largeImageProps = JSON.stringify({ src: 'data:image/png;base64,' + 'B'.repeat(1100) });
+    expect(largeImageProps.length).toBeGreaterThan(1000);
+    const body = await syncBody(owner, [
+      makeOp(owner.workspaceId, 'block.create', imageId, {
+        pageId: page.id,
+        type: 'image',
+        props: largeImageProps,
+      }),
+    ]);
+    expect(body.results[0]).toMatchObject({ status: 'applied' });
+  });
+
   it('accepts every one of the eleven types', async () => {
     const owner = await createAccount();
     const page = await createPage(owner.db, owner.ctx, { title: 'All types' });
@@ -384,6 +451,87 @@ describe('per-op rejection of block ops', () => {
     expect(body.results.every((result) => result.status === 'applied')).toBe(true);
     const stored = await listBlocks(owner.db, owner.ctx);
     expect(stored.map((block) => block.type).sort()).toEqual([...BLOCK_TYPES].sort());
+  });
+
+  // Regression guard for the in-batch blockState type bug: a block.create sets an incomplete
+  // BlockState entry (missing type), so a subsequent block.update in the same batch resolves
+  // storedBlockType as undefined and falls back to the non-image limit, wrongly rejecting
+  // large props for an image block.
+  it('accepts a block.create image followed by a large-props block.update in the same batch', async () => {
+    const owner = await createAccount();
+    const page = await createPage(owner.db, owner.ctx, { title: 'Photo album' });
+    const imageId = crypto.randomUUID();
+    const largeImageProps = JSON.stringify({ src: 'data:image/png;base64,' + 'A'.repeat(1100) });
+    expect(largeImageProps.length).toBeGreaterThan(1000);
+
+    // Both ops in a single batch: the create writes blockState, then the update reads it. If type
+    // is absent from the entry written by the create, the update wrongly applies the 1000-char cap.
+    const body = await syncBody(owner, [
+      makeOp(owner.workspaceId, 'block.create', imageId, {
+        pageId: page.id,
+        type: 'image',
+        props: '{"src":"data:image/png;base64,seed"}',
+      }),
+      makeOp(owner.workspaceId, 'block.update', imageId, { props: largeImageProps }),
+    ]);
+    expect(body.results[0]).toMatchObject({ status: 'applied' });
+    expect(body.results[1]).toMatchObject({ status: 'applied' });
+  });
+
+  // Regression guard: two successive block.update ops on an existing image block in one batch.
+  // The first update writes a new blockState entry (missing type before the fix); the second
+  // then sees storedBlockType as undefined and applies the wrong limit.
+  it('accepts two successive block.update ops on an image block with large props in one batch', async () => {
+    const owner = await createAccount();
+    const page = await createPage(owner.db, owner.ctx, { title: 'Slideshow' });
+    const imageId = crypto.randomUUID();
+
+    // Establish the block in a prior batch so blockState is loaded from D1 with the correct type.
+    await syncBody(owner, [
+      makeOp(owner.workspaceId, 'block.create', imageId, {
+        pageId: page.id,
+        type: 'image',
+        props: '{"src":"data:image/png;base64,v1"}',
+      }),
+    ]);
+
+    const largeProps1 = JSON.stringify({ src: 'data:image/png;base64,' + 'B'.repeat(1100) });
+    const largeProps2 = JSON.stringify({ src: 'data:image/png;base64,' + 'C'.repeat(1100) });
+    expect(largeProps1.length).toBeGreaterThan(1000);
+    expect(largeProps2.length).toBeGreaterThan(1000);
+
+    // Both updates in one batch: the first update rewrites blockState; if type is dropped, the
+    // second update fails the props limit check.
+    const body = await syncBody(owner, [
+      makeOp(owner.workspaceId, 'block.update', imageId, { props: largeProps1 }),
+      makeOp(owner.workspaceId, 'block.update', imageId, { props: largeProps2 }),
+    ]);
+    expect(body.results[0]).toMatchObject({ status: 'applied' });
+    expect(body.results[1]).toMatchObject({ status: 'applied' });
+  });
+
+  // Guard against over-widening: the same same-batch sequence for a paragraph block must still
+  // be rejected when props exceed the 1000-char limit.
+  it('rejects large props on a paragraph block even when create and update are in the same batch', async () => {
+    const owner = await createAccount();
+    const page = await createPage(owner.db, owner.ctx, { title: 'Notes' });
+    const paraId = crypto.randomUUID();
+    const largeProps = JSON.stringify({ data: 'x'.repeat(1001) });
+    expect(largeProps.length).toBeGreaterThan(1000);
+
+    const body = await syncBody(owner, [
+      makeOp(owner.workspaceId, 'block.create', paraId, {
+        pageId: page.id,
+        type: 'paragraph',
+        props: '{}',
+      }),
+      makeOp(owner.workspaceId, 'block.update', paraId, { props: largeProps }),
+    ]);
+    expect(body.results[0]).toMatchObject({ status: 'applied' });
+    expect(body.results[1]).toMatchObject({
+      status: 'rejected',
+      reason: 'props must be valid JSON of at most 1000 characters',
+    });
   });
 });
 

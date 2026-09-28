@@ -190,6 +190,15 @@ export function WorkspaceShell() {
   // user toggles, rather than snapping a one-time DOM read at mount.
   const appTheme = useThemeStore((s) => s.theme);
 
+  // POSTs to the sign-out route and redirects to / which, with no valid session, will hit the
+  // 401 path and show the sign-in screen. The redirect is a full page reload so all in-memory
+  // state is cleared; there is nothing to clean up in React.
+  const handleSignOut = () => {
+    void fetch('/api/auth/signout', { method: 'POST' }).then(() => {
+      window.location.href = '/';
+    });
+  };
+
   // When viewing a row page, the sidebar should highlight the parent database as current so the
   // user always knows which database they are in (ADV-054). Row pages are not in the sidebar tree,
   // so without this the current-page highlight disappears on the database page entirely.
@@ -300,6 +309,7 @@ export function WorkspaceShell() {
               sidebarRef={sidebarRef}
               onClose={handleCloseSidebar}
               onOpenSearch={openQuickFind}
+              onSignOut={handleSignOut}
             />
           </div>
         </div>

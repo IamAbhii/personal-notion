@@ -4,9 +4,12 @@ import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { requireAccess } from './auth/middleware';
 import { configErrors, type Env } from './env';
+import { createDb } from './db/client';
+import { authRoutes } from './routes/auth';
 import { meRoutes } from './routes/me';
 import { isTestResetEnabled, testResetRoutes } from './routes/testReset';
 import { workspaceRoutes } from './routes/workspaces';
+import { deleteExpiredSessions } from './repo/sessions';
 import type { AppEnv } from './types';
 
 // Builds the app for a given environment. This is a function rather than a module-level constant
@@ -31,14 +34,14 @@ function createApp(env: Env): Hono<AppEnv> {
   // because it is one of the deliberately unauthenticated surfaces.
   app.get('/api/health', (c) => c.json({ status: 'ok', time: Date.now() }));
 
+  // OAuth endpoints: registered before requireAccess because they are unauthenticated surfaces.
+  // GET /api/auth/google starts the flow, GET /api/auth/callback handles Google's redirect,
+  // POST /api/auth/signout ends the session.
+  app.route('/api/auth', authRoutes);
+
   // One middleware over every other /api route: 401 without a session, 403 when the role lacks the
   // capability the request needs.
   app.use('/api/*', requireAccess);
-
-  // Future: the Google OAuth redirect and callback handlers (GET /auth/google, GET /auth/google/callback
-  // and POST /auth/signout) are added in the deployment phase behind this same seam - they exchange the
-  // code, verify the ID token, call resolveAccess and create a session row. Nothing else moves: the
-  // middleware, resolveAccess and the capability table are already the enforcement path.
 
   // The end-to-end suite's workspace reset, and nothing else, is conditional: with the bypass off the
   // route is never registered, so the path 404s from the API catch-all below like any other typo.
@@ -93,5 +96,12 @@ function appFor(env: Env): Hono<AppEnv> {
 export default {
   fetch(request, env, ctx) {
     return appFor(env).fetch(request, env, ctx);
+  },
+  // Cron Trigger: sweeps expired sessions once a day (configured in wrangler.jsonc).
+  // Running this outside of request handling means the sessions table stays small without
+  // touching the hot path.
+  async scheduled(_event, env) {
+    const db = createDb(env.DB);
+    await deleteExpiredSessions(db);
   },
 } satisfies ExportedHandler<Env>;

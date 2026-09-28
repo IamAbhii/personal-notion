@@ -311,10 +311,13 @@ function entityFamily(type: Op['type']): 'page' | 'block' | 'property' | 'value'
 // Why an op's payload is unacceptable, or null when it is fine. Deliberately not expressed as zod
 // constraints on the schema: a schema failure fails the whole batch with 400, whereas one bad field
 // should cost the client only that op, through the same per-op `rejected` path as a missing parent.
-export function payloadRejection(op: Op): string | null {
+// storedBlockType is the type currently stored for the target block, supplied by the applier for
+// block.update ops so the props limit is chosen from the effective type when payload.type is absent.
+export function payloadRejection(op: Op, storedBlockType?: string): string | null {
   const family = entityFamily(op.type);
   if (op.entity !== family) return `entity must be "${family}" for ${op.type}`;
-  if (op.type === 'block.create' || op.type === 'block.update') return blockRejection(op);
+  if (op.type === 'block.create' || op.type === 'block.update')
+    return blockRejection(op, storedBlockType);
   if (op.type === 'property.create' || op.type === 'property.update') return propertyRejection(op);
   if (op.type === 'value.set') return valueRejection(op);
   if (op.type === 'view.create' || op.type === 'view.update') return viewRejection(op);
@@ -348,8 +351,9 @@ export function payloadRejection(op: Op): string | null {
 }
 
 // Why a block create or update payload is unacceptable, or null when it is fine. Same per-op policy
-// as the page checks above.
-function blockRejection(op: BlockWriteOp): string | null {
+// as the page checks above. storedType is the type already persisted for the block being updated;
+// it is supplied only for block.update so a props-only update can select the right size ceiling.
+function blockRejection(op: BlockWriteOp, storedType?: string): string | null {
   const payload = op.payload;
   // Moving a block to another page is not in scope for Phase 2, and silently ignoring the field would
   // leave the client believing the move happened.
@@ -364,7 +368,10 @@ function blockRejection(op: BlockWriteOp): string | null {
     return `text must be at most ${MAX_BLOCK_TEXT_LENGTH} characters`;
   }
   if (props !== undefined && props !== null) {
-    const propsLimit = type === 'image' ? MAX_IMAGE_PROPS_LENGTH : MAX_BLOCK_PROPS_LENGTH;
+    // For block.update the payload may omit type; use the stored type as the fallback so an image
+    // block can have its props updated without being mistakenly capped at the non-image limit.
+    const effectiveType = type ?? storedType;
+    const propsLimit = effectiveType === 'image' ? MAX_IMAGE_PROPS_LENGTH : MAX_BLOCK_PROPS_LENGTH;
     if (!isValidProps(props, propsLimit)) {
       return `props must be valid JSON of at most ${propsLimit} characters`;
     }
