@@ -7,7 +7,7 @@ import { ThemeToggle } from '../ThemeToggle/ThemeToggle';
 import { Button } from '../ui/Button/Button';
 import { IconButton } from '../ui/IconButton/IconButton';
 import { DropdownMenu, DropdownMenuItem } from '../ui/DropdownMenu/DropdownMenu';
-import { ChevronRight, Ellipsis, Pencil, Plus, Search, Table2, Trash2 } from 'lucide-react';
+import { ChevronRight, Ellipsis, LogOut, Pencil, Plus, Search, Table2, Trash2 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { useUiStoreShallow } from '../../stores/uiStore';
 import type { PageRecord, PropertyRecord } from '../../api/types';
@@ -52,6 +52,11 @@ export interface SidebarProps {
    * quick-find dialog. Optional: tests that do not exercise search need not supply it.
    */
   onOpenSearch?: () => void;
+  /**
+   * Called when the user clicks the sign-out button in the sidebar footer. The shell issues the
+   * sign-out request and redirects to the sign-in screen. Optional: tests need not supply it.
+   */
+  onSignOut?: () => void;
 }
 
 /**
@@ -78,6 +83,7 @@ export function Sidebar({
   sidebarRef,
   onClose,
   onOpenSearch,
+  onSignOut,
 }: SidebarProps) {
   // collapsedPageIds lives in the global UI store; renamingId and pendingDelete are local because
   // only this component owns the edit-in-progress and the pending confirmation states.
@@ -510,6 +516,16 @@ export function Sidebar({
         {/* Light/dark toggle: sits at the end of the footer row and is always reachable, including
             on mobile after the user opens the sidebar drawer. */}
         <ThemeToggle />
+        {/* Sign-out: only rendered when the shell provides the handler, which it does in
+            production. Tests that do not exercise auth omit the prop and the button is absent. */}
+        {onSignOut ? (
+          <IconButton
+            icon={<LogOut size={16} aria-hidden />}
+            aria-label="Sign out"
+            onClick={onSignOut}
+            className="text-panel-text-muted hover:bg-panel-hover hover:text-panel-text"
+          />
+        ) : null}
       </footer>
 
       {pendingDelete ? (

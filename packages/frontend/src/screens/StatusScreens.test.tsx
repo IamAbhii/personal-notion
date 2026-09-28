@@ -63,6 +63,15 @@ describe('AppError', () => {
     expect(screen.getByText('403: forbidden')).toBeInTheDocument();
   });
 
+  it('shows the sign-in screen for a 401 so the user can authenticate', () => {
+    render(<AppError error={new ApiError(401, 'Unauthorized')} />);
+
+    // The sign-in screen replaces the generic error card for 401.
+    expect(screen.getByRole('button', { name: 'Sign in with Google' })).toBeInTheDocument();
+    expect(screen.queryByText('The server refused the request')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
+  });
+
   it('falls back to the error text for anything else', () => {
     render(<AppError error={new Error('snapshot parse failed')} />);
 

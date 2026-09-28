@@ -1,5 +1,8 @@
 # Local development variables for `wrangler dev`. Copy to packages/worker/.dev.vars, which is
 # gitignored. Nothing here is a real secret: local development needs no Google credentials.
+#
+# NODE_ENV must be set to "development" here to override the "production" default in wrangler.jsonc.
+# Without it the Worker will refuse to serve (the auth bypass is forbidden in production).
 
 NODE_ENV=development
 
