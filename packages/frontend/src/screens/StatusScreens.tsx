@@ -1,7 +1,9 @@
 import type { ReactNode } from 'react';
 import { describeLoadFailure } from '../lib/errors';
+import { ApiError } from '../api/client';
 import { StatusCard } from '../components/ui/StatusCard/StatusCard';
 import { Button } from '../components/ui/Button/Button';
+import { SignInScreen } from './SignInScreen/SignInScreen';
 
 // Full-window states that sit outside a workspace: loading, failure, and a signed-in user with no
 // workspace to open.
@@ -27,8 +29,16 @@ export function AppLoading() {
 /**
  * Shown when the app cannot reach the API or the API refuses. It takes the error rather than a
  * message so a lost network reads as "you are offline" instead of the raw fetch text.
+ *
+ * A 401 is the special case: it means no valid session exists, so the user has not signed in
+ * (or their session expired). In that case, render the sign-in screen instead of a generic error.
  */
 export function AppError({ error }: { error: unknown }) {
+  // A 401 means unauthenticated — show the sign-in screen, not a generic error card.
+  if (error instanceof ApiError && error.status === 401) {
+    return <SignInScreen />;
+  }
+
   const { title, detail } = describeLoadFailure(error);
   return (
     <StatusScreenLayout>
