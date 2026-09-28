@@ -128,10 +128,14 @@ export function WorkspaceShell() {
   }, [isSidebarOpen]);
 
   // Escape closes the drawer and returns focus to the hamburger toggle.
+  // Guard: if a dialog is open (Radix portals [role="dialog"] to body), let Radix handle
+  // Escape for the dialog and leave the drawer open. The dialog's Escape handler fires
+  // in the same event loop task; [role="dialog"] is still in the DOM at this point.
   useEffect(() => {
     if (!isSidebarOpen) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        if (document.querySelector('[role="dialog"]')) return;
         closeSidebar();
         // Focus the toggle after close so keyboard users have a clear return point.
         toggleRef.current?.focus();

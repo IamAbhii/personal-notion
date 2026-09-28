@@ -603,3 +603,43 @@ describe('Sidebar database affordances (Phase 3)', () => {
     expect(screen.getByTestId('page-add-database-child')).toBeInTheDocument();
   });
 });
+
+describe('Sidebar delete confirm dialog (mobile drawer interaction)', () => {
+  it('overflow menu Delete can be confirmed: onDeletePage is called after confirming the dialog', async () => {
+    // Exercises the full mobile path — overflow menu → confirm dialog → confirm button — to
+    // verify the dialog is reachable and completable even when opened from inside the drawer.
+    const user = userEvent.setup();
+    const props = renderSidebar();
+
+    await user.click(screen.getByRole('button', { name: 'Actions for Reading list' }));
+    await user.click(screen.getByRole('menuitem', { name: /Delete/ }));
+
+    // Dialog must be present and show the right page title.
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('Delete "Reading list"?');
+
+    // Confirming the dialog must call onDeletePage.
+    await user.click(screen.getByRole('button', { name: 'Delete permanently' }));
+    expect(props.onDeletePage).toHaveBeenCalledWith(expect.objectContaining({ id: 'p-reading' }));
+  });
+
+  it('Escape with the confirm dialog open closes only the dialog, not the drawer', async () => {
+    // When a confirm dialog is open inside the drawer, Escape must dismiss the dialog and
+    // leave the sidebar fully rendered — matching the drawer-stays-open requirement on mobile.
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    renderSidebar({ onClose });
+
+    // Open the delete confirm dialog for a page.
+    await user.click(screen.getByRole('button', { name: 'Delete Reading list' }));
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+
+    // Press Escape — should close the dialog but NOT call onClose (the drawer stays open).
+    await user.keyboard('{Escape}');
+
+    // Dialog is gone.
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    // The drawer's close handler must not have been called.
+    expect(onClose).not.toHaveBeenCalled();
+  });
+});

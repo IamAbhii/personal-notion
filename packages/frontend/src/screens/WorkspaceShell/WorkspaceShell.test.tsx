@@ -169,4 +169,43 @@ describe('WorkspaceShell mobile drawer', () => {
     // Focus returns to the toggle via Sidebar's onKeyDown → onClose → WorkspaceShell callback.
     expect(document.activeElement).toBe(toggle);
   });
+
+  it('Escape with a dialog open closes only the dialog and leaves the drawer open', async () => {
+    // When the confirm dialog is open inside the mobile drawer, Escape must dismiss the dialog
+    // but leave the drawer open — the document-level Escape guard checks [role="dialog"].
+    const mockPage = {
+      id: 'p-shell-test',
+      title: 'Shell Test Page',
+      icon: '\u{1F4C4}',
+      kind: 'page' as const,
+      parentId: null,
+      sortKey: 'a0',
+      version: 1,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    };
+    mockUseSuspenseQuery.mockImplementation((queryOpts: { queryKey: string[] }) => {
+      if (queryOpts.queryKey[0] === 'me') return { data: mockMe };
+      return { data: { pages: [mockPage], blocks: [] } };
+    });
+
+    const user = userEvent.setup();
+    render(<WorkspaceShell />);
+
+    const toggle = screen.getByRole('button', { name: 'Open navigation' });
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+
+    // Open the confirm dialog by clicking delete on the page.
+    await user.click(screen.getByRole('button', { name: 'Delete Shell Test Page' }));
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+
+    // Press Escape — should close the dialog but NOT the drawer.
+    await user.keyboard('{Escape}');
+
+    // Dialog is dismissed.
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+
+    // Drawer must still be open — aria-expanded stays true.
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  });
 });
