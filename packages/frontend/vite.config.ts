@@ -34,6 +34,12 @@ export default defineConfig({
         // the durable op queue when Phase 6 lands offline editing.
         globPatterns: ['**/*.{js,css,html,svg,woff2}'],
         navigateFallback: '/index.html',
+        // Exclude /api/* from the navigation fallback so the service worker never intercepts
+        // server-side navigations. Without this, Workbox answers every document navigation —
+        // including /api/auth/google and /api/auth/callback — from the precache, and the
+        // Cloudflare Worker never sees the request. Both legs of the OAuth round trip are
+        // top-level document navigations to /api/*, so both must reach the network.
+        navigateFallbackDenylist: [/^\/api\//],
       },
     }),
   ],
