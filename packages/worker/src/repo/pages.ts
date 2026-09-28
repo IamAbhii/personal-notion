@@ -15,6 +15,9 @@ export type PageInput = {
   title?: string;
   icon?: string | null;
   sortKey?: string;
+  // kind defaults to 'page' when omitted. Row pages must have a database parent; pages and
+  // databases must not be parented to a database or row.
+  kind?: 'page' | 'database' | 'row';
 };
 
 export type PagePatch = {
@@ -24,20 +27,22 @@ export type PagePatch = {
   sortKey?: string;
 };
 
-// Every page in the workspace, in sort_key order. The client builds the tree from parent_id; one
-// flat read keeps the snapshot to a single query.
+// Every page in the workspace, in (sort_key, id) order. The client builds the tree from parent_id; one
+// flat read keeps the snapshot to a single query. The id tiebreak is there for the same reason as in
+// listBlocks: two concurrent creates under one parent can mint the same sort_key (DEF-016), and the
+// order of the result must not depend on which read happened to run.
 // Future: if a workspace ever outgrows one response, page this by parent_id and stream it.
 export function listPages(db: Db, ctx: Ctx): Promise<PageRow[]> {
   return db
     .select()
     .from(pages)
     .where(eq(pages.workspaceId, ctx.workspaceId))
-    .orderBy(pages.sortKey);
+    .orderBy(pages.sortKey, pages.id);
 }
 
 // The tree skeleton: just what the sync applier needs to decide every op in memory (existence,
-// version comparison, cascade over descendants, cycle detection) from one query instead of one
-// lookup per op.
+// version comparison, cascade over descendants, cycle detection, and kind/parent validation) from
+// one query instead of one lookup per op.
 export function listPageStates(db: Db, ctx: Ctx) {
   return db
     .select({
@@ -45,6 +50,7 @@ export function listPageStates(db: Db, ctx: Ctx) {
       version: pages.version,
       parentId: pages.parentId,
       sortKey: pages.sortKey,
+      kind: pages.kind,
     })
     .from(pages)
     .where(eq(pages.workspaceId, ctx.workspaceId));
@@ -60,7 +66,9 @@ export async function getPage(db: Db, ctx: Ctx, id: string): Promise<PageRow | u
   return rows[0];
 }
 
-// The sort_key of the last child of parentId, used to append a new page after its siblings.
+// The sort_key of the last child of parentId, used to append a new page after its siblings. "Last" is
+// the greatest (sort_key, id) pair, matching listPages and the applier, so the caller's append key is a
+// genuine upper bound even when two siblings share a key (DEF-016).
 export async function lastSiblingSortKey(
   db: Db,
   ctx: Ctx,
@@ -72,7 +80,7 @@ export async function lastSiblingSortKey(
     .select({ sortKey: pages.sortKey })
     .from(pages)
     .where(and(eq(pages.workspaceId, ctx.workspaceId), parentFilter))
-    .orderBy(desc(pages.sortKey))
+    .orderBy(desc(pages.sortKey), desc(pages.id))
     .limit(1);
   return rows[0]?.sortKey ?? null;
 }
@@ -87,6 +95,7 @@ export function buildPageRow(ctx: Ctx, input: PageInput, sortKey: string, now: n
     title: input.title ?? 'Untitled',
     icon: input.icon ?? null,
     sortKey,
+    kind: input.kind ?? 'page',
     version: 1,
     createdAt: now,
     updatedAt: now,

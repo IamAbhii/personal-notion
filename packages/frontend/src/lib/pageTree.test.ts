@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ancestorChain,
+  ancestorIds,
   buildPageTree,
   childrenOf,
   descendantIds,
@@ -27,6 +28,16 @@ describe('buildPageTree', () => {
     ];
 
     expect(buildPageTree(pages).map((node) => node.page.title)).toEqual(['A', 'B', 'C']);
+  });
+
+  it('breaks a duplicate sibling sortKey on the id, as the server does', () => {
+    const pages = [
+      makePage({ id: 'p-c', title: 'C', sortKey: 'a1' }),
+      makePage({ id: 'p-a', title: 'A', sortKey: 'a1' }),
+    ];
+
+    expect(buildPageTree(pages).map((node) => node.page.title)).toEqual(['A', 'C']);
+    expect(childrenOf(pages, null).map((page) => page.title)).toEqual(['A', 'C']);
   });
 
   it('treats a page whose parent is missing as a root', () => {
@@ -91,5 +102,18 @@ describe('ancestorChain', () => {
       'Trips',
       'Lisbon',
     ]);
+  });
+});
+
+describe('ancestorIds', () => {
+  it('returns the ancestor page ids (excluding the page itself)', () => {
+    // p-lisbon is under p-trips which is under p-journal.
+    const ids = ancestorIds(fixturePages, 'p-lisbon');
+    expect(ids).toEqual(['p-journal', 'p-trips']);
+    expect(ids).not.toContain('p-lisbon');
+  });
+
+  it('returns an empty array for a root-level page', () => {
+    expect(ancestorIds(fixturePages, 'p-journal')).toEqual([]);
   });
 });

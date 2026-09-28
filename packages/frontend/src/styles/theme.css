@@ -14,6 +14,12 @@
   --purple: #753991;
   --purple-soft: #cba6dd;
   --danger: #cf3b34;
+  /* Phase 3 option-color palette additions (teal and rose). Fixed values — these do not
+     theme-switch themselves; the -fg tokens below do, providing accessible foreground text. */
+  --teal: #0f9080;
+  --teal-soft: #5ecfbf;
+  --rose: #c2335e;
+  --rose-soft: #f08aab;
 
   --radius-sm: 8px;
   --radius-md: 12px;
@@ -47,6 +53,37 @@
      title they overlap rather than blend with it. */
   --row-hover-solid: #211f27;
   --row-current-solid: #2d2512;
+
+  /* Text on amber: amber (#ecad0a) is bright enough that it needs dark text in both themes;
+     this token decouples that intent from the raw hex so components never hardcode a color. */
+  --text-on-amber: #1a1920;
+  /* Soft danger: the hover tint on destructive row actions, lighter than --danger to avoid alarm. */
+  --danger-soft: #f08a84;
+  /* Toast warning surface: opaque dark-amber background for write-failure toast notifications. */
+  --toast-warning-surface: #3a2410;
+
+  /* Accessible foreground versions of brand accent colors for use on --surface (white in light
+     theme). The vibrant brand values fail WCAG AA 4.5:1 on white, so light theme needs darker
+     shades. Components that render on a surface background (cards, popups) use these tokens rather
+     than the raw brand palette values. */
+  --amber-fg: #7d5f00; /* ~6:1 on white, passes AA */
+  --blue-fg: #0d6b99; /* ~5.9:1 on white, passes AA */
+  --danger-fg: var(--danger); /* #cf3b34 = ~4.8:1 on white, passes AA */
+  /* Phase 3 option-color fg tokens: darker shades for accessible text on white (light theme). */
+  --purple-fg: #5a2a6e; /* ~7:1 on white, passes AA */
+  --teal-fg: #0a6b5f; /* ~6:1 on white, passes AA */
+  --rose-fg: #a02050; /* ~6:1 on white, passes AA */
+  /* Subtle hover tint for items rendered on a surface background (popup menus, cards). */
+  --surface-hover: rgba(0, 0, 0, 0.06);
+
+  /* Editor surfaces: a code block and a callout are tinted panels, so each theme needs its own
+     opaque values rather than one alpha over an unknown background. */
+  --code-surface: #f1efe9;
+  --code-border: #e0dbd2;
+  --code-text: #2a2733;
+  --callout-surface: #fdf4dd;
+  --callout-border: #ecd79a;
+  --marker: #8a8694;
 }
 
 [data-theme='dark'] {
@@ -64,4 +101,29 @@
   --panel-border: rgba(255, 255, 255, 0.07);
   --row-hover-solid: #17161d;
   --row-current-solid: #241d0f;
+
+  /* Dark theme keeps the same semantic intent; amber is still bright so dark text is correct. */
+  --text-on-amber: #1a1920;
+  --danger-soft: #f08a84;
+  --toast-warning-surface: #3a2410;
+
+  /* On a dark surface the existing vivid brand palette values pass contrast checks without
+     adjustment. The fg tokens map to them so components using --amber-fg / --blue-fg / --danger-fg
+     automatically get the right shade for each theme. */
+  --amber-fg: var(--amber); /* #ecad0a, 8.87:1 on dark surface */
+  --blue-fg: var(--blue); /* #209dd7, 5.77:1 on dark surface */
+  --danger-fg: var(--danger-soft); /* #f08a84, 7.56:1 on dark surface */
+  /* Phase 3 option-color fg tokens: soft versions pass contrast on dark surface. */
+  --purple-fg: var(--purple-soft); /* #cba6dd passes on dark surface */
+  --teal-fg: var(--teal-soft); /* #5ecfbf passes on dark surface */
+  --rose-fg: var(--rose-soft); /* #f08aab passes on dark surface */
+  /* Hover tint for items on a dark surface background. */
+  --surface-hover: rgba(255, 255, 255, 0.08);
+
+  --code-surface: #121118;
+  --code-border: #2c2b37;
+  --code-text: #d9d7e2;
+  --callout-surface: #241c0b;
+  --callout-border: #4b3a10;
+  --marker: #8d8a99;
 }

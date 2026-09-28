@@ -1,4 +1,9 @@
 import { test, expect } from '@playwright/test';
+import { resetWorkspace } from '../fixtures/reset-workspace';
+
+test.beforeEach(async ({ page }) => {
+  await resetWorkspace(page);
+});
 
 test('create a page from sidebar and verify it appears with correct URL', async ({ page }) => {
   // Navigate to the app
@@ -40,7 +45,7 @@ test('create a page from sidebar and verify it appears with correct URL', async 
   await expect(newPageRenameButton).toBeVisible();
 
   // Also verify the page title is visible in the page header
-  const pageHeader = page.locator('h1.page__title');
+  const pageHeader = page.locator('[data-testid="page-title"]');
   await expect(pageHeader).toContainText('Untitled');
 
   // Assert console is clean

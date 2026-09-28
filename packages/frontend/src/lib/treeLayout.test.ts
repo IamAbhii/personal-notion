@@ -19,14 +19,23 @@ function chainOfDepth(depth: number) {
 describe('rowIndent', () => {
   it('indents each of the first levels further than the last', () => {
     expect(rowIndent(1)).toBeGreaterThan(rowIndent(0));
-    expect(rowIndent(3)).toBeGreaterThan(rowIndent(2));
+    expect(rowIndent(2)).toBeGreaterThan(rowIndent(1));
   });
 
   it('caps the indent so a deeply nested row keeps room for its icon and title', () => {
     expect(rowIndent(20)).toBe(rowIndent(MAX_INDENT_DEPTH));
     expect(rowIndent(26)).toBe(rowIndent(MAX_INDENT_DEPTH));
-    // The tree is 271px wide; the disclosure, icon and a readable title need well over 100px of it.
-    expect(rowIndent(26)).toBeLessThan(140);
+  });
+
+  it('leaves at least 60px for the title at the narrowest supported viewport (320px)', () => {
+    // At 320px the drawer is max-w-[85vw] = 272px. Sidebar has px-3.5 (28px total) padding, so
+    // inner width is 244px. Fixed row elements consume 134px (expand 48 + icon 20 + mobile
+    // action 48 + three gaps 12 + paddingRight 6). Title space = 244 - maxIndent - 134.
+    const maxIndent = rowIndent(MAX_INDENT_DEPTH);
+    const drawerInnerWidth = 244; // 272px - 28px sidebar padding
+    const fixedRowElements = 134; // expand + icon + action + gaps + paddingRight
+    const titleSpace = drawerInnerWidth - maxIndent - fixedRowElements;
+    expect(titleSpace).toBeGreaterThanOrEqual(60);
   });
 });
 
