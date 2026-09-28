@@ -196,6 +196,113 @@ test.describe('DEF-110: deleting a toggle header promotes children', () => {
 
     await page.screenshot({ path: 'screenshots/phase-7-def-110-after-reload.png' });
   });
+
+  test('DEF-110: promoted child is editable — typed text persists across a reload', async ({
+    page,
+  }) => {
+    // The fix claims promoted children become ordinary paragraphs. An ordinary paragraph must
+    // accept typed text and persist it. This subtest proves the claim; a visible-but-read-only
+    // block would pass the snapshot assertion above but fail here.
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+
+    await createToggleWithChildren(page, 'Editable header', ['editable child']);
+
+    // Delete the toggle header to trigger promotion.
+    const headerTextarea = page.locator('[data-testid="block-toggle-header"] textarea').first();
+    await headerTextarea.click();
+    await headerTextarea.click({ clickCount: 3 });
+    await page.waitForTimeout(100);
+    await page.keyboard.press('Backspace');
+    await page.waitForTimeout(200);
+    await page.keyboard.press('Backspace');
+    await page.waitForTimeout(1500);
+
+    // Find the promoted child by its text and type into it.
+    const blockEditor = page.locator('[data-testid="block-editor"]');
+    const promotedTextarea = blockEditor.locator('textarea').filter({ hasText: 'editable child' });
+    const count = await promotedTextarea.count();
+    if (count === 0) {
+      // Child was deleted rather than promoted — that is a valid fix strategy; skip.
+      test.skip(true, 'Child was deleted on header delete — promotion-edit path not exercised');
+    }
+
+    await promotedTextarea.click();
+    await page.keyboard.press('End');
+    await page.keyboard.type(' EDITED');
+    await page.waitForTimeout(1500); // wait for autosave debounce
+
+    await page.reload();
+    await page.waitForLoadState('networkidle');
+
+    // After reload the edited text must be present.
+    const editedTextarea = blockEditor
+      .locator('textarea')
+      .filter({ hasText: 'editable child EDITED' });
+    await expect(
+      editedTextarea,
+      'Edited text in promoted child not found after reload — child is not writable or text was not saved',
+    ).toHaveCount(1, { timeout: 5000 });
+  });
+
+  test('DEF-110: promoted child can be deleted via the block handle', async ({ page }) => {
+    // An ordinary paragraph must be deletable through the block actions menu.
+    // A promoted child that cannot be deleted is not truly an ordinary paragraph.
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+
+    await createToggleWithChildren(page, 'Deletable header', ['deletable child']);
+
+    // Delete the toggle header to promote the child.
+    const headerTextarea = page.locator('[data-testid="block-toggle-header"] textarea').first();
+    await headerTextarea.click();
+    await headerTextarea.click({ clickCount: 3 });
+    await page.waitForTimeout(100);
+    await page.keyboard.press('Backspace');
+    await page.waitForTimeout(200);
+    await page.keyboard.press('Backspace');
+    await page.waitForTimeout(1500);
+
+    const blockEditor = page.locator('[data-testid="block-editor"]');
+    const promotedRow = blockEditor
+      .locator('[data-block-type]')
+      .filter({ hasText: 'deletable child' });
+    const promotedCount = await promotedRow.count();
+    if (promotedCount === 0) {
+      test.skip(true, 'Child was deleted on header delete — promotion-delete path not exercised');
+    }
+
+    // Hover to reveal the drag handle, then click it to open the actions menu.
+    await promotedRow.hover();
+    await page.waitForTimeout(200);
+    const handle = promotedRow.locator('[data-testid="block-drag-handle"]').first();
+    await expect(handle).toBeVisible({ timeout: 5000 });
+    await handle.click();
+    await page.waitForTimeout(300);
+
+    const deleteMenuItem = page.locator('[data-testid="block-delete"]');
+    await expect(deleteMenuItem).toBeVisible({ timeout: 3000 });
+    await deleteMenuItem.click();
+    await page.waitForTimeout(1000);
+
+    // The child must no longer appear in the editor.
+    const deletedRow = blockEditor.locator('textarea').filter({ hasText: 'deletable child' });
+    await expect(
+      deletedRow,
+      'Promoted child still visible after clicking Delete block — deletion is broken',
+    ).toHaveCount(0, { timeout: 3000 });
+
+    // Reload and confirm it is gone from the snapshot too.
+    await page.reload();
+    await page.waitForLoadState('networkidle');
+
+    const blocksAfterReload = await fetchSnapshot(page);
+    const deletedBlock = blocksAfterReload.find((b) => (b['text'] as string) === 'deletable child');
+    expect(
+      deletedBlock,
+      'Promoted child still in snapshot after deletion and reload — delete was not persisted',
+    ).toBeUndefined();
+  });
 });
 
 // ── DEF-111 ───────────────────────────────────────────────────────────────────
@@ -447,6 +554,35 @@ test.describe('DEF-113: block actions menu must not open after drag end', () => 
       ).toBe(false);
     }
     // If drag didn't activate, test is inconclusive for pointer drag.
+  });
+
+  test('DEF-113: block actions menu still opens on a genuine click (regression guard)', async ({
+    page,
+  }) => {
+    // A fix that suppresses the menu entirely would pass the drag subtests above but break normal
+    // use. This subtest confirms the menu opens when the user genuinely clicks the handle.
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+
+    const blockEditor = page.locator('[data-testid="block-editor"]');
+    const firstBlock = blockEditor.locator('[data-block-type]').first();
+    await firstBlock.hover();
+    await page.waitForTimeout(200);
+
+    const dragHandle = firstBlock.locator('[data-testid="block-drag-handle"]').first();
+    await expect(dragHandle).toBeVisible({ timeout: 5000 });
+
+    // Click (not drag) the handle — this should open the actions dropdown.
+    await dragHandle.click();
+    await page.waitForTimeout(300);
+
+    const deleteMenuItem = page.locator('[data-testid="block-delete"]');
+    await expect(
+      deleteMenuItem,
+      'block-delete menu item not visible after clicking the drag handle — menu is broken',
+    ).toBeVisible({ timeout: 3000 });
+
+    await page.screenshot({ path: 'screenshots/phase-7-def-113-menu-on-click.png' });
   });
 });
 

@@ -208,6 +208,8 @@ export interface BlockProps {
    * recurse rather than treating only paragraphs as children.
    */
   parentToggleId?: string;
+  /** Set on image blocks: the base64 data URL of the pasted image. */
+  src?: string;
 }
 
 /** Parses the `props` JSON string. Malformed props read as empty rather than breaking the page. */
@@ -221,7 +223,7 @@ export function parseBlockProps(props: string | null): BlockProps {
   }
 }
 
-/** Whether a type has editable text at all - only the divider does not. */
+/** Whether a type has editable text at all — the divider and image types do not. */
 export function isTextualBlock(type: BlockType): boolean {
-  return type !== 'divider';
+  return type !== 'divider' && type !== 'image';
 }

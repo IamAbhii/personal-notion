@@ -20,6 +20,10 @@ export const MAX_BLOCK_TEXT_LENGTH = 10000;
 // props carries only type-specific extras (a code language, a callout emoji), so it is small by
 // construction; the limit stops it being used as a side channel for arbitrary state.
 export const MAX_BLOCK_PROPS_LENGTH = 1000;
+// Image blocks store a base64 data URL in props. Mac screenshots at default quality produce
+// 200–600 KB of base64; 2 MB is a generous ceiling that covers oversized captures while still
+// bounding the row size well under D1's 2 MB limit (props is one field among several).
+export const MAX_IMAGE_PROPS_LENGTH = 2_000_000;
 
 // Per-database property limits. 100 characters is longer than any sensible name; 50 properties is
 // more than any practical table; 50 options is more than any readable select menu.
@@ -35,7 +39,7 @@ export const MAX_VALUE_LENGTH = 2000;
 // View name limit: 200 characters is longer than any sensible view name and well under D1's ceiling.
 export const MAX_VIEW_NAME_LENGTH = 200;
 
-// The twelve block types the editor offers, and the only values the type column may hold. Membership
+// The thirteen block types the editor offers, and the only values the type column may hold. Membership
 // is checked in payloadRejection rather than by a zod enum, so an unknown type costs the client that
 // op instead of failing the whole batch.
 export const BLOCK_TYPES = [
@@ -51,6 +55,7 @@ export const BLOCK_TYPES = [
   'code',
   'callout',
   'toggleList',
+  'image',
 ] as const;
 
 export type BlockType = (typeof BLOCK_TYPES)[number];
@@ -358,8 +363,11 @@ function blockRejection(op: BlockWriteOp): string | null {
   if (text !== undefined && text.length > MAX_BLOCK_TEXT_LENGTH) {
     return `text must be at most ${MAX_BLOCK_TEXT_LENGTH} characters`;
   }
-  if (props !== undefined && props !== null && !isValidProps(props)) {
-    return `props must be valid JSON of at most ${MAX_BLOCK_PROPS_LENGTH} characters`;
+  if (props !== undefined && props !== null) {
+    const propsLimit = type === 'image' ? MAX_IMAGE_PROPS_LENGTH : MAX_BLOCK_PROPS_LENGTH;
+    if (!isValidProps(props, propsLimit)) {
+      return `props must be valid JSON of at most ${propsLimit} characters`;
+    }
   }
   if (sortKey !== undefined && !isValidSortKey(sortKey)) {
     return 'sortKey is not a valid fractional index';
@@ -489,9 +497,11 @@ function viewRejection(op: ViewWriteOp): string | null {
 }
 
 // props is stored as an opaque string and read back by the client as JSON, so a value that does not
-// parse would break every later read of that block. It is checked once, here.
-function isValidProps(props: string): boolean {
-  if (props.length > MAX_BLOCK_PROPS_LENGTH) return false;
+// parse would break every later read of that block. It is checked once, here. The caller supplies
+// the limit so that image blocks can use MAX_IMAGE_PROPS_LENGTH while all others use
+// MAX_BLOCK_PROPS_LENGTH.
+function isValidProps(props: string, limit: number): boolean {
+  if (props.length > limit) return false;
   try {
     JSON.parse(props);
     return true;

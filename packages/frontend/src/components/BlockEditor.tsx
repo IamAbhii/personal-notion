@@ -106,6 +106,20 @@ export function BlockEditor({
   }, [blocks, focusRequest]);
 
   /**
+   * Inserts a new image block after blocks[index] with its src stored in props.
+   * Image blocks have no textarea, so no focus request is issued.
+   */
+  const handlePasteImage = (index: number, dataUrl: string) => {
+    const block = blocks[index];
+    if (!block) return;
+    onCreateBlock({
+      type: 'image',
+      afterBlockId: block.id,
+      props: JSON.stringify({ src: dataUrl }),
+    });
+  };
+
+  /**
    * Inserts a new block of the given type after afterBlockId and moves the caret to it.
    * props carries type-specific extras such as parentToggleId for toggle children.
    */
@@ -355,6 +369,7 @@ export function BlockEditor({
                       onDeleteBlock(block);
                     }}
                     onNotice={onNotice}
+                    onPasteImage={(dataUrl) => handlePasteImage(index, dataUrl)}
                     isToggleOpen={isToggle ? isOpen : undefined}
                     onToggleOpenChange={isToggle ? setOpen : undefined}
                     onEnterToggleHeader={
@@ -407,6 +422,7 @@ export function BlockEditor({
                             onDeleteEmpty={() => deleteEmptyBlock(childIndex)}
                             onDelete={() => onDeleteBlock(child)}
                             onNotice={onNotice}
+                            onPasteImage={(dataUrl) => handlePasteImage(childIndex, dataUrl)}
                             onEnterToggleChild={(isEmpty) => {
                               if (isEmpty && child.id === lastChild?.id) {
                                 // Exit the toggle: delete the empty last child and create a plain

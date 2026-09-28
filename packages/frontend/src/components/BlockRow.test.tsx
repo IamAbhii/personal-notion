@@ -60,6 +60,7 @@ const defaultProps = {
   onDelete: vi.fn(),
   registerEditor: vi.fn(),
   onNotice: vi.fn(),
+  onPasteImage: vi.fn(),
   dragJustEndedRef,
 };
 
@@ -270,5 +271,98 @@ describe('drag handle menu swallow-after-drag (DEF-113)', () => {
     await user.click(document.querySelector('[data-testid="block-drag-handle"]') as HTMLElement);
 
     expect(document.querySelector('[data-testid="block-delete"]')).not.toBeNull();
+  });
+});
+
+describe('Backspace on empty non-paragraph block resets to paragraph', () => {
+  it('calls onConvertType("paragraph") instead of onDeleteEmpty for an empty heading1 block', () => {
+    vi.mocked(useSortable).mockReturnValue(makeSortableReturn(false));
+    const onConvertType = vi.fn();
+    const onDeleteEmpty = vi.fn();
+    const h1Block = makeBlock({ id: 'b-h1-bs', pageId: 'p-1', type: 'heading1', text: '' });
+    render(
+      <BlockRow
+        {...defaultProps}
+        block={h1Block}
+        onConvertType={onConvertType}
+        onDeleteEmpty={onDeleteEmpty}
+      />,
+    );
+    const textarea = document.querySelector('textarea') as HTMLTextAreaElement;
+    fireEvent.keyDown(textarea, { key: 'Backspace' });
+    expect(onConvertType).toHaveBeenCalledWith('paragraph');
+    expect(onDeleteEmpty).not.toHaveBeenCalled();
+  });
+
+  it('calls onDeleteEmpty for an empty paragraph block', () => {
+    vi.mocked(useSortable).mockReturnValue(makeSortableReturn(false));
+    const onConvertType = vi.fn();
+    const onDeleteEmpty = vi.fn();
+    const paraBlock = makeBlock({ id: 'b-para-bs', pageId: 'p-1', type: 'paragraph', text: '' });
+    render(
+      <BlockRow
+        {...defaultProps}
+        block={paraBlock}
+        onConvertType={onConvertType}
+        onDeleteEmpty={onDeleteEmpty}
+      />,
+    );
+    const textarea = document.querySelector('textarea') as HTMLTextAreaElement;
+    fireEvent.keyDown(textarea, { key: 'Backspace' });
+    expect(onDeleteEmpty).toHaveBeenCalled();
+    expect(onConvertType).not.toHaveBeenCalled();
+  });
+
+  it('does not call either for a non-empty heading1 block', () => {
+    vi.mocked(useSortable).mockReturnValue(makeSortableReturn(false));
+    const onConvertType = vi.fn();
+    const onDeleteEmpty = vi.fn();
+    const h1Block = makeBlock({
+      id: 'b-h1-nonempty',
+      pageId: 'p-1',
+      type: 'heading1',
+      text: 'Hi',
+    });
+    render(
+      <BlockRow
+        {...defaultProps}
+        block={h1Block}
+        onConvertType={onConvertType}
+        onDeleteEmpty={onDeleteEmpty}
+      />,
+    );
+    const textarea = document.querySelector('textarea') as HTMLTextAreaElement;
+    fireEvent.keyDown(textarea, { key: 'Backspace' });
+    expect(onConvertType).not.toHaveBeenCalled();
+    expect(onDeleteEmpty).not.toHaveBeenCalled();
+  });
+});
+
+describe('Image block rendering', () => {
+  it('renders an img element with the src from block props', () => {
+    vi.mocked(useSortable).mockReturnValue(makeSortableReturn(false));
+    const src = 'data:image/png;base64,abc123';
+    const imageBlock = makeBlock({
+      id: 'b-img',
+      pageId: 'p-1',
+      type: 'image',
+      props: JSON.stringify({ src }),
+    });
+    render(<BlockRow {...defaultProps} block={imageBlock} />);
+    const img = document.querySelector('[data-testid="block-image"]') as HTMLImageElement;
+    expect(img).not.toBeNull();
+    expect(img.src).toBe(src);
+  });
+
+  it('renders no textarea for an image block', () => {
+    vi.mocked(useSortable).mockReturnValue(makeSortableReturn(false));
+    const imageBlock = makeBlock({
+      id: 'b-img-notextarea',
+      pageId: 'p-1',
+      type: 'image',
+      props: JSON.stringify({ src: 'data:image/png;base64,x' }),
+    });
+    render(<BlockRow {...defaultProps} block={imageBlock} />);
+    expect(document.querySelector('textarea')).toBeNull();
   });
 });

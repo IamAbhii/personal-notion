@@ -39,14 +39,14 @@ describe('seedWorkspace', () => {
     expect(Math.max(...pages.map((page) => depthOf(page.id)))).toBeGreaterThanOrEqual(3);
   });
 
-  it('seeds page content covering every one of the eleven block types', async () => {
+  it('seeds page content covering every one of the thirteen block types', async () => {
     const owner = await createAccount();
     await seedWorkspace(owner.db, owner.ctx);
     const pages = await listPages(owner.db, owner.ctx);
     const blocks = await listBlocks(owner.db, owner.ctx);
 
     expect(new Set(blocks.map((block) => block.type))).toEqual(new Set(BLOCK_TYPES));
-    // Real-looking content on several pages, not one demo page holding all eleven types.
+    // Real-looking content on several pages, not one demo page holding all thirteen types.
     const pagesWithBlocks = new Set(blocks.map((block) => block.pageId));
     expect(pagesWithBlocks.size).toBeGreaterThanOrEqual(3);
     // Every block belongs to a seeded page of this workspace.
