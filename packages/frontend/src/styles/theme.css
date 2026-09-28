@@ -14,6 +14,12 @@
   --purple: #753991;
   --purple-soft: #cba6dd;
   --danger: #cf3b34;
+  /* Phase 3 option-color palette additions (teal and rose). Fixed values — these do not
+     theme-switch themselves; the -fg tokens below do, providing accessible foreground text. */
+  --teal: #0f9080;
+  --teal-soft: #5ecfbf;
+  --rose: #c2335e;
+  --rose-soft: #f08aab;
 
   --radius-sm: 8px;
   --radius-md: 12px;
@@ -63,6 +69,10 @@
   --amber-fg: #7d5f00; /* ~6:1 on white, passes AA */
   --blue-fg: #0d6b99; /* ~5.9:1 on white, passes AA */
   --danger-fg: var(--danger); /* #cf3b34 = ~4.8:1 on white, passes AA */
+  /* Phase 3 option-color fg tokens: darker shades for accessible text on white (light theme). */
+  --purple-fg: #5a2a6e; /* ~7:1 on white, passes AA */
+  --teal-fg: #0a6b5f; /* ~6:1 on white, passes AA */
+  --rose-fg: #a02050; /* ~6:1 on white, passes AA */
   /* Subtle hover tint for items rendered on a surface background (popup menus, cards). */
   --surface-hover: rgba(0, 0, 0, 0.06);
 
@@ -103,6 +113,10 @@
   --amber-fg: var(--amber); /* #ecad0a, 8.87:1 on dark surface */
   --blue-fg: var(--blue); /* #209dd7, 5.77:1 on dark surface */
   --danger-fg: var(--danger-soft); /* #f08a84, 7.56:1 on dark surface */
+  /* Phase 3 option-color fg tokens: soft versions pass contrast on dark surface. */
+  --purple-fg: var(--purple-soft); /* #cba6dd passes on dark surface */
+  --teal-fg: var(--teal-soft); /* #5ecfbf passes on dark surface */
+  --rose-fg: var(--rose-soft); /* #f08aab passes on dark surface */
   /* Hover tint for items on a dark surface background. */
   --surface-hover: rgba(255, 255, 255, 0.08);
 

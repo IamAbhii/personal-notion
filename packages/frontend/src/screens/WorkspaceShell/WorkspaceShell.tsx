@@ -1,20 +1,24 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Outlet, useNavigate, useParams } from '@tanstack/react-router';
 import { useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
-import { Menu } from 'lucide-react';
+import { Menu, Search } from 'lucide-react';
 import { meQueryOptions, queryKeys, snapshotQueryOptions } from '../../api/queries';
 import { flushStashedOps } from '../../sync/ops';
 import { usePageMutations } from '../../hooks/usePageMutations';
 import { useBlockMutations } from '../../hooks/useBlockMutations';
+import { usePropertyMutations } from '../../hooks/usePropertyMutations';
+import { useViewMutations } from '../../hooks/useViewMutations';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { notify } from '../../lib/notify';
+import { QuickFind } from '../../components/QuickFind/QuickFind';
 import { Sidebar } from '../../components/Sidebar/Sidebar';
 import { SkipLink } from '../../components/SkipLink';
 import { IconButton } from '../../components/ui/IconButton/IconButton';
 import { WorkspaceContext } from '../../workspace/context';
 import { descendantIds } from '../../lib/pageTree';
 import { useUiStoreShallow } from '../../stores/uiStore';
+import { useThemeStore } from '../../stores/themeStore';
 import { cn } from '../../lib/cn';
 import type { PageRecord } from '../../api/types';
 
@@ -36,10 +40,17 @@ export function WorkspaceShell() {
   // Blocks arrive in the same snapshot; `?? []` keeps the shell rendering against a server that
   // predates the blocks key rather than crashing on it.
   const blocks = snapshot.blocks ?? [];
+  // Phase 3: properties and values. `?? []` keeps the shell rendering against a pre-Phase-3 server.
+  const properties = snapshot.properties ?? [];
+  const values = snapshot.values ?? [];
+  // Phase 4: views. `?? []` keeps the shell rendering against a pre-Phase-4 server.
+  const views = snapshot.views ?? [];
 
   const membership = me.memberships.find((entry) => entry.workspaceId === workspaceId);
   const mutations = usePageMutations(me.user.id, workspaceId, pages, notify);
   const blockMutations = useBlockMutations(me.user.id, workspaceId, blocks, notify);
+  const propertyMutations = usePropertyMutations(me.user.id, workspaceId, properties, notify);
+  const viewMutations = useViewMutations(me.user.id, workspaceId, views, notify);
 
   // An edit flushed as the last page was closing may not have reached the server - a service worker
   // controls the page, and Chromium drops a request routed through it once its client is gone. It
@@ -78,6 +89,37 @@ export function WorkspaceShell() {
   const toggleRef = useRef<HTMLButtonElement>(null);
   const sidebarRef = useRef<HTMLElement>(null);
 
+  // Quick-find dialog state. lastFocusRef holds the element that was active when the dialog
+  // opened so we can restore focus when it closes, per the ARIA modal pattern.
+  const [isQuickFindOpen, setIsQuickFindOpen] = useState(false);
+  const lastFocusRef = useRef<Element | null>(null);
+
+  // Opens the dialog and remembers which element had focus so we can restore it on close.
+  const openQuickFind = useCallback(() => {
+    lastFocusRef.current = document.activeElement;
+    setIsQuickFindOpen(true);
+  }, []);
+
+  // Closes the dialog and returns focus to the element that triggered it.
+  const closeQuickFind = useCallback(() => {
+    setIsQuickFindOpen(false);
+    if (lastFocusRef.current instanceof HTMLElement) {
+      lastFocusRef.current.focus();
+    }
+  }, []);
+
+  // Cmd+K / Ctrl+K anywhere in the shell opens the quick-find dialog.
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'k' && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        openQuickFind();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [openQuickFind]);
+
   // Focus the sidebar when the drawer opens so keyboard and screen-reader users land inside it.
   useEffect(() => {
     if (isSidebarOpen) {
@@ -109,11 +151,28 @@ export function WorkspaceShell() {
   const selectPage = (pageId: string) =>
     void navigate({ to: '/w/$workspaceId/page/$pageId', params: { workspaceId, pageId } });
 
-  const createPage = async (parentId: string | null) => {
-    const pageId = await mutations.createPage(parentId);
+  const createPage = async (parentId: string | null, kind?: 'page' | 'database') => {
+    const pageId = await mutations.createPage(parentId, kind);
     // Null means the write failed and the user has been told; there is no page to open.
+    if (!pageId) return;
+    if (kind === 'database') {
+      // A new database always gets three default views (table, board, list) immediately after
+      // the page.create completes, so the view switcher is available on first render. Seeded
+      // databases have their views created server-side; this path is UI-creation only.
+      await viewMutations.createDefaultViews(pageId);
+    }
+    selectPage(pageId);
+  };
+
+  // Creates a row page inside a database, then opens it.
+  const createRow = async (databasePageId: string) => {
+    const pageId = await mutations.createPage(databasePageId, 'row');
     if (pageId) selectPage(pageId);
   };
+
+  // Creates a row page without navigating, returning its id so the table can rename it in place
+  // (ADV-044). Returns null when the write fails (the user has already been told).
+  const createRowInPlace = (databasePageId: string) => mutations.createPage(databasePageId, 'row');
 
   const deletePage = async (page: PageRecord) => {
     // If the open page is the one being deleted, or is nested inside it, the route would point at
@@ -125,9 +184,18 @@ export function WorkspaceShell() {
     await mutations.deletePage(page);
   };
 
-  // Read the active theme once; tokens handle light/dark switching, so the Toaster's theme prop
-  // is mainly for accessibility metadata rather than visual styling.
-  const appTheme = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+  // Sidebar needs a flat delete that also works for databases and rows.
+
+  // Read the active theme from the store so the Toaster's theme prop updates reactively when the
+  // user toggles, rather than snapping a one-time DOM read at mount.
+  const appTheme = useThemeStore((s) => s.theme);
+
+  // When viewing a row page, the sidebar should highlight the parent database as current so the
+  // user always knows which database they are in (ADV-054). Row pages are not in the sidebar tree,
+  // so without this the current-page highlight disappears on the database page entirely.
+  const currentPage = pages.find((p) => p.id === pageParams.pageId);
+  const sidebarCurrentPageId =
+    currentPage?.kind === 'row' ? (currentPage.parentId ?? null) : (pageParams.pageId ?? null);
 
   return (
     <WorkspaceContext.Provider
@@ -136,11 +204,19 @@ export function WorkspaceShell() {
         workspaceId,
         pages,
         blocks,
+        properties,
+        values,
+        views,
         mutations,
         blockMutations,
+        propertyMutations,
+        viewMutations,
         selectPage,
         notify,
         createAndOpenPage: (parentId) => void createPage(parentId),
+        createAndOpenDatabase: (parentId) => void createPage(parentId, 'database'),
+        createAndOpenRow: (databasePageId) => void createRow(databasePageId),
+        createRowInPlace,
       }}
     >
       {/*
@@ -168,6 +244,14 @@ export function WorkspaceShell() {
           <span className="min-w-0 flex-1 overflow-hidden text-sm font-bold text-ellipsis whitespace-nowrap text-panel-text">
             {membership?.name ?? 'Workspace'}
           </span>
+          {/* Search icon in the topbar: always visible on mobile so the user can reach quick-find
+              without opening the sidebar drawer first. */}
+          <IconButton
+            icon={<Search size={20} aria-hidden />}
+            aria-label="Search"
+            onClick={openQuickFind}
+            className="text-panel-text hover:bg-panel-hover hover:text-panel-text"
+          />
         </div>
 
         {/* Sidebar wrapper. On mobile it is a fixed overlay (off-canvas drawer); at md+ it
@@ -192,7 +276,10 @@ export function WorkspaceShell() {
               being set at md+ where the sidebar is a permanently visible grid column. */}
           <div
             className={cn(
-              'pointer-events-auto absolute top-0 bottom-0 left-0 flex w-[292px] max-w-[85vw] transition-transform duration-200 motion-reduce:transition-none md:static md:w-auto md:max-w-none md:translate-x-0 md:transition-none',
+              // Mobile: absolute top-0/bottom-0 gives it the height of the fixed inset-0 wrapper.
+              // md+: static, so it no longer has absolute sizing — h-full is needed so the flex
+              // column propagates to the aside, which pins the footer inside the sidebar.
+              'pointer-events-auto absolute top-0 bottom-0 left-0 flex w-[292px] max-w-[85vw] transition-transform duration-200 motion-reduce:transition-none md:static md:h-full md:w-auto md:max-w-none md:translate-x-0 md:transition-none',
               isSidebarOpen ? 'translate-x-0' : '-translate-x-full',
             )}
             inert={(isMobile && !isSidebarOpen) || undefined}
@@ -203,13 +290,16 @@ export function WorkspaceShell() {
               userName={me.user.name}
               userEmail={me.user.email}
               pages={pages}
-              currentPageId={pageParams.pageId ?? null}
+              properties={properties}
+              currentPageId={sidebarCurrentPageId}
               onSelectPage={selectPage}
               onCreatePage={(parentId) => void createPage(parentId)}
+              onCreateDatabase={(parentId) => void createPage(parentId, 'database')}
               onRenamePage={(page, title) => void mutations.updatePage(page, { title })}
               onDeletePage={(page) => void deletePage(page)}
               sidebarRef={sidebarRef}
               onClose={handleCloseSidebar}
+              onOpenSearch={openQuickFind}
             />
           </div>
         </div>
@@ -218,7 +308,7 @@ export function WorkspaceShell() {
             adding a tab stop. inert disables all interactivity while the mobile drawer is open,
             matching the overlay pattern and preventing background interaction. */}
         <div
-          className="flex-1 overflow-auto bg-canvas md:flex-none"
+          className="min-w-0 flex-1 overflow-auto bg-canvas md:flex-none"
           id="page-body"
           data-testid="page-body"
           tabIndex={-1}
@@ -227,6 +317,28 @@ export function WorkspaceShell() {
           <Outlet />
         </div>
       </div>
+      {/* Quick-find dialog: rendered when open, dismissed on Escape, backdrop click, or item pick.
+          Placed outside the shell grid so its fixed-position overlay is not clipped. */}
+      {isQuickFindOpen ? (
+        <QuickFind
+          pages={pages}
+          onClose={closeQuickFind}
+          onSelect={(pageId) => {
+            // DEF-093: if the page was deleted in another tab since the snapshot loaded, skip the
+            // navigation and inform the user rather than landing on a phantom page.
+            const pageExists = pages.some((p) => p.id === pageId);
+            if (!pageExists) {
+              notify('This page no longer exists. It may have been deleted in another tab.');
+              return;
+            }
+            selectPage(pageId);
+            // DEF-094: close the mobile drawer after a quick-find navigation, matching the
+            // behaviour of picking a page directly from the sidebar tree.
+            closeSidebar();
+          }}
+        />
+      ) : null}
+
       {/*
         Toaster is outside the shell grid so it can use a fixed position without being clipped.
         `toastOptions.unstyled` disables sonner's built-in CSS; classNames + project tokens

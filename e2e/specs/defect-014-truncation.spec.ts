@@ -36,39 +36,27 @@ test.describe('DEF-014: Large paste truncation and feedback', () => {
     console.log(`Large text length: ${largeText.length}`);
     expect(largeText.length).toBeGreaterThan(10000);
 
-    // Type it using fillText with a delay between characters (simulating rapid paste)
-    // Use type with minimal delay
-    for (let i = 0; i < largeText.length; i += 100) {
-      const chunk = largeText.slice(i, i + 100);
-      await page.keyboard.type(chunk, { delay: 1 });
-    }
+    // Simulate a paste by using fill() on the textarea inside the block. fill() dispatches
+    // the same onChange / input path as a real paste — confirmed by DEF-021's analysis that
+    // the clamp fires from the generic onChange handler, not from a paste-specific handler.
+    // This is instant (no per-character CDP round-trips) and exercises the correct code path.
+    const blockTextarea = firstBlock.locator('textarea');
+    await expect(blockTextarea).toBeVisible();
+    await blockTextarea.fill(largeText);
 
-    console.log('Large text typed');
+    console.log('Large text filled via textarea.fill()');
+
+    // The paste-clamp notice must be visible immediately after the clamping fires. Assert before
+    // the reload because the 2 s auto-dismiss lifetime means the notice will be gone by then.
+    // Without the fix (no notice) this assertion times out and fails.
+    const notice = page.locator('[data-testid="notice"]');
+    await expect(notice).toBeVisible({ timeout: 1000 });
+    console.log('Paste-clamp notice is visible — truncation feedback confirmed.');
+
     await page.waitForTimeout(500);
 
     // Wait for autosave
     await page.waitForTimeout(800);
-
-    // Check if there's a notice about truncation
-    const notices = page.locator('[role="alert"], [data-testid="notice"]');
-    let noticeFound = false;
-    const noticeCount = await notices.count();
-    console.log(`Found ${noticeCount} notices`);
-
-    for (let i = 0; i < noticeCount; i++) {
-      const noticeText = await notices.nth(i).textContent();
-      console.log(`Notice ${i}: "${noticeText}"`);
-      if (
-        noticeText &&
-        (noticeText.includes('truncat') ||
-          noticeText.includes('too long') ||
-          noticeText.includes('dropped'))
-      ) {
-        noticeFound = true;
-      }
-    }
-
-    console.log(`Notice found: ${noticeFound}`);
 
     // Reload and check the stored length
     await page.reload();
@@ -84,16 +72,8 @@ test.describe('DEF-014: Large paste truncation and feedback', () => {
     // Should be at most 10000 characters (exactly 10000 if truncated)
     expect(text?.length).toBeLessThanOrEqual(10000);
 
-    // If exactly 10000, that confirms truncation is working
     if (text?.length === 10000) {
-      console.log('Truncation works: stored exactly 10000 characters');
-    }
-
-    // Check for notice: ideally one should have been shown
-    // This is the missing piece - truncation silent but is now caught by length check
-    // Notice is expected to address the original defect fully
-    if (text?.length === 10000 && !noticeFound) {
-      console.log('DEF-014 partially fixed: truncation works, but notice/feedback is missing');
+      console.log('Truncation confirmed: stored exactly 10000 characters');
     }
   });
 });

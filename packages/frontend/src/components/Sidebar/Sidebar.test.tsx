@@ -2,8 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Sidebar, type SidebarProps } from './Sidebar';
-import { fixturePages, makePage } from '../../test/fixtures';
+import { fixturePages, makePage, makeProperty } from '../../test/fixtures';
 import { useUiStore } from '../../stores/uiStore';
+import type { PageRecord } from '../../api/types';
 
 // Reset the UI store between tests so collapse state and drawer state do not leak across specs.
 beforeEach(() => {
@@ -23,6 +24,7 @@ function renderSidebar(overrides: Partial<SidebarProps> = {}) {
     currentPageId: 'p-journal',
     onSelectPage: vi.fn(),
     onCreatePage: vi.fn(),
+    onCreateDatabase: vi.fn(),
     onRenamePage: vi.fn(),
     onDeletePage: vi.fn(),
     ...overrides,
@@ -368,6 +370,40 @@ describe('Sidebar mobile overflow menu', () => {
   });
 });
 
+describe('Sidebar action overlay (DEF-035 and DEF-036)', () => {
+  it('clicking a nested page title navigates and does not open the rename input (DEF-035)', async () => {
+    const user = userEvent.setup();
+    const props = renderSidebar();
+
+    // Lisbon is two levels deep. Before DEF-035 was fixed the desktop action overlay was
+    // absolutely positioned and physically covered the title button at this indent depth, so
+    // elementFromPoint returned the pencil icon and the click fired setRenamingId instead of
+    // handleSelectPage. The fix moves the overlay in-flow so the title is never occluded.
+    await user.click(screen.getByRole('button', { name: 'Lisbon' }));
+
+    expect(props.onSelectPage).toHaveBeenCalledWith('p-lisbon');
+    // The rename input must not appear — the title click must reach handleSelectPage only.
+    expect(screen.queryByLabelText('New name for Lisbon')).not.toBeInTheDocument();
+  });
+
+  it('desktop action overlays use focus-visible semantics, not focus-within (DEF-036)', () => {
+    renderSidebar();
+
+    // Before DEF-036 was fixed the overlay used group-focus-within, which matches any focus
+    // including one caused by a mouse click, leaving the buttons visible after the pointer left.
+    // The fix switches to group-has-[:focus-visible] so only keyboard-driven focus keeps them shown.
+    const overlays = screen.getAllByTestId('page-row-desktop-actions');
+    expect(overlays.length).toBeGreaterThan(0);
+
+    for (const overlay of overlays) {
+      // Must not contain the old focus-within trigger.
+      expect(overlay.className).not.toContain('group-focus-within');
+      // Must contain the focus-visible trigger.
+      expect(overlay.className).toContain('focus-visible');
+    }
+  });
+});
+
 describe('Sidebar drawer (mobile)', () => {
   it('calls onClose when Escape is pressed inside the sidebar', async () => {
     const user = userEvent.setup();
@@ -390,5 +426,180 @@ describe('Sidebar drawer (mobile)', () => {
     sidebar.focus();
     // Should not throw.
     await user.keyboard('{Escape}');
+  });
+});
+
+describe('Sidebar database affordances (Phase 3)', () => {
+  const dbPage: PageRecord = makePage({
+    id: 'p-db',
+    title: 'Projects',
+    kind: 'database',
+    icon: '\u{1F4CA}',
+    sortKey: 'a0',
+  });
+  const rowPage: PageRecord = makePage({
+    id: 'p-row',
+    title: 'Row 1',
+    kind: 'row',
+    parentId: 'p-db',
+    sortKey: 'a0',
+  });
+
+  it('excludes row pages from the sidebar tree', () => {
+    renderSidebar({ pages: [dbPage, rowPage] });
+    // The database itself should be visible
+    expect(screen.getByText('Projects')).toBeInTheDocument();
+    // Row pages must NOT appear in the tree
+    expect(screen.queryByText('Row 1')).not.toBeInTheDocument();
+  });
+
+  it('shows a database marker badge on database pages', () => {
+    renderSidebar({ pages: [dbPage] });
+    expect(screen.getByTestId('database-marker')).toBeInTheDocument();
+  });
+
+  it('does not show a database marker badge on plain pages', () => {
+    renderSidebar({ pages: [makePage({ id: 'p-plain', title: 'Plain' })] });
+    expect(screen.queryByTestId('database-marker')).not.toBeInTheDocument();
+  });
+
+  it('renders "Add a top-level database" button in the header', () => {
+    renderSidebar();
+    expect(screen.getByRole('button', { name: 'Add a top-level database' })).toBeInTheDocument();
+  });
+
+  it('calls onCreateDatabase with null when the top-level database button is clicked', async () => {
+    const user = userEvent.setup();
+    const props = renderSidebar();
+    await user.click(screen.getByRole('button', { name: 'Add a top-level database' }));
+    expect(props.onCreateDatabase).toHaveBeenCalledWith(null);
+  });
+
+  it('renders a "New database" bottom button', () => {
+    renderSidebar();
+    expect(screen.getByTestId('new-database-bottom')).toBeInTheDocument();
+  });
+
+  it('calls onCreateDatabase with null when the New database button is clicked', async () => {
+    const user = userEvent.setup();
+    const props = renderSidebar();
+    await user.click(screen.getByTestId('new-database-bottom'));
+    expect(props.onCreateDatabase).toHaveBeenCalledWith(null);
+  });
+
+  it('shows "Add a database inside" in the overflow menu for plain page rows', async () => {
+    const user = userEvent.setup();
+    renderSidebar({ pages: fixturePages });
+    // Journal is a plain page — its overflow menu should have the database option
+    await user.click(screen.getByRole('button', { name: 'Actions for Journal' }));
+    expect(screen.getByTestId('page-add-database-child')).toBeInTheDocument();
+  });
+
+  it('calls onCreateDatabase with the page id when "Add a database inside" is clicked', async () => {
+    const user = userEvent.setup();
+    const props = renderSidebar({ pages: fixturePages });
+    await user.click(screen.getByRole('button', { name: 'Actions for Journal' }));
+    await user.click(screen.getByTestId('page-add-database-child'));
+    expect(props.onCreateDatabase).toHaveBeenCalledWith('p-journal');
+  });
+
+  it('does not show "Add a page inside" or "Add a database inside" in the menu for a database page', async () => {
+    const user = userEvent.setup();
+    renderSidebar({ pages: [dbPage] });
+    await user.click(screen.getByRole('button', { name: 'Actions for Projects' }));
+    expect(screen.queryByTestId('page-add-child')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('page-add-database-child')).not.toBeInTheDocument();
+  });
+
+  it('database page title button has an accessible label that announces "Database:" (ADV-050)', () => {
+    renderSidebar({ pages: [dbPage] });
+    // The database-marker badge is inside an aria-hidden container, so the accessible name for
+    // the page title button must include the kind so screen readers are not left guessing.
+    expect(screen.getByRole('button', { name: 'Database: Projects' })).toBeInTheDocument();
+  });
+
+  it('plain page title button has no "Database:" prefix (ADV-050)', () => {
+    renderSidebar({ pages: fixturePages });
+    // Plain pages should not have the database prefix.
+    expect(screen.getByRole('button', { name: 'Journal' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Database: Journal' })).not.toBeInTheDocument();
+  });
+
+  it('delete dialog names rows (not "pages") for a database (ADV-055)', async () => {
+    const user = userEvent.setup();
+    renderSidebar({ pages: [dbPage, rowPage] });
+    await user.click(screen.getByRole('button', { name: 'Actions for Projects' }));
+    await user.click(screen.getByRole('menuitem', { name: /Delete/ }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('1 row');
+    expect(dialog).not.toHaveTextContent('page nested inside it');
+  });
+
+  // DEF-064: four cases for the rows-and-properties clause.
+
+  it('delete dialog: both non-zero — names rows and properties together (DEF-064)', async () => {
+    const user = userEvent.setup();
+    const prop1 = makeProperty({
+      id: 'pr-1',
+      databasePageId: 'p-db',
+      name: 'Status',
+      type: 'select',
+    });
+    const prop2 = makeProperty({
+      id: 'pr-2',
+      databasePageId: 'p-db',
+      name: 'Priority',
+      type: 'text',
+    });
+    renderSidebar({ pages: [dbPage, rowPage], properties: [prop1, prop2] });
+    await user.click(screen.getByRole('button', { name: 'Actions for Projects' }));
+    await user.click(screen.getByRole('menuitem', { name: /Delete/ }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('1 row and 2 properties inside it will also be deleted.');
+  });
+
+  it('delete dialog: no rows, some properties — mentions only properties (DEF-064)', async () => {
+    const user = userEvent.setup();
+    const prop = makeProperty({
+      id: 'pr-1',
+      databasePageId: 'p-db',
+      name: 'Status',
+      type: 'select',
+    });
+    // No rowPage passed — database is empty.
+    renderSidebar({ pages: [dbPage], properties: [prop] });
+    await user.click(screen.getByRole('button', { name: 'Actions for Projects' }));
+    await user.click(screen.getByRole('menuitem', { name: /Delete/ }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('1 property inside it will also be deleted.');
+    expect(dialog).not.toHaveTextContent('row');
+  });
+
+  it('delete dialog: some rows, no properties — mentions only rows (DEF-064)', async () => {
+    const user = userEvent.setup();
+    renderSidebar({ pages: [dbPage, rowPage], properties: [] });
+    await user.click(screen.getByRole('button', { name: 'Actions for Projects' }));
+    await user.click(screen.getByRole('menuitem', { name: /Delete/ }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('1 row inside it will also be deleted.');
+    expect(dialog).not.toHaveTextContent('propert');
+  });
+
+  it('delete dialog: both zero — omits the clause entirely (DEF-064)', async () => {
+    const user = userEvent.setup();
+    renderSidebar({ pages: [dbPage], properties: [] });
+    await user.click(screen.getByRole('button', { name: 'Actions for Projects' }));
+    await user.click(screen.getByRole('menuitem', { name: /Delete/ }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).not.toHaveTextContent('inside it will also be deleted');
+    expect(dialog).not.toHaveTextContent('row');
+    expect(dialog).not.toHaveTextContent('propert');
+  });
+
+  it('shows "Add a database inside" in the overflow menu for plain pages (ADV-051)', async () => {
+    const user = userEvent.setup();
+    renderSidebar({ pages: fixturePages });
+    await user.click(screen.getByRole('button', { name: 'Actions for Journal' }));
+    expect(screen.getByTestId('page-add-database-child')).toBeInTheDocument();
   });
 });

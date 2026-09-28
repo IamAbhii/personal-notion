@@ -53,6 +53,24 @@ vi.mock('../../hooks/useBlockMutations', () => ({
   })),
 }));
 
+vi.mock('../../hooks/usePropertyMutations', () => ({
+  usePropertyMutations: vi.fn(() => ({
+    createProperty: vi.fn(),
+    updateProperty: vi.fn(),
+    deleteProperty: vi.fn(),
+    setValue: vi.fn(),
+  })),
+}));
+
+vi.mock('../../hooks/useViewMutations', () => ({
+  useViewMutations: vi.fn(() => ({
+    createView: vi.fn(),
+    updateView: vi.fn(),
+    deleteView: vi.fn(),
+    createDefaultViews: vi.fn().mockResolvedValue([]),
+  })),
+}));
+
 vi.mock('../../sync/ops', () => ({
   flushStashedOps: vi.fn(() => Promise.resolve(0)),
 }));

@@ -57,6 +57,15 @@
   --color-purple: var(--purple);
   --color-purple-soft: var(--purple-soft);
   --color-danger: var(--danger);
+  /* Phase 3 option-color additions */
+  --color-teal: var(--teal);
+  --color-teal-soft: var(--teal-soft);
+  --color-rose: var(--rose);
+  --color-rose-soft: var(--rose-soft);
+  /* Accessible fg tokens for option color chips (theme-switching) */
+  --color-purple-fg: var(--purple-fg);
+  --color-teal-fg: var(--teal-fg);
+  --color-rose-fg: var(--rose-fg);
 
   /* Radii - intentionally redefines Tailwind's rounded-sm|md|lg to project values */
   --radius-sm: var(--radius-sm);

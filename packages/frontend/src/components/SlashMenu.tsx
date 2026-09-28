@@ -29,14 +29,27 @@ export function SlashMenu({
   const rootRef = useRef<HTMLDivElement | null>(null);
   const activeRef = useRef<HTMLButtonElement | null>(null);
   const [placeAbove, setPlaceAbove] = useState(false);
+  // leftPx starts at the gutter width (48px); the layout effect shifts it left if the right edge
+  // would overflow the viewport. Inline style takes precedence over the default Tailwind class.
+  const [leftPx, setLeftPx] = useState(48);
 
   // A block near the bottom of the page would open its menu below the fold, and the menu is
   // positioned absolutely so it adds no scrollable height to scroll down to. So it flips above the
   // block instead when there is no room under it, and only scrolls when scrolling can help.
+  // Horizontal collision: the menu is also shifted left so its right edge keeps 8px from the
+  // viewport edge, matching the collisionPadding used by every Radix floating surface in the app.
   useLayoutEffect(() => {
     const element = rootRef.current;
     if (!element) return;
     const rect = element.getBoundingClientRect();
+
+    // Horizontal: shift the menu left so its right edge stays 8px inside the viewport.
+    const rightOverflow = rect.right - (window.innerWidth - 8);
+    if (rightOverflow > 0) {
+      setLeftPx(Math.max(0, 48 - rightOverflow));
+    }
+
+    // Vertical: flip above when there is no room below and enough room above.
     if (rect.height && rect.bottom > window.innerHeight - 8 && rect.top - rect.height > 60) {
       setPlaceAbove(true);
       return;
@@ -52,12 +65,14 @@ export function SlashMenu({
   return (
     <div
       className={cn(
-        // Anchored left to the start of the text column (46px = the gutter grid column width).
-        'absolute top-full left-[46px] z-20 max-h-[316px] w-[296px] overflow-y-auto',
+        // The default left is 48px (gutter width); leftPx overrides it via inline style when the
+        // right edge would overflow the viewport. max-w is a safety cap at any viewport width.
+        'absolute top-full z-20 max-h-[316px] w-[296px] max-w-[calc(100vw-1rem)] overflow-y-auto',
         'rounded-md border border-border bg-surface p-2 shadow-pop',
         // Flipped above the block when there is no room below it; margin-bottom gives a small gap.
         placeAbove && 'top-auto bottom-full mb-1.5',
       )}
+      style={{ left: leftPx }}
       id="slash-menu"
       data-testid="slash-menu"
       ref={rootRef}

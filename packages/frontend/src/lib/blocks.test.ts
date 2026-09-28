@@ -6,6 +6,7 @@ import {
   clampBlockText,
   blocksForPage,
   filterBlockTypes,
+  isTextualBlock,
   numberedListNumber,
   parseBlockProps,
   sortKeyAfterIndex,
@@ -21,7 +22,7 @@ const pageBlocks = [
 ];
 
 describe('the block type catalogue', () => {
-  it('offers exactly the eleven Phase 2 types', () => {
+  it('offers the twelve types including toggleList added in Phase 7', () => {
     expect(BLOCK_TYPE_OPTIONS.map((option) => option.type)).toEqual([
       'paragraph',
       'heading1',
@@ -34,14 +35,22 @@ describe('the block type catalogue', () => {
       'divider',
       'code',
       'callout',
+      'toggleList',
     ]);
     expect(blockTypeLabel('bulletedList')).toBe('Bulleted list');
+    expect(blockTypeLabel('toggleList')).toBe('Toggle list');
+  });
+
+  it('toggleList matches all three of its keywords', () => {
+    expect(filterBlockTypes('toggle').map((o) => o.type)).toContain('toggleList');
+    expect(filterBlockTypes('collapse').map((o) => o.type)).toContain('toggleList');
+    expect(filterBlockTypes('expand').map((o) => o.type)).toContain('toggleList');
   });
 });
 
 describe('filterBlockTypes', () => {
   it('offers every type for an empty query', () => {
-    expect(filterBlockTypes('')).toHaveLength(11);
+    expect(filterBlockTypes('')).toHaveLength(12);
   });
 
   it('matches labels, so "head" narrows to the three headings', () => {
@@ -159,6 +168,18 @@ describe('numberedListNumber', () => {
     expect(blocks.map((_block, index) => numberedListNumber(blocks, index))).toEqual([
       1, 2, 3, 1, 1,
     ]);
+  });
+});
+
+describe('isTextualBlock', () => {
+  it('returns false for divider (the only non-textual block)', () => {
+    expect(isTextualBlock('divider')).toBe(false);
+  });
+
+  it('returns true for every other block type', () => {
+    expect(isTextualBlock('paragraph')).toBe(true);
+    expect(isTextualBlock('heading1')).toBe(true);
+    expect(isTextualBlock('code')).toBe(true);
   });
 });
 

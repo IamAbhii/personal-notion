@@ -3,13 +3,20 @@ import { buildPageTree, descendantIds, type PageNode } from '../../lib/pageTree'
 import { rowIndent } from '../../lib/treeLayout';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { InlineTitleInput } from '../InlineTitleInput/InlineTitleInput';
+import { ThemeToggle } from '../ThemeToggle/ThemeToggle';
 import { Button } from '../ui/Button/Button';
 import { IconButton } from '../ui/IconButton/IconButton';
 import { DropdownMenu, DropdownMenuItem } from '../ui/DropdownMenu/DropdownMenu';
-import { ChevronRight, Ellipsis, Pencil, Plus, Trash2 } from 'lucide-react';
+import { ChevronRight, Ellipsis, Pencil, Plus, Search, Table2, Trash2 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { useUiStoreShallow } from '../../stores/uiStore';
-import type { PageRecord } from '../../api/types';
+import type { PageRecord, PropertyRecord } from '../../api/types';
+
+// Detect macOS so the search shortcut hint shows the platform-correct key.
+// Uses the userAgent string; navigator.platform is deprecated.
+const isMac =
+  typeof navigator !== 'undefined' &&
+  /Macintosh|MacIntel|MacPPC|Mac OS X/.test(navigator.userAgent);
 
 export interface SidebarProps {
   workspaceName: string;
@@ -20,8 +27,16 @@ export interface SidebarProps {
   currentPageId: string | null;
   onSelectPage: (pageId: string) => void;
   onCreatePage: (parentId: string | null) => void;
+  /** Creates a database page at the given parent (null for top level) and opens it. */
+  onCreateDatabase: (parentId: string | null) => void;
   onRenamePage: (page: PageRecord, title: string) => void;
   onDeletePage: (page: PageRecord) => void;
+  /**
+   * All properties in the workspace. Used to count properties on a database when composing the
+   * delete-confirmation dialog copy. Optional so tests that only exercise page behaviour do not
+   * need to supply it.
+   */
+  properties?: PropertyRecord[];
   /**
    * Optional ref forwarded from the shell so the drawer can receive programmatic focus when it
    * opens on mobile. Not used in tests; safe to omit.
@@ -32,6 +47,11 @@ export interface SidebarProps {
    * at desktop no-op because the drawer is never open.
    */
   onClose?: () => void;
+  /**
+   * Called when the user activates the search affordance in the sidebar. The shell opens the
+   * quick-find dialog. Optional: tests that do not exercise search need not supply it.
+   */
+  onOpenSearch?: () => void;
 }
 
 /**
@@ -51,10 +71,13 @@ export function Sidebar({
   currentPageId,
   onSelectPage,
   onCreatePage,
+  onCreateDatabase,
   onRenamePage,
   onDeletePage,
+  properties = [],
   sidebarRef,
   onClose,
+  onOpenSearch,
 }: SidebarProps) {
   // collapsedPageIds lives in the global UI store; renamingId and pendingDelete are local because
   // only this component owns the edit-in-progress and the pending confirmation states.
@@ -66,7 +89,9 @@ export function Sidebar({
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<PageRecord | null>(null);
 
-  const tree = buildPageTree(pages);
+  // Row pages are reached from the table, not the sidebar tree.
+  const nonRowPages = pages.filter((p) => p.kind !== 'row');
+  const tree = buildPageTree(nonRowPages);
 
   const handleSelectPage = (pageId: string) => {
     onSelectPage(pageId);
@@ -133,12 +158,21 @@ export function Sidebar({
               />
             )}
 
+            {/* Database pages show a table-grid icon overlay on the emoji to signal type. */}
             <span
-              className="w-5 flex-none text-center font-emoji text-sm leading-none"
+              className="relative w-5 flex-none text-center"
               aria-hidden="true"
               data-testid="page-icon"
             >
-              {page.icon}
+              <span className="font-emoji text-sm leading-none">{page.icon}</span>
+              {page.kind === 'database' ? (
+                <span
+                  className="absolute -right-1.5 -bottom-1 inline-flex items-center justify-center rounded-full bg-panel p-px"
+                  data-testid="database-marker"
+                >
+                  <Table2 size={8} className="text-blue-soft" aria-hidden />
+                </span>
+              ) : null}
             </span>
 
             {renamingId === page.id ? (
@@ -161,6 +195,9 @@ export function Sidebar({
                   'flex min-h-12 min-w-0 flex-1 cursor-pointer items-center border-0 bg-transparent p-0 text-left text-sm font-medium',
                   isCurrent && 'font-[650]',
                 )}
+                // Database pages carry an aria-label that announces their kind because the visual
+                // database-marker badge is inside an aria-hidden container (ADV-050).
+                aria-label={page.kind === 'database' ? `Database: ${page.title}` : page.title}
                 data-testid="page-row-title"
                 onClick={() => handleSelectPage(page.id)}
               >
@@ -172,9 +209,14 @@ export function Sidebar({
                 Below md: a single overflow trigger collapses all three actions into a dropdown,
                 freeing ~96px so the title stays readable at 320px. The testids are duplicated on
                 the menu items so a future mobile-viewport e2e spec can find them here too.
-                At md+: the three separate buttons are absolutely positioned, hidden until the row
-                is hovered or focused, with a background token that occludes the title behind them.
-                The token switches for the current-page row to match its tint. */}
+                At md+: the three separate buttons are display:none by default so the span consumes
+                zero flex-layout space and the title button fills the full available width — same
+                width as in the original absolute-positioned approach. The span becomes display:flex
+                only while the pointer is on the row or a child has :focus-visible, confining any
+                title truncation to the moment the user is already interacting with the row (DEF-035,
+                readability regression fix).
+                group-has-[:focus-visible] not group-focus-within: a mouse click gives :focus but
+                not :focus-visible, so the strip hides correctly when the pointer leaves (DEF-036). */}
 
             {/* Mobile overflow menu: one 48px trigger instead of three — hidden at md+ */}
             <span className="flex-none md:hidden">
@@ -201,13 +243,24 @@ export function Sidebar({
                   <Pencil size={14} aria-hidden />
                   Rename
                 </DropdownMenuItem>
-                <DropdownMenuItem
-                  data-testid="page-add-child"
-                  onSelect={() => onCreatePage(page.id)}
-                >
-                  <Plus size={14} aria-hidden />
-                  Add a page inside
-                </DropdownMenuItem>
+                {page.kind !== 'database' ? (
+                  <DropdownMenuItem
+                    data-testid="page-add-child"
+                    onSelect={() => onCreatePage(page.id)}
+                  >
+                    <Plus size={14} aria-hidden />
+                    Add a page inside
+                  </DropdownMenuItem>
+                ) : null}
+                {page.kind !== 'database' ? (
+                  <DropdownMenuItem
+                    data-testid="page-add-database-child"
+                    onSelect={() => onCreateDatabase(page.id)}
+                  >
+                    <Table2 size={14} aria-hidden />
+                    Add a database inside
+                  </DropdownMenuItem>
+                ) : null}
                 <DropdownMenuItem
                   data-testid="page-delete"
                   variant="danger"
@@ -219,22 +272,33 @@ export function Sidebar({
               </DropdownMenu>
             </span>
 
-            {/* Desktop three-button overlay: hidden below md, absolutely positioned and hover-revealed at md+ */}
+            {/* Desktop three-button strip: display:none by default so it takes zero flex-layout
+                space. display:flex only while hovered or keyboard-focused so title truncation is
+                confined to the hover moment. Pointer-events are automatic: display:none disables
+                them; display:flex re-enables them. */}
             <span
+              data-testid="page-row-desktop-actions"
               className={cn(
-                'hidden flex-none gap-px rounded-[7px] p-0.5',
-                'md:flex',
-                'md:pointer-events-none md:absolute md:right-1 md:opacity-0',
-                'md:group-hover:pointer-events-auto md:group-hover:opacity-100',
-                'md:group-focus-within:pointer-events-auto md:group-focus-within:opacity-100',
-                isCurrent
-                  ? 'md:group-focus-within:bg-row-current-solid md:group-hover:bg-row-current-solid'
-                  : 'md:group-focus-within:bg-row-hover-solid md:group-hover:bg-row-hover-solid',
+                // hidden = display:none at all widths by default (mobile uses overflow menu).
+                // At md+, switch to display:flex only during hover or keyboard focus.
+                // display:none removes the span from the flex layout entirely — no width
+                // reserved, no gap consumed — so unhovered titles are identical in width to
+                // the original before this fix (DEF-035 readability regression fix).
+                'hidden',
+                'md:group-hover:flex',
+                // group-has-[:focus-visible] and NOT group-focus-within: mouse clicks produce
+                // :focus but not :focus-visible, so the strip stays hidden after a click and
+                // pointer-leave (DEF-036).
+                'md:group-has-[:focus-visible]:flex',
+                'flex-none items-center gap-px rounded-[7px] p-0.5',
               )}
             >
+              {/* size-5 = 20px: desktop pointer-precision; 48px touch target lives on the mobile
+                  overflow trigger. At the deepest seed row (depth 3, row 263px) the overlay is
+                  66px wide, leaving the hovered title 67px — above the 64px floor (DEF-035). */}
               <button
                 type="button"
-                className="grid min-h-12 min-w-12 cursor-pointer place-items-center rounded-sm border-0 bg-transparent p-0 text-panel-text-muted hover:bg-white/12 hover:text-blue-soft"
+                className="grid size-5 cursor-pointer place-items-center rounded-sm border-0 bg-transparent p-0 text-panel-text-muted hover:bg-white/12 hover:text-blue-soft"
                 data-testid="page-rename"
                 aria-label={`Rename ${page.title}`}
                 title="Rename"
@@ -242,19 +306,34 @@ export function Sidebar({
               >
                 <Pencil size={14} aria-hidden />
               </button>
+              {page.kind !== 'database' ? (
+                <button
+                  type="button"
+                  className="grid size-5 cursor-pointer place-items-center rounded-sm border-0 bg-transparent p-0 text-panel-text-muted hover:bg-white/12 hover:text-blue-soft"
+                  data-testid="page-add-child"
+                  aria-label={`Add a page inside ${page.title}`}
+                  title="Add a page inside"
+                  onClick={() => onCreatePage(page.id)}
+                >
+                  <Plus size={14} aria-hidden />
+                </button>
+              ) : null}
+              {page.kind !== 'database' ? (
+                // No data-testid here: the testid lives on the overflow menu item so getByTestId
+                // finds exactly one element even when multiple rows are rendered.
+                <button
+                  type="button"
+                  className="grid size-5 cursor-pointer place-items-center rounded-sm border-0 bg-transparent p-0 text-panel-text-muted hover:bg-white/12 hover:text-blue-soft"
+                  aria-label={`Add a database inside ${page.title}`}
+                  title="Add a database inside"
+                  onClick={() => onCreateDatabase(page.id)}
+                >
+                  <Table2 size={14} aria-hidden />
+                </button>
+              ) : null}
               <button
                 type="button"
-                className="grid min-h-12 min-w-12 cursor-pointer place-items-center rounded-sm border-0 bg-transparent p-0 text-panel-text-muted hover:bg-white/12 hover:text-blue-soft"
-                data-testid="page-add-child"
-                aria-label={`Add a page inside ${page.title}`}
-                title="Add a page inside"
-                onClick={() => onCreatePage(page.id)}
-              >
-                <Plus size={14} aria-hidden />
-              </button>
-              <button
-                type="button"
-                className="grid min-h-12 min-w-12 cursor-pointer place-items-center rounded-sm border-0 bg-transparent p-0 text-panel-text-muted hover:bg-danger/22 hover:text-danger-soft"
+                className="grid size-5 cursor-pointer place-items-center rounded-sm border-0 bg-transparent p-0 text-panel-text-muted hover:bg-danger/22 hover:text-danger-soft"
                 data-testid="page-delete"
                 aria-label={`Delete ${page.title}`}
                 title="Delete"
@@ -281,14 +360,33 @@ export function Sidebar({
       )
     : [];
   const nestedCount = nestedTitles.length;
-  const nestedSummary =
-    nestedCount === 0
+
+  // For a database page, its immediate children are rows rather than sub-pages. Say "rows" rather
+  // than "pages" so the copy matches what the user sees in the table (ADV-055). Also name the
+  // property count so the user knows the schema (and all cell values) will be destroyed (DEF-064).
+  const nestedSummary = (() => {
+    if (!pendingDelete) return '';
+    if (pendingDelete.kind === 'database') {
+      const rowCount = pages.filter(
+        (p) => p.parentId === pendingDelete.id && p.kind === 'row',
+      ).length;
+      const propCount = properties.filter((pr) => pr.databasePageId === pendingDelete.id).length;
+      // Only name the non-zero counts. When both are zero the clause is omitted entirely — a
+      // sentence about "no rows and no properties" is worse than silence for an empty database.
+      const parts: string[] = [];
+      if (rowCount > 0) parts.push(rowCount === 1 ? '1 row' : `${rowCount} rows`);
+      if (propCount > 0) parts.push(propCount === 1 ? '1 property' : `${propCount} properties`);
+      if (parts.length === 0) return '';
+      return `${parts.join(' and ')} inside it will also be deleted.`;
+    }
+    return nestedCount === 0
       ? 'It has no nested pages.'
       : `${nestedCount === 1 ? 'One page nested inside it' : `${nestedCount} pages nested inside it`} will be deleted too: ${nestedTitles.slice(0, 3).join(', ')}${nestedCount > 3 ? `, and ${nestedCount - 3} more` : ''}.`;
+  })();
 
   return (
     <aside
-      className="flex w-full flex-col gap-1.5 overflow-hidden border-r border-panel-border bg-panel px-3.5 pt-4.5 pb-3.5 text-panel-text outline-none"
+      className="flex h-dvh w-full flex-col gap-1.5 overflow-hidden border-r border-panel-border bg-panel px-3.5 pt-4.5 pb-3.5 text-panel-text outline-none"
       data-testid="sidebar"
       // tabIndex -1 lets the drawer receive programmatic focus on open without adding a tab stop.
       tabIndex={-1}
@@ -319,19 +417,51 @@ export function Sidebar({
         </span>
       </header>
 
+      {/* Search affordance: a button that looks like a search bar. Visible at all widths inside
+          the sidebar; the mobile topbar provides a second route when the sidebar is off-canvas.
+          Only rendered when the shell provides an onOpenSearch handler. */}
+      {onOpenSearch ? (
+        <button
+          type="button"
+          aria-label="Search pages"
+          onClick={onOpenSearch}
+          className="flex min-h-12 w-full cursor-pointer items-center gap-2.5 rounded-md border border-panel-border bg-transparent px-3 py-2 text-left text-sm text-panel-text-muted transition-colors hover:bg-panel-hover hover:text-panel-text"
+        >
+          <Search size={13} aria-hidden className="flex-none" />
+          <span className="min-w-0 flex-1 truncate">Search...</span>
+          {/* Keyboard shortcut hint: hidden on narrow widths to avoid crowding the 320px layout.
+              Shows the correct modifier for the platform: ⌘K on macOS, Ctrl K elsewhere. */}
+          <kbd className="hidden flex-none items-center rounded border border-panel-border px-1 text-[10px] sm:flex">
+            {isMac ? '⌘K' : 'Ctrl K'}
+          </kbd>
+        </button>
+      ) : null}
+
       <div className="flex items-center justify-between px-1.5 pt-1.5 pb-1">
         <h2 className="m-0 text-xs font-bold tracking-[0.11em] text-panel-text-muted uppercase">
           Pages
         </h2>
-        <button
-          type="button"
-          className="grid min-h-12 min-w-12 cursor-pointer place-items-center rounded-sm border-0 bg-transparent text-panel-text-muted hover:bg-panel-hover hover:text-amber-soft"
-          aria-label="Add a top-level page"
-          title="Add a top-level page"
-          onClick={() => onCreatePage(null)}
-        >
-          <Plus size={14} aria-hidden />
-        </button>
+        <span className="flex items-center gap-0.5">
+          <button
+            type="button"
+            className="grid min-h-12 min-w-12 cursor-pointer place-items-center rounded-sm border-0 bg-transparent text-panel-text-muted hover:bg-panel-hover hover:text-amber-soft"
+            aria-label="Add a top-level page"
+            title="Add a top-level page"
+            onClick={() => onCreatePage(null)}
+          >
+            <Plus size={14} aria-hidden />
+          </button>
+          <button
+            type="button"
+            className="grid min-h-12 min-w-12 cursor-pointer place-items-center rounded-sm border-0 bg-transparent text-panel-text-muted hover:bg-panel-hover hover:text-blue-soft"
+            aria-label="Add a top-level database"
+            title="Add a top-level database"
+            data-testid="new-database-top"
+            onClick={() => onCreateDatabase(null)}
+          >
+            <Table2 size={14} aria-hidden />
+          </button>
+        </span>
       </div>
 
       {/* Page tree: flex-1 + min-h-0 lets it shrink so the footer stays visible on short screens.
@@ -348,10 +478,20 @@ export function Sidebar({
         )}
       </nav>
 
-      <Button className="mx-0.5 mt-2 mb-2.5 w-full" onClick={() => onCreatePage(null)}>
-        <Plus size={16} aria-hidden />
-        New page
-      </Button>
+      <div className="mx-0.5 mt-2 mb-2.5 flex gap-1.5">
+        <Button className="flex-1" onClick={() => onCreatePage(null)}>
+          <Plus size={16} aria-hidden />
+          New page
+        </Button>
+        <Button
+          className="flex-1"
+          data-testid="new-database-bottom"
+          onClick={() => onCreateDatabase(null)}
+        >
+          <Table2 size={16} aria-hidden />
+          New database
+        </Button>
+      </div>
 
       <footer className="flex items-center gap-2.5 border-t border-panel-border pt-3">
         {/* Avatar: visually 30px circle, but min-48px hit area is on the footer as a whole. */}
@@ -361,12 +501,15 @@ export function Sidebar({
         >
           {userName.slice(0, 1).toUpperCase()}
         </span>
-        <span className="flex min-w-0 flex-col">
+        <span className="flex min-w-0 flex-1 flex-col">
           <span className="text-sm font-semibold">{userName}</span>
           <span className="overflow-hidden text-[11.5px] text-ellipsis whitespace-nowrap text-panel-text-muted">
             {userEmail}
           </span>
         </span>
+        {/* Light/dark toggle: sits at the end of the footer row and is always reachable, including
+            on mobile after the user opens the sidebar drawer. */}
+        <ThemeToggle />
       </footer>
 
       {pendingDelete ? (

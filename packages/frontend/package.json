@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:watch": "vitest"
   },
   "dependencies": {
@@ -24,6 +25,7 @@
     "lucide-react": "^1.31.0",
     "radix-ui": "^1.6.7",
     "react": "^19.2.8",
+    "react-day-picker": "^10.0.1",
     "react-dom": "^19.2.8",
     "sonner": "^2.0.8",
     "tailwind-merge": "^3.6.0",
@@ -38,10 +40,10 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^4.7.0",
-    "@vitest/coverage-v8": "^3.2.7",
+    "@vitest/coverage-v8": "^4.1.11",
     "happy-dom": "^20.11.2",
     "vite": "^6.4.3",
     "vite-plugin-pwa": "^0.21.2",
-    "vitest": "^3.2.7"
+    "vitest": "^4.1.11"
   }
 }

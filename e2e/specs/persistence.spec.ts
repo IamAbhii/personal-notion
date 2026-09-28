@@ -55,8 +55,8 @@ test('changes persist after browser reload', async ({ page }) => {
   // The desktop actions container is pointer-events-none until the row is hovered;
   // hover the row first so the buttons become pointer-interactive.
   const sidebarRenameButton = sidebarRow.locator('[data-testid="page-rename"]').first();
-  await expect(sidebarRenameButton).toBeVisible();
   await sidebarRow.hover();
+  await expect(sidebarRenameButton).toBeVisible();
   await sidebarRenameButton.click();
 
   const timestamp = Date.now();

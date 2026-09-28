@@ -120,6 +120,36 @@ describe('PageView', () => {
     expect(screen.getByTestId('breadcrumb-link')).toHaveAttribute('title', longTitle);
   });
 
+  it('applies the 860px prose constraint to a plain page but not a database page (DEF-042)', () => {
+    const db = makePage({ id: 'p-db', title: 'My DB', kind: 'database' });
+    const { rerender } = render(
+      <PageView
+        page={lisbon}
+        breadcrumb={[lisbon]}
+        childCount={0}
+        onSelectPage={vi.fn()}
+        onRename={vi.fn()}
+        onChangeIcon={vi.fn()}
+      />,
+    );
+    // Plain page: main must carry the 860px constraint class.
+    const main = document.querySelector('main')!;
+    expect(main.className).toContain('max-w-[860px]');
+
+    rerender(
+      <PageView
+        page={db}
+        breadcrumb={[db]}
+        childCount={0}
+        onSelectPage={vi.fn()}
+        onRename={vi.fn()}
+        onChangeIcon={vi.fn()}
+      />,
+    );
+    // Database page: max-w constraint must be absent so the table can use the full content width.
+    expect(main.className).not.toContain('max-w-[860px]');
+  });
+
   it('collapses a deep breadcrumb to a bounded row of crumbs (DEF-009)', () => {
     const chain = Array.from({ length: 26 }, (_unused, index) =>
       makePage({
@@ -156,5 +186,45 @@ describe('PageView', () => {
     await user.click(screen.getByRole('button', { name: /Journal/ }));
 
     expect(props.onSelectPage).toHaveBeenCalledWith('p-journal');
+  });
+
+  it('does not render an empty icon tile when page.icon is empty (row pages)', () => {
+    // Row pages are seeded with icon: null. The header must show an "Add icon" affordance
+    // instead of a blank bordered tile so the UI does not look broken.
+    const rowPage = makePage({ id: 'p-row', title: 'My Row', kind: 'row', icon: '' });
+    render(
+      <PageView
+        page={rowPage}
+        breadcrumb={[rowPage]}
+        childCount={0}
+        onSelectPage={vi.fn()}
+        onRename={vi.fn()}
+        onChangeIcon={vi.fn()}
+      />,
+    );
+    // The icon button that shows the emoji must be absent.
+    expect(
+      screen.queryByRole('button', { name: 'Change the icon for My Row' }),
+    ).not.toBeInTheDocument();
+    // An "Add icon" affordance must be present so the picker is still reachable.
+    expect(screen.getByRole('button', { name: 'Add an icon for My Row' })).toBeInTheDocument();
+  });
+
+  it('renders the normal icon button when page.icon is set', () => {
+    // When an icon is present the full 76px tile must appear; the "Add icon" affordance must not.
+    render(
+      <PageView
+        page={lisbon}
+        breadcrumb={[lisbon]}
+        childCount={0}
+        onSelectPage={vi.fn()}
+        onRename={vi.fn()}
+        onChangeIcon={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Change the icon for Lisbon' })).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Add an icon for Lisbon' }),
+    ).not.toBeInTheDocument();
   });
 });

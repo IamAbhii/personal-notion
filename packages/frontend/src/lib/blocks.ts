@@ -53,7 +53,7 @@ export interface BlockTypeOption {
 }
 
 /**
- * The eleven types in the order the slash menu offers them: the everyday ones first, the
+ * The twelve types in the order the slash menu offers them: the everyday ones first, the
  * structural ones last. `keywords` exist so "h1", "bullet" and "check" find the right entry.
  */
 export const BLOCK_TYPE_OPTIONS: BlockTypeOption[] = [
@@ -88,6 +88,12 @@ export const BLOCK_TYPE_OPTIONS: BlockTypeOption[] = [
   },
   { type: 'code', label: 'Code', hint: 'Monospace code block', keywords: ['snippet', 'mono'] },
   { type: 'callout', label: 'Callout', hint: 'A highlighted note', keywords: ['note', 'info'] },
+  {
+    type: 'toggleList',
+    label: 'Toggle list',
+    hint: 'A collapsible section with children',
+    keywords: ['toggle', 'collapse', 'expand'],
+  },
 ];
 
 /** How a type is named in labels and aria text, for the one-off lookups the UI needs. */
@@ -98,11 +104,20 @@ export function blockTypeLabel(type: BlockType): string {
 /**
  * The slash menu's filter. Matches the label, the type literal and the keywords, so both "to-do"
  * and "check" land on the to-do entry. An empty query offers everything.
+ * `excludeTypes` removes specific types from results — used to hide `toggleList` inside a toggle
+ * child, where nested toggles are not supported.
  */
-export function filterBlockTypes(query: string): BlockTypeOption[] {
+export function filterBlockTypes(
+  query: string,
+  excludeTypes: ReadonlySet<BlockType> = new Set(),
+): BlockTypeOption[] {
   const needle = query.trim().toLowerCase().replace(/[\s-]/g, '');
-  if (!needle) return BLOCK_TYPE_OPTIONS;
-  return BLOCK_TYPE_OPTIONS.filter((option) =>
+  const base =
+    excludeTypes.size > 0
+      ? BLOCK_TYPE_OPTIONS.filter((option) => !excludeTypes.has(option.type))
+      : BLOCK_TYPE_OPTIONS;
+  if (!needle) return base;
+  return base.filter((option) =>
     [option.label, option.type, ...option.keywords].some((candidate) =>
       candidate.toLowerCase().replace(/[\s-]/g, '').includes(needle),
     ),
@@ -181,10 +196,20 @@ export function numberedListNumber(pageBlocks: BlockRecord[], index: number): nu
   return number;
 }
 
-/** The type-specific extras a block carries. Both fields are optional by type. */
+/** The type-specific extras a block carries. All fields are optional by type. */
 export interface BlockProps {
   language?: string;
   emoji?: string;
+  /**
+   * Set on paragraph children of a toggleList block. Points to the toggle header's block id.
+   * The toggle header renders open/closed; children with this prop render indented beneath it.
+   * Future: to support nested toggles (toggleList children of another toggleList), this field
+   * would need to be checked on toggleList blocks too, and BlockEditor's grouping logic would
+   * recurse rather than treating only paragraphs as children.
+   */
+  parentToggleId?: string;
+  /** Set on image blocks: the base64 data URL of the pasted image. */
+  src?: string;
 }
 
 /** Parses the `props` JSON string. Malformed props read as empty rather than breaking the page. */
@@ -198,7 +223,7 @@ export function parseBlockProps(props: string | null): BlockProps {
   }
 }
 
-/** Whether a type has editable text at all - only the divider does not. */
+/** Whether a type has editable text at all — the divider and image types do not. */
 export function isTextualBlock(type: BlockType): boolean {
-  return type !== 'divider';
+  return type !== 'divider' && type !== 'image';
 }

@@ -11,3 +11,15 @@
   font-weight: 700;
   font-size: 14px;
 }
+
+/*
+  Code block: allow horizontal scrolling on long lines. The TEXTAREA_BASE utility string includes
+  `overflow-hidden` (shorthand for both axes). Tailwind utilities have equal specificity so the
+  cascade order between `overflow-hidden` and `overflow-x-auto` is non-deterministic at build time.
+  A CSS Module rule loaded after the utility stylesheet is guaranteed to win, so the declaration
+  lives here rather than as a utility on the element.
+*/
+.codeTextarea {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
