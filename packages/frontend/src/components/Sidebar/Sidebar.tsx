@@ -398,8 +398,14 @@ export function Sidebar({
       tabIndex={-1}
       ref={sidebarRef as React.Ref<HTMLElement>}
       // Escape on any element inside the drawer closes it and returns focus to the toggle.
+      // Guard: Radix portals the confirm dialog to body but keeps it in the React tree, so
+      // synthetic Escape events from the dialog bubble here. Skip closing the drawer when a
+      // dialog is present — Radix handles Escape for the dialog; the drawer stays open.
       onKeyDown={(e) => {
-        if (e.key === 'Escape') onClose?.();
+        if (e.key === 'Escape') {
+          if (document.querySelector('[role="dialog"]')) return;
+          onClose?.();
+        }
       }}
     >
       <header className="flex items-center gap-[11px] px-1 pt-1 pb-3.5">

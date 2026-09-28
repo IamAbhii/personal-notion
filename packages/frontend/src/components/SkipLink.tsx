@@ -13,7 +13,7 @@ export interface SkipLinkProps {
 export function SkipLink({ targetId, children }: SkipLinkProps) {
   return (
     <a
-      className="absolute top-2 left-2 z-[100] -translate-y-[200%] rounded-sm bg-amber px-3.5 py-2 text-sm font-bold text-text-on-amber no-underline focus-visible:translate-y-0"
+      className="absolute top-2 left-2 z-skip -translate-y-[200%] rounded-sm bg-amber px-3.5 py-2 text-sm font-bold text-text-on-amber no-underline focus-visible:translate-y-0"
       href={`#${targetId}`}
       onClick={(event) => {
         // Focus is moved by hand rather than left to the fragment: the router owns the URL, and a
