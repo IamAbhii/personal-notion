@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, apiGet, apiPost } from './client';
+import { ApiError, apiGet, apiPost, KEEPALIVE_MAX_BODY_BYTES } from './client';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -98,16 +98,30 @@ describe('apiPost', () => {
     });
   });
 
-  it('sets keepalive so in-flight requests survive page unload', async () => {
+  it('sets keepalive on a small body so in-flight requests survive page unload', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({}), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       }),
     );
-    await apiPost('/api/sync', {});
+    await apiPost('/api/sync', { small: true });
     const [, options] = fetchSpy.mock.calls[0]!;
     expect((options as RequestInit).keepalive).toBe(true);
+  });
+
+  it('omits keepalive when the body exceeds the 64 KiB Fetch spec cap', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({}), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    // Build a payload whose JSON representation exceeds KEEPALIVE_MAX_BODY_BYTES.
+    const largeBody = { data: 'x'.repeat(KEEPALIVE_MAX_BODY_BYTES + 1) };
+    await apiPost('/api/sync', largeBody);
+    const [, options] = fetchSpy.mock.calls[0]!;
+    expect((options as RequestInit).keepalive).toBeFalsy();
   });
 
   it('throws ApiError on a non-2xx status', async () => {
