@@ -39,8 +39,12 @@ export function Dialog({
   return (
     <RadixDialog.Root open={open} onOpenChange={onOpenChange}>
       <RadixDialog.Portal>
-        {/* Semi-opaque backdrop; Radix dismisses on click. */}
-        <RadixDialog.Overlay className="fixed inset-0 z-20 grid place-items-center bg-[rgba(12,11,16,0.55)]">
+        {/*
+          Semi-opaque backdrop; Radix dismisses on click.
+          z-overlay sits above z-drawer so the dialog is tappable on mobile.
+          See app.css @theme for the full layering table.
+        */}
+        <RadixDialog.Overlay className="fixed inset-0 z-overlay grid place-items-center bg-[rgba(12,11,16,0.55)]">
           <RadixDialog.Content
             className={cn(
               'w-[min(440px,calc(100vw-2rem))] rounded-[var(--radius-lg)] bg-surface p-6 text-text shadow-[var(--shadow-pop)]',

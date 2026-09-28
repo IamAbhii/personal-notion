@@ -49,7 +49,8 @@ export function EmojiPickerPopover({ onPick, onClose }: EmojiPickerPopoverProps)
           align="start"
           // 8px away from viewport edges keeps the picker on screen at 320px.
           collisionPadding={8}
-          className="overflow-hidden rounded-md bg-surface shadow-[var(--shadow-pop)]"
+          // z-overlay lifts above the z-drawer mobile sidebar (see app.css @theme).
+          className="z-overlay overflow-hidden rounded-md bg-surface shadow-[var(--shadow-pop)]"
           role="dialog"
           aria-label="Choose a page icon"
           onInteractOutside={onClose}

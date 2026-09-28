@@ -169,4 +169,67 @@ describe('WorkspaceShell mobile drawer', () => {
     // Focus returns to the toggle via Sidebar's onKeyDown → onClose → WorkspaceShell callback.
     expect(document.activeElement).toBe(toggle);
   });
+
+  it('Escape with a dialog open closes only the dialog and leaves the drawer open', async () => {
+    // When the confirm dialog is open inside the mobile drawer, Escape must dismiss the dialog
+    // but leave the drawer open — the document-level Escape guard checks [role="dialog"].
+    const mockPage = {
+      id: 'p-shell-test',
+      title: 'Shell Test Page',
+      icon: '\u{1F4C4}',
+      kind: 'page' as const,
+      parentId: null,
+      sortKey: 'a0',
+      version: 1,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    };
+    mockUseSuspenseQuery.mockImplementation((queryOpts: { queryKey: string[] }) => {
+      if (queryOpts.queryKey[0] === 'me') return { data: mockMe };
+      return { data: { pages: [mockPage], blocks: [] } };
+    });
+
+    const user = userEvent.setup();
+    render(<WorkspaceShell />);
+
+    const toggle = screen.getByRole('button', { name: 'Open navigation' });
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+
+    // Open the confirm dialog by clicking delete on the page.
+    await user.click(screen.getByRole('button', { name: 'Delete Shell Test Page' }));
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+
+    // Press Escape — should close the dialog but NOT the drawer.
+    await user.keyboard('{Escape}');
+
+    // Dialog is dismissed.
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+
+    // Drawer must still be open — aria-expanded stays true.
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('Escape with a popover open does not close the drawer (z-overlay + role=dialog guard)', async () => {
+    // Popovers are now fixed at z-overlay (above z-drawer). Their Radix content carries
+    // role="dialog", so the document-level Escape guard fires and leaves the drawer open —
+    // the same mechanism as the Dialog guard, but confirmed here for popovers specifically.
+    const user = userEvent.setup();
+    render(<WorkspaceShell />);
+
+    const toggle = screen.getByRole('button', { name: 'Open navigation' });
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+
+    // Simulate a portalled Popover by injecting [role="dialog"] into body, matching Radix output.
+    const fakePopover = document.createElement('div');
+    fakePopover.setAttribute('role', 'dialog');
+    document.body.appendChild(fakePopover);
+
+    await user.keyboard('{Escape}');
+
+    // Guard fires because [role="dialog"] is present: drawer stays open.
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+
+    fakePopover.remove();
+  });
 });

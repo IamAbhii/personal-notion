@@ -88,11 +88,11 @@ export function DropdownMenu({
           // open its own focused element (a rename input, a dialog), and stealing focus back would
           // immediately blur that element and dismiss it.
           onCloseAutoFocus={(e) => e.preventDefault()}
-          // z-50 lifts the menu above the sidebar and any other stacked content.
+          // z-overlay lifts the menu above z-drawer and any other stacked content (see app.css).
           className={cn(
             // border-border gives the panel a defined edge in dark theme where --shadow-pop
             // (dark rgba) renders invisibly against the dark canvas.
-            'z-50 min-w-[160px] overflow-hidden rounded-md border border-border bg-surface p-1 shadow-[var(--shadow-pop)]',
+            'z-overlay min-w-[160px] overflow-hidden rounded-md border border-border bg-surface p-1 shadow-[var(--shadow-pop)]',
             className,
           )}
         >
