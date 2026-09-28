@@ -4,6 +4,7 @@ import { Pencil, X } from 'lucide-react';
 import { Popover } from '../ui/Popover/Popover';
 import { cn } from '../../lib/cn';
 import { optionColorClass } from '../../lib/optionColors';
+import { formatDateString, parseDateString as parseDateStr } from '../../lib/dateFormat';
 import { OPTION_COLORS } from '../../api/types';
 import type { PropertyRecord, PropertyType, SelectOption } from '../../api/types';
 import styles from './CellEditor.module.css';
@@ -64,25 +65,17 @@ function encodeUrl(v: string): string | null {
   return v.trim() === '' ? null : JSON.stringify(v);
 }
 
-/** Parses a YYYY-MM-DD string into a local-timezone Date, or returns undefined. */
+/** Parses a YYYY-MM-DD string from a raw JSON cell value into a local-timezone Date. */
 function parseDateString(raw: string | null): Date | undefined {
   const s = parseValue<string>(raw);
-  if (!s) return undefined;
-  const parts = s.split('-');
-  if (parts.length !== 3) return undefined;
-  // Parse each part individually to avoid tuple-element undefined in strict mode.
-  const y = Number(parts[0]);
-  const m = Number(parts[1]);
-  const d = Number(parts[2]);
-  const date = new Date(y, m - 1, d);
-  return Number.isNaN(date.getTime()) ? undefined : date;
+  return parseDateStr(s);
 }
 
-/** Formats a YYYY-MM-DD string for display, e.g. "1 Sep 2026". */
+/** Formats a YYYY-MM-DD JSON cell value for display, e.g. "1 Sep 2026". */
 function formatDate(raw: string | null): string {
-  const d = parseDateString(raw);
-  if (!d) return '';
-  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  // Decode the JSON wrapper ("2026-09-15" → 2026-09-15), then delegate to the shared formatter.
+  const s = parseValue<string>(raw);
+  return formatDateString(s);
 }
 
 /** Ensures a URL has a scheme; prefixes https:// when none is present. */
@@ -136,21 +129,31 @@ function TextCell({
   onSave: (v: string | null) => void;
   label: string;
 }) {
-  const [draft, setDraft] = useState(() => parseValue<string>(value) ?? '');
-  // Track the value at the time the user focused so Escape can revert correctly (ADV-034).
-  const revertTo = useRef(draft);
+  // The prop value is authoritative when the field is not focused; the draft is authoritative
+  // while the user holds focus. This keeps background refetches (e.g. the 30-second snapshot
+  // poll) from clobbering an in-progress edit, while ensuring the displayed value stays current
+  // when the user is not actively typing. The same pattern is used by NumberCell (DEF-105).
+  const [focused, setFocused] = useState(false);
+  const [draft, setDraft] = useState('');
+  // Track the value at focus-start so Escape can revert correctly (ADV-034).
+  const revertTo = useRef('');
+
+  const displayValue = focused ? draft : (parseValue<string>(value) ?? '');
 
   return (
     <input
       type="text"
       aria-label={label}
       className={inputBase}
-      value={draft}
+      value={displayValue}
       placeholder="Empty"
-      onChange={(e) => setDraft(e.target.value)}
       onFocus={() => {
-        revertTo.current = parseValue<string>(value) ?? '';
+        const decoded = parseValue<string>(value) ?? '';
+        revertTo.current = decoded;
+        setDraft(decoded);
+        setFocused(true);
       }}
+      onChange={(e) => setDraft(e.target.value)}
       onKeyDown={(e) => {
         if (e.key === 'Enter') {
           e.preventDefault();
@@ -161,7 +164,10 @@ function TextCell({
           setDraft(revertTo.current);
         }
       }}
-      onBlur={() => onSave(encodeText(draft))}
+      onBlur={() => {
+        onSave(encodeText(draft));
+        setFocused(false);
+      }}
     />
   );
 }
@@ -641,17 +647,30 @@ function UrlCell({
   onSave: (v: string | null) => void;
   label: string;
 }) {
+  // `editing` tracks whether the user explicitly clicked the edit button on a non-empty cell.
+  // `focused` tracks whether the input currently has DOM focus (covers both the editing case and
+  // the always-visible empty-cell input). Both are needed to guard view-mode re-entry.
+  //
+  // DEF-107: the old code used a useState initializer for `draft` (runs only once) and guarded
+  // view mode with `!editing && raw` only. When a background refetch delivered a value to an empty
+  // cell the user was typing in, `raw` became truthy, the branch flipped to view mode, and the
+  // draft was discarded. The fix mirrors TextCell (DEF-105): derive the displayed value from
+  // `focused` — the prop when idle, the local draft while the user is typing — so a refetch can
+  // update a passive cell but cannot clobber an in-progress edit.
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(() => parseValue<string>(value) ?? '');
-  // Track value at edit-start so Escape can revert to it (ADV-034).
-  const revertTo = useRef(draft);
+  const [focused, setFocused] = useState(false);
+  const [draft, setDraft] = useState('');
+  // Track value at edit/focus-start so Escape can revert to it (ADV-034).
+  const revertTo = useRef('');
 
   const raw = parseValue<string>(value) ?? '';
 
-  // View mode with a stored value: show anchor (if URL-like) or plain text, plus an edit button.
+  // View mode: a stored value exists and the user is not actively editing or focused in the input.
+  // The !focused guard is the DEF-107 fix: a background refetch delivering a value to an empty
+  // cell cannot silently discard what the user was typing.
   // The anchor is NOT given onFocus that switches to edit mode, so clicking/tabbing to it follows
   // the link as expected (ADV-032).
-  if (!editing && raw) {
+  if (!editing && !focused && raw) {
     const likelyUrl = isLikelyUrl(raw);
     return (
       <div className="group/url flex min-h-[40px] min-w-0 items-center gap-1 px-2 py-1.5">
@@ -695,36 +714,47 @@ function UrlCell({
     );
   }
 
-  // Edit mode (or no stored value): show the input.
+  // Input mode: shown when editing, focused, or the cell is empty.
+  // Display the draft while the user holds focus/is editing; fall back to the decoded prop value
+  // so a passive (unfocused, non-editing) empty cell always reflects the latest server state.
+  const displayValue = focused || editing ? draft : raw;
+
   return (
     <input
       type="url"
       aria-label={label}
       className={inputBase}
-      value={draft}
+      value={displayValue}
       // autoFocus only when switching from view mode; without it the input would steal focus on
       // every mount (e.g. when the cell first renders empty).
       autoFocus={editing}
       placeholder="https://example.com"
       onChange={(e) => setDraft(e.target.value)}
       onFocus={() => {
-        // Sync the revert target to the latest stored value each time the input is focused.
-        revertTo.current = parseValue<string>(value) ?? '';
+        // Snapshot the stored value at focus time; this becomes the Escape revert target and the
+        // initial draft — so Escape always returns to what was last saved, not a stale closure.
+        const decoded = parseValue<string>(value) ?? '';
+        revertTo.current = decoded;
+        setDraft(decoded);
+        setFocused(true);
       }}
       onKeyDown={(e) => {
         if (e.key === 'Enter') {
           e.preventDefault();
           setEditing(false);
+          setFocused(false);
           onSave(encodeUrl(draft));
         }
         if (e.key === 'Escape') {
           e.preventDefault();
           setEditing(false);
+          setFocused(false);
           setDraft(revertTo.current);
         }
       }}
       onBlur={() => {
         setEditing(false);
+        setFocused(false);
         onSave(encodeUrl(draft));
       }}
     />

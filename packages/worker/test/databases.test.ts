@@ -582,6 +582,173 @@ describe('empty and whitespace-only name rejection', () => {
   });
 });
 
+// ── duplicate option names (DEF-082 / ADV-068) ───────────────────────────────
+
+describe('duplicate option name rejection', () => {
+  it('rejects property.create with two options sharing the same name', async () => {
+    const owner = await createAccount();
+    const dbId = await createDatabase(owner);
+    const propId = crypto.randomUUID();
+    const body = await syncBody(owner, [
+      makeOp(owner.workspaceId, 'property.create', propId, {
+        databasePageId: dbId,
+        name: 'Status',
+        type: 'select',
+        options: [
+          { id: 'o1', name: 'Done', color: 'teal' },
+          { id: 'o2', name: 'Done', color: 'gray' },
+        ],
+      }),
+    ]);
+    expect(body.results[0]?.status).toBe('rejected');
+    expect(body.results[0]?.reason).toMatch(/duplicate option name/);
+  });
+
+  it('rejects property.update with duplicate option names', async () => {
+    const owner = await createAccount();
+    const dbId = await createDatabase(owner);
+    const propId = await createProperty(owner, dbId, {
+      type: 'select',
+      propOptions: [{ id: 'o1', name: 'Backlog', color: 'gray' }],
+    });
+    const body = await syncBody(owner, [
+      makeOp(owner.workspaceId, 'property.update', propId, {
+        options: [
+          { id: 'o1', name: 'Backlog', color: 'gray' },
+          { id: 'o2', name: 'Backlog', color: 'amber' },
+        ],
+      }),
+    ]);
+    expect(body.results[0]?.status).toBe('rejected');
+    expect(body.results[0]?.reason).toMatch(/duplicate option name/);
+  });
+
+  it('rejects duplicate option names that differ only in case', async () => {
+    const owner = await createAccount();
+    const dbId = await createDatabase(owner);
+    const propId = crypto.randomUUID();
+    const body = await syncBody(owner, [
+      makeOp(owner.workspaceId, 'property.create', propId, {
+        databasePageId: dbId,
+        name: 'Status',
+        type: 'select',
+        options: [
+          { id: 'o1', name: 'Done', color: 'teal' },
+          { id: 'o2', name: 'done', color: 'gray' },
+        ],
+      }),
+    ]);
+    expect(body.results[0]?.status).toBe('rejected');
+    expect(body.results[0]?.reason).toMatch(/duplicate option name/);
+  });
+
+  it('rejects duplicate option names that differ only in surrounding whitespace', async () => {
+    const owner = await createAccount();
+    const dbId = await createDatabase(owner);
+    const propId = crypto.randomUUID();
+    const body = await syncBody(owner, [
+      makeOp(owner.workspaceId, 'property.create', propId, {
+        databasePageId: dbId,
+        name: 'Status',
+        type: 'select',
+        options: [
+          { id: 'o1', name: 'Done', color: 'teal' },
+          { id: 'o2', name: 'done ', color: 'gray' },
+        ],
+      }),
+    ]);
+    expect(body.results[0]?.status).toBe('rejected');
+    expect(body.results[0]?.reason).toMatch(/duplicate option name/);
+  });
+
+  it('rejects duplicate option ids', async () => {
+    // Already covered by the existing test in property.create; re-confirmed here with update.
+    const owner = await createAccount();
+    const dbId = await createDatabase(owner);
+    const propId = await createProperty(owner, dbId, { type: 'select' });
+    const body = await syncBody(owner, [
+      makeOp(owner.workspaceId, 'property.update', propId, {
+        options: [
+          { id: 'same-id', name: 'Alpha', color: 'blue' },
+          { id: 'same-id', name: 'Beta', color: 'rose' },
+        ],
+      }),
+    ]);
+    expect(body.results[0]?.status).toBe('rejected');
+    expect(body.results[0]?.reason).toMatch(/duplicate option id/);
+  });
+
+  it('accepts options with the same name across two different properties', async () => {
+    // Uniqueness is per-property, not per-database.
+    const owner = await createAccount();
+    const dbId = await createDatabase(owner);
+    const prop1Id = crypto.randomUUID();
+    const prop2Id = crypto.randomUUID();
+    const body = await syncBody(owner, [
+      makeOp(owner.workspaceId, 'property.create', prop1Id, {
+        databasePageId: dbId,
+        name: 'StatusA',
+        type: 'select',
+        options: [{ id: 'o1', name: 'Done', color: 'teal' }],
+      }),
+      makeOp(owner.workspaceId, 'property.create', prop2Id, {
+        databasePageId: dbId,
+        name: 'StatusB',
+        type: 'select',
+        options: [{ id: 'o2', name: 'Done', color: 'teal' }],
+      }),
+    ]);
+    expect(body.results[0]?.status).toBe('applied');
+    expect(body.results[1]?.status).toBe('applied');
+  });
+});
+
+// ── batch partial rejection (DEF-079 / ADV-069 server invariant) ──────────────
+
+describe('batch partial rejection', () => {
+  it('applies the valid ops in a batch even when one op is rejected', async () => {
+    // This is the invariant DEF-079's client fix depends on: a single rejected op must not cause
+    // the server to discard the whole batch. The good ops must be applied and returned as applied.
+    const owner = await createAccount();
+    const dbId = await createDatabase(owner);
+
+    const goodPropId = crypto.randomUUID();
+    const badPropId = crypto.randomUUID();
+
+    // goodProp: valid select with two distinct names.
+    // badProp: select with duplicate option names - should be rejected.
+    const body = await syncBody(owner, [
+      makeOp(owner.workspaceId, 'property.create', goodPropId, {
+        databasePageId: dbId,
+        name: 'Priority',
+        type: 'select',
+        options: [
+          { id: 'p1', name: 'High', color: 'rose' },
+          { id: 'p2', name: 'Low', color: 'blue' },
+        ],
+      }),
+      makeOp(owner.workspaceId, 'property.create', badPropId, {
+        databasePageId: dbId,
+        name: 'Duplicate',
+        type: 'select',
+        options: [
+          { id: 'd1', name: 'Same', color: 'gray' },
+          { id: 'd2', name: 'same', color: 'amber' },
+        ],
+      }),
+    ]);
+
+    expect(body.results[0]?.status).toBe('applied');
+    expect(body.results[1]?.status).toBe('rejected');
+    expect(body.results[1]?.reason).toMatch(/duplicate option name/);
+
+    // The good property must exist in the database despite the bad one being rejected.
+    const props = await listProperties(owner.db, owner.ctx);
+    expect(props.some((p) => p.id === goodPropId)).toBe(true);
+    expect(props.some((p) => p.id === badPropId)).toBe(false);
+  });
+});
+
 // ── option-removal cascade (ADV-038) ─────────────────────────────────────────
 
 describe('option removal cleans up dangling cell values', () => {

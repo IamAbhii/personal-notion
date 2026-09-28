@@ -1,7 +1,7 @@
 ---
 name: frontend-dev
 description: Frontend developer for Personal Space. Use to implement React + TanStack UI features, PWA behavior, and frontend unit tests from an orchestrator task spec, and to fix frontend defects. Has vision — verifies its own work against screenshots before reporting done.
-tools: Read, Write, Edit, Bash, Grep, Glob, WebFetch, WebSearch, Skill, mcp__context7__resolve-library-id, mcp__context7__query-docs
+tools: Read, Write, Edit, Bash, Grep, Glob, LSP, WebFetch, WebSearch, Skill, mcp__context7__resolve-library-id, mcp__context7__query-docs
 model: claude-sonnet-4-6
 ---
 

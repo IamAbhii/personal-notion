@@ -189,11 +189,16 @@ test.describe('Cell edit persistence after reload — seeded databases', () => {
     const selectPortal2 = page.locator('[data-radix-popper-content-wrapper]');
     await expect(selectPortal2).toBeVisible({ timeout: 3000 });
     await selectPortal2.getByRole('button', { name: 'Done' }).click();
-    await page.waitForLoadState('networkidle');
+    // waitForTimeout is enough for the save debounce; no need for an extra networkidle
+    // here — that call stacks with goToDatabase's two networkidle waits and the one in
+    // the final goto, pushing the total past the 30s budget in a loaded suite run.
     await page.waitForTimeout(1500);
 
     await page.goto(`/w/${workspaceId}/page/${dbPageId}`);
-    await page.waitForLoadState('networkidle');
+    // Use 'load' instead of 'networkidle': the cell data arrives with the initial page
+    // response. networkidle waits for all background XHR to settle, which can take
+    // far longer than the 30s budget allows after 29 prior tests have primed the Worker.
+    await page.waitForLoadState('load');
 
     const reloadedRow = page
       .getByTestId('database-view')

@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../api/queries';
 import { submitOps } from '../sync/ops';
+import { OpRejectedError } from '../sync/ops';
 import {
   buildPropertyCreateOp,
   buildPropertyDeleteOp,
@@ -25,7 +26,16 @@ export interface PropertyMutations {
     type: PropertyType;
     options?: SelectOption[];
   }) => Promise<string | null>;
-  updateProperty: (property: PropertyRecord, changes: PropertyUpdatePayload) => Promise<void>;
+  /**
+   * Updates a property. Returns null on success or the server rejection reason on failure.
+   * Options rejections return the reason string so the OptionsEditor can display it inline
+   * without closing the dialog (DEF-079). Other rejections (e.g. name updates) show a toast
+   * and return null.
+   */
+  updateProperty: (
+    property: PropertyRecord,
+    changes: PropertyUpdatePayload,
+  ) => Promise<string | null>;
   deleteProperty: (property: PropertyRecord) => Promise<void>;
   /** Sets a cell value. `value` is the JSON-encoded typed value, or null to clear. */
   setValue: (args: {
@@ -36,12 +46,24 @@ export interface PropertyMutations {
   }) => Promise<void>;
 }
 
+/** Extracts the rejection reason strings from an OpRejectedError for inline display. */
+function extractRejectionReason(error: unknown): string {
+  if (error instanceof OpRejectedError) {
+    const reasons = error.results
+      .filter((r) => r.status === 'rejected')
+      .map((r) => r.reason ?? 'the server refused it');
+    return [...new Set(reasons)].join('; ');
+  }
+  return error instanceof Error ? error.message : 'Unknown error';
+}
+
 /**
  * The property and value write API for the database UI. Follows the same optimistic-update pattern
  * as useBlockMutations: patch the cached snapshot immediately so the UI feels instant, then
  * invalidate after the server confirms to reconcile with server truth.
  *
- * No call here rejects — failures are reported through `notify` and the snapshot is refetched.
+ * updateProperty returns null on success or the rejection reason on failure for options updates,
+ * so the OptionsEditor can surface errors inline without closing (DEF-079).
  * Future: when the durable queue lands, these append ops to IndexedDB first; the shape does not change.
  */
 export function usePropertyMutations(
@@ -211,9 +233,19 @@ export function usePropertyMutations(
     updateProperty: async (property, changes) => {
       try {
         await update.mutateAsync({ property, changes });
+        return null; // success
       } catch (error) {
+        // For options updates: roll back the optimistic patch and return the rejection reason so
+        // the OptionsEditor can display it inline without closing (DEF-079). No toast is shown
+        // because the dialog itself surfaces the error.
+        await invalidate();
+        if (changes.options !== undefined) {
+          return extractRejectionReason(error);
+        }
+        // For all other field updates (name, etc.): show the standard toast.
         const fields = Object.keys(changes).join(' and ');
-        await handleFailure(`Updating the ${fields} of "${property.name}"`, error);
+        notify(describeWriteFailure(`Updating the ${fields} of "${property.name}"`, error));
+        return null;
       }
     },
     deleteProperty: async (property) => {

@@ -13,7 +13,13 @@ import { ancestorChain, childrenOf } from '../lib/pageTree';
 import { blocksForPage } from '../lib/blocks';
 import { StatusCard } from '../components/ui/StatusCard/StatusCard';
 import { bySortKeyThenId } from '../lib/ordering';
-import { buildValuesMap, filterRows, groupRows, sortRows } from '../lib/viewData';
+import {
+  buildValuesMap,
+  cleanViewAfterPropertyDelete,
+  filterRows,
+  groupRows,
+  sortRows,
+} from '../lib/viewData';
 import { useUiStoreShallow } from '../stores/uiStore';
 import type { ViewKind } from '../api/types';
 
@@ -85,6 +91,7 @@ export function PageScreen() {
       <DatabasePageContent
         page={page}
         dbProperties={dbProperties}
+        dbViews={dbViews}
         rowPages={rowPages}
         dbValues={dbValues}
         activeKind={activeKind}
@@ -100,10 +107,12 @@ export function PageScreen() {
             ...args,
           })
         }
-        onUpdateProperty={(prop, changes) => void propertyMutations.updateProperty(prop, changes)}
+        onUpdateProperty={(prop, changes) => propertyMutations.updateProperty(prop, changes)}
         onDeleteProperty={(prop) => void propertyMutations.deleteProperty(prop)}
         onSetValue={(args) => void propertyMutations.setValue(args)}
         onUpdateView={(view, changes) => void viewMutations.updateView(view, changes)}
+        onCreateDefaultViews={() => void viewMutations.createDefaultViews(page.id)}
+        notify={notify}
         onRenamePage={(title) => void mutations.updatePage(page, { title })}
         onChangeIcon={(icon) => void mutations.updatePage(page, { icon })}
         pages={pages}
@@ -191,6 +200,8 @@ import type { PageRecord, PropertyRecord, PropertyValueRecord, ViewRecord } from
 interface DatabasePageContentProps {
   page: PageRecord;
   dbProperties: PropertyRecord[];
+  /** All views for this database, in sort-key order. Used for no-views state and filter cleanup. */
+  dbViews: ViewRecord[];
   rowPages: PageRecord[];
   dbValues: PropertyValueRecord[];
   activeKind: ViewKind;
@@ -208,13 +219,17 @@ interface DatabasePageContentProps {
   onUpdateProperty: (
     property: PropertyRecord,
     changes: { name?: string; options?: PropertyRecord['options'] },
-  ) => void;
+  ) => Promise<string | null>;
   onDeleteProperty: (property: PropertyRecord) => void;
   onSetValue: (args: { rowPageId: string; propertyId: string; value: string | null }) => void;
   onUpdateView: (
     view: ViewRecord,
     changes: Partial<Pick<ViewRecord, 'filters' | 'sort' | 'groupPropertyId'>>,
   ) => void;
+  /** Creates the three default views for this database when none exist (DEF-073). */
+  onCreateDefaultViews: () => void;
+  /** Toast notification channel, forwarded to BoardView for post-move feedback (DEF-078). */
+  notify: (message: string) => void;
   onRenamePage: (title: string) => void;
   onChangeIcon: (icon: string) => void;
   pages: PageRecord[];
@@ -227,6 +242,7 @@ interface DatabasePageContentProps {
 function DatabasePageContent({
   page,
   dbProperties,
+  dbViews,
   rowPages,
   dbValues,
   activeKind,
@@ -241,6 +257,8 @@ function DatabasePageContent({
   onDeleteProperty,
   onSetValue,
   onUpdateView,
+  onCreateDefaultViews,
+  notify,
   onRenamePage,
   onChangeIcon,
   pages,
@@ -282,6 +300,48 @@ function DatabasePageContent({
     onUpdateView(activeView, changes);
   };
 
+  // When a property is deleted, any view that references it in a filter or sort will render a
+  // dangling filter (DEF-071). Drop the stale references from all affected views before the
+  // property.delete op lands, so the panel never shows a filter that is not the stored one.
+  const handleDeleteProperty = (prop: PropertyRecord) => {
+    for (const view of dbViews) {
+      const cleaned = cleanViewAfterPropertyDelete(view, prop.id);
+      if (cleaned) {
+        onUpdateView(view, cleaned);
+      }
+    }
+    onDeleteProperty(prop);
+  };
+
+  // When the database has no views (e.g. they were rejected at creation — DEF-073), show an
+  // honest empty state with a recovery button rather than a broken shell.
+  if (dbViews.length === 0) {
+    return (
+      <PageView
+        page={page}
+        breadcrumb={ancestorChain(pages, page.id)}
+        childCount={0}
+        onSelectPage={onSelectRow}
+        onRename={onRenamePage}
+        onChangeIcon={onChangeIcon}
+      >
+        <div className="flex flex-col items-center gap-4 rounded-lg border-2 border-dashed border-border px-6 py-12 text-center">
+          <p className="text-sm font-medium text-text">This database has no views yet.</p>
+          <p className="text-sm text-text-muted">
+            Views are normally created automatically. You can recreate them now.
+          </p>
+          <button
+            type="button"
+            className="min-h-12 rounded-md bg-blue px-4 py-3 text-sm font-medium text-white hover:opacity-90"
+            onClick={onCreateDefaultViews}
+          >
+            Create default views
+          </button>
+        </div>
+      </PageView>
+    );
+  }
+
   return (
     <PageView
       page={page}
@@ -293,15 +353,18 @@ function DatabasePageContent({
     >
       {/* View bar: switcher on the left, filter/sort on the right */}
       <div className="mb-3 flex items-center gap-2 border-b border-border pb-3">
-        <ViewSwitcher activeKind={activeKind} onSwitch={onSwitchView} className="flex-1" />
+        <ViewSwitcher activeKind={activeKind} onSwitch={onSwitchView} />
+        {/* ml-auto pushes the filter control to the right without stretching the view switcher */}
         {activeView && (
-          <FilterSortControl
-            view={activeView}
-            properties={dbProperties}
-            rows={displayRows}
-            viewKind={activeKind}
-            onUpdate={handleViewUpdate}
-          />
+          <div className="ml-auto">
+            <FilterSortControl
+              view={activeView}
+              properties={dbProperties}
+              rows={displayRows}
+              viewKind={activeKind}
+              onUpdate={handleViewUpdate}
+            />
+          </div>
         )}
       </div>
 
@@ -310,6 +373,7 @@ function DatabasePageContent({
         <DatabaseView
           dbPage={page}
           rowPages={displayRows}
+          totalRowCount={rowPages.length}
           properties={dbProperties}
           values={dbValues}
           onSelectRow={onSelectRow}
@@ -318,7 +382,7 @@ function DatabasePageContent({
           onRenameRow={onRenameRow}
           onCreateProperty={onCreateProperty}
           onUpdateProperty={onUpdateProperty}
-          onDeleteProperty={onDeleteProperty}
+          onDeleteProperty={handleDeleteProperty}
           onSetValue={onSetValue}
         />
       )}
@@ -331,12 +395,14 @@ function DatabasePageContent({
           onSelectRow={onSelectRow}
           onCreateRow={onCreateRow}
           onSetValue={onSetValue}
+          notify={notify}
         />
       )}
 
       {activeKind === 'list' && (
         <ListView
           rows={displayRows}
+          totalRowCount={rowPages.length}
           properties={dbProperties}
           values={dbValues}
           onSelectRow={onSelectRow}

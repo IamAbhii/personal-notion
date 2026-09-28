@@ -27,6 +27,13 @@ describe('ViewSwitcher', () => {
     );
   });
 
+  it('the active tab has tabIndex 0 and inactive tabs have tabIndex -1 (roving tabindex, DEF-080)', () => {
+    render(<ViewSwitcher activeKind="table" onSwitch={vi.fn()} />);
+    expect(screen.getByRole('tab', { name: /table view/i })).toHaveAttribute('tabindex', '0');
+    expect(screen.getByRole('tab', { name: /board view/i })).toHaveAttribute('tabindex', '-1');
+    expect(screen.getByRole('tab', { name: /list view/i })).toHaveAttribute('tabindex', '-1');
+  });
+
   it('calls onSwitch with the correct kind when a tab is clicked', async () => {
     const user = userEvent.setup();
     const onSwitch = vi.fn();
@@ -48,5 +55,71 @@ describe('ViewSwitcher', () => {
     // The switcher does not gate the call — it always calls onSwitch. This test verifies the
     // caller is responsible for idempotency (the uiStore setActiveViewKind is idempotent).
     expect(onSwitch).toHaveBeenCalledWith('table');
+  });
+
+  it('ArrowRight moves to the next tab (DEF-080)', async () => {
+    const user = userEvent.setup();
+    const onSwitch = vi.fn();
+    render(<ViewSwitcher activeKind="table" onSwitch={onSwitch} />);
+
+    const tableTab = screen.getByRole('tab', { name: /table view/i });
+    tableTab.focus();
+    await user.keyboard('{ArrowRight}');
+    expect(onSwitch).toHaveBeenCalledWith('board');
+  });
+
+  it('ArrowLeft moves to the previous tab (DEF-080)', async () => {
+    const user = userEvent.setup();
+    const onSwitch = vi.fn();
+    render(<ViewSwitcher activeKind="board" onSwitch={onSwitch} />);
+
+    const boardTab = screen.getByRole('tab', { name: /board view/i });
+    boardTab.focus();
+    await user.keyboard('{ArrowLeft}');
+    expect(onSwitch).toHaveBeenCalledWith('table');
+  });
+
+  it('ArrowRight wraps from the last tab to the first (DEF-080)', async () => {
+    const user = userEvent.setup();
+    const onSwitch = vi.fn();
+    render(<ViewSwitcher activeKind="list" onSwitch={onSwitch} />);
+
+    const listTab = screen.getByRole('tab', { name: /list view/i });
+    listTab.focus();
+    await user.keyboard('{ArrowRight}');
+    expect(onSwitch).toHaveBeenCalledWith('table');
+  });
+
+  it('ArrowLeft wraps from the first tab to the last (DEF-080)', async () => {
+    const user = userEvent.setup();
+    const onSwitch = vi.fn();
+    render(<ViewSwitcher activeKind="table" onSwitch={onSwitch} />);
+
+    const tableTab = screen.getByRole('tab', { name: /table view/i });
+    tableTab.focus();
+    await user.keyboard('{ArrowLeft}');
+    expect(onSwitch).toHaveBeenCalledWith('list');
+  });
+
+  it('Home jumps to the first tab (DEF-080)', async () => {
+    const user = userEvent.setup();
+    const onSwitch = vi.fn();
+    render(<ViewSwitcher activeKind="list" onSwitch={onSwitch} />);
+
+    const listTab = screen.getByRole('tab', { name: /list view/i });
+    listTab.focus();
+    await user.keyboard('{Home}');
+    expect(onSwitch).toHaveBeenCalledWith('table');
+  });
+
+  it('End jumps to the last tab (DEF-080)', async () => {
+    const user = userEvent.setup();
+    const onSwitch = vi.fn();
+    render(<ViewSwitcher activeKind="table" onSwitch={onSwitch} />);
+
+    const tableTab = screen.getByRole('tab', { name: /table view/i });
+    tableTab.focus();
+    await user.keyboard('{End}');
+    expect(onSwitch).toHaveBeenCalledWith('list');
   });
 });

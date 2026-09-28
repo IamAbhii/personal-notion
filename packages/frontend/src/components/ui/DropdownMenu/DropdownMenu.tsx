@@ -90,7 +90,9 @@ export function DropdownMenu({
           onCloseAutoFocus={(e) => e.preventDefault()}
           // z-50 lifts the menu above the sidebar and any other stacked content.
           className={cn(
-            'z-50 min-w-[160px] overflow-hidden rounded-md bg-surface p-1 shadow-[var(--shadow-pop)]',
+            // border-border gives the panel a defined edge in dark theme where --shadow-pop
+            // (dark rgba) renders invisibly against the dark canvas.
+            'z-50 min-w-[160px] overflow-hidden rounded-md border border-border bg-surface p-1 shadow-[var(--shadow-pop)]',
             className,
           )}
         >

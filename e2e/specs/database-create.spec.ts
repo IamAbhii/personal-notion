@@ -92,9 +92,9 @@ test.describe('Database creation and sidebar', () => {
       await expect(dbView.getByRole('columnheader').filter({ hasText: name })).toBeVisible();
     }
 
-    // At least three seeded rows must be present.
+    // Six seeded rows must be present (3 original + 3 Phase 4 additions).
     const rows = dbView.getByTestId('database-row');
-    await expect(rows).toHaveCount(3);
+    await expect(rows).toHaveCount(6);
   });
 
   test('seeded "Book Tracker" database renders all six property columns', async ({ page }) => {
@@ -118,9 +118,9 @@ test.describe('Database creation and sidebar', () => {
       await expect(dbView.getByRole('columnheader').filter({ hasText: name })).toBeVisible();
     }
 
-    // Three seeded rows must be present.
+    // Six seeded rows must be present (3 original + 3 Phase 4 additions).
     const rows = dbView.getByTestId('database-row');
-    await expect(rows).toHaveCount(3);
+    await expect(rows).toHaveCount(6);
   });
 
   test('row pages do not appear in the sidebar tree', async ({ page }) => {

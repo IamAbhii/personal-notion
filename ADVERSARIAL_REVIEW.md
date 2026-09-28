@@ -1421,3 +1421,1002 @@ it is the kind of thing that makes a table look untidy from the first row a user
 Screenshot: screenshots/adv-056.png
 
 Disposition: ACCEPTED -> DEF-065
+
+## ADV-057: Deleting a property leaves the view filtering and sorting by it, and the Filter panel then shows a filter that is not the one stored
+
+- Session: phase-4 gate
+- Suggested severity: MEDIUM
+
+What I did: opened "Work Projects" in the table view, added a filter `Effort (days) is 3` and a sort
+on `Spec`, then deleted both of those properties from their column menus ("Delete property" ->
+"Delete permanently"), then reloaded and reopened the Filter / Sort panel.
+Expected: deleting a property clears any filter or sort that referenced it, and the Filter badge and
+panel describe the settings that are actually in force.
+Actual: the view record still holds the deleted ids -
+`filters:[{propertyId:"dcfa7e48…",operator:"is",value:"3"}]` and `sort:{propertyId:"bda761c0…"}`,
+neither of which exists in `properties` any more. The rows are (correctly) shown unfiltered, but the
+Filter button still shows the badge "2", and the panel renders the dangling filter as
+`Status | is | — empty —` because the selects fall back to their first option. So the panel claims a
+filter that would show one row while the table shows all six, and the stored sort is invisible in the
+panel ("— none —"). Touching any control in that row would then save a filter the user never asked
+for.
+Screenshot: screenshots/adv-057.png
+
+Disposition: ACCEPTED -> DEF-071
+
+## ADV-058: A filter that matches nothing leaves the table view completely blank, with no empty state - the list view has one
+
+- Session: phase-4 gate
+- Suggested severity: MEDIUM
+
+What I did: in "Work Projects" table view, added two contradictory filters -
+`Status is Backlog` AND `Status is not Backlog` - then did the equivalent in the list view
+(`Done is not checked` AND `Done is checked`).
+Expected: consistent "no rows match" messaging in every view.
+Actual: the table view shows the header row, nothing under it, and the "New row" button - no
+explanation at all, so a user who forgets the filter sees an apparently emptied database. The list
+view for the same situation says "No rows match the current filters.", and the board says nothing
+either (all columns render, all empty). Three views, three different empty behaviours for the same
+cause.
+Screenshot: screenshots/adv-058.png
+
+Disposition: ACCEPTED -> DEF-072
+
+## ADV-059: Creating a database throws "sortKey is not a valid fractional index"; the server rejects all three view.create ops, so the new database has no views
+
+- Session: phase-4 gate
+- Suggested severity: HIGH
+
+What I did: reset the workspace, opened "Work Projects", clicked "Add a top-level database" in the
+sidebar. Watched the console and the `/sync` traffic, then reloaded.
+Expected: a new database is created with its three views, and the app navigates to it - as clicking
+"Add a top-level page" does for a page.
+Actual: an uncaught error reaches the window: `sortKey is not a valid fractional index`. The three
+`view.create` ops are sent with `"sortKey":"a"`, `"b"`, `"c"` and the server rejects all three
+(`{"status":"rejected","reason":"sortKey is not a valid fractional index"}`); the `page.create` for
+the database itself is applied. The app does not navigate to the new database (the URL stays on Work
+Projects), nothing tells the user anything went wrong, and the sidebar entry for the new database
+sometimes disappears after a reload. The result is a database with zero views - see ADV-060 for what
+that does to the view switcher. Creating an ordinary page in the same session produced no error and
+navigated correctly, so this is specific to the database (view-minting) path.
+Screenshot: screenshots/adv-059.png
+
+Disposition: ACCEPTED -> DEF-070
+
+## ADV-060: A database with no views shows all three tabs but no Filter control, and the board tells you to use a control that is not on screen
+
+- Session: phase-4 gate
+- Suggested severity: MEDIUM
+
+What I did: opened the "Untitled" database left behind by ADV-059 (a database whose three views were
+never persisted) and clicked through Table, Board and List.
+Expected: either the views are minted on demand, or the switcher reflects what the database actually
+has.
+Actual: all three tabs render. The Filter / Sort control is absent entirely. The board shows
+"Pick a Select property to group by using the Filter / Sort control above." - a dead end, because
+there is no such control to use. The list shows "No rows match the current filters." although no
+filter exists (see ADV-072). Nothing in the UI hints that this database is missing its views or how
+to recover it.
+Screenshot: screenshots/adv-060.png
+
+Disposition: ACCEPTED -> DEF-073
+
+## ADV-061: Card-move toasts and drag announcements name the card by raw UUID
+
+- Session: phase-4 gate
+- Suggested severity: MEDIUM
+
+What I did: dragged "Accessibility audit" from Backlog to Done on the "Work Projects" board; also
+dropped a card outside any column, cancelled a drag with Escape, and picked a card up with the
+keyboard.
+Expected: the feedback names the card, e.g. `Moved "Accessibility audit" to "Done"`.
+Actual: every message substitutes the row id:
+`Moved "ce1d6798-7cbb-4cca-845a-89fb624053c9" to "Done".`,
+`Card "b6390a6a-…" was dropped outside a column and stayed in place.`,
+`Cancelled moving "29345c0d-…".`, and the live-region announcement
+`Card "3da47d9a-…" is over the "Backlog" column.` The column name is resolved correctly in the same
+sentence, so only the card is affected. It matters most when the move makes the card vanish (a filter
+excludes the destination column): the toast is then the only evidence of what happened, and it is a
+UUID.
+Screenshot: screenshots/adv-061.png
+
+Disposition: ACCEPTED -> DEF-074
+
+## ADV-062: A card dropped inside one column lands in the next one, and the last column cannot be reached at all
+
+- Session: phase-4 gate
+- Suggested severity: MEDIUM
+
+What I did: on the "Work Projects" board at 1280x800 I measured the column rects
+(Backlog 308-568, In progress 584-844, Done 860-1120, On hold 1136-1396, No value 1412-1672) and
+released a dragged card 8px inside the right edge of "In progress" (x=836, unambiguously inside it).
+Then I tried to drag a card to the "No value" column, which sits off the right of the viewport.
+Expected: the card goes to the column the pointer is over; dragging towards the right edge auto
+scrolls the board so the trailing column can be reached.
+Actual: the drop at x=836 moved the card to "Done" - one column to the right of where it was
+released ("Moved … to Done"). The drop target appears to be chosen from the dragged card overlay's
+rectangle rather than the pointer, so the right-hand half of every column behaves as the next column.
+The same cause makes the off-screen "No value" column unreachable: the board never auto-scrolls
+during a drag, and dropping at the viewport edge either reports "dropped outside a column and stayed
+in place" or silently lands in a neighbour. Manually scrolling the board first and then dragging does
+work.
+Screenshot: screenshots/adv-062.png
+
+Disposition: ACCEPTED -> DEF-075
+
+## ADV-063: "Add card to Done" creates a card with no value for the grouping property, so it appears in the "No value" column
+
+- Session: phase-4 gate
+- Suggested severity: MEDIUM
+
+What I did: on the "Work Projects" board clicked "Add card to Done", then reopened the board and
+looked at the columns and the stored values.
+Expected: a card added from a column's own "Add card" control belongs to that column - Status = Done.
+Actual: the new row is created with no Status value at all, so the card is placed in the trailing
+"No value" column, at the far right and usually off screen. Nothing appears in the column you clicked,
+and (because the board does not scroll to it) the click looks like it did nothing. Repeating it six
+times in the Backlog column produced six untitled cards, all in "No value". The row page itself is
+created correctly.
+Screenshot: screenshots/adv-063.png
+
+Disposition: ACCEPTED -> DEF-076
+
+## ADV-064: A keyboard user can pick a card up but can never move it to another column
+
+- Session: phase-4 gate
+- Suggested severity: MEDIUM
+
+What I did: focused a card's drag handle with Tab, pressed Space (the handle announces
+`aria-roledescription="draggable"`), then pressed ArrowRight twice, ArrowDown, and Tab, then Space.
+Expected: arrow keys move the lifted card between columns, Space drops it there, Escape cancels -
+the standard dnd-kit keyboard flow the drag handle advertises.
+Actual: the pickup is announced ("Card … is over the \"Backlog\" column"), but every arrow key leaves
+the announcement unchanged - the card never leaves its own column. Pressing Tab ends the drag and
+writes a move back to the column it started in ("Moved … to \"Backlog\""), i.e. Tab commits rather
+than cancels. So changing a card's group is mouse-only, and the keyboard path additionally issues a
+pointless `value.set`.
+Screenshot: screenshots/adv-064.png
+
+Disposition: ACCEPTED -> DEF-077
+
+## ADV-065: The view switcher is a tablist that ignores arrow keys
+
+- Session: phase-4 gate
+- Suggested severity: LOW
+
+What I did: focused the "Table view" tab and pressed ArrowRight, then Enter.
+Expected: for `role="tablist"` / `role="tab"`, arrow keys move between tabs (and activate, or Enter
+activates).
+Actual: ArrowRight does nothing at all - focus and selection both stay on "Table view", and Enter
+re-selects the same tab. The tabs are individually reachable with Tab, so the control is operable,
+but it does not behave the way its own ARIA roles promise, and a screen-reader user following the
+tabs pattern will think the switcher is broken.
+
+Disposition: ACCEPTED -> DEF-080
+
+## ADV-066: Offline, a card drag reports "Moved … to Done" while the card stays where it was
+
+- Session: phase-4 gate
+- Suggested severity: MEDIUM
+
+What I did: opened the "Work Projects" board, went offline in the browser, dragged "Accessibility
+audit" from Backlog to Done, changed the sort, then came back online and reloaded.
+Expected: either the card moves optimistically and the queued op syncs later, or the UI says the move
+is pending.
+Actual: the toast says `Moved "…" to "Done"` but the board does not change - the card is still in
+Backlog, and the column counts are unchanged. There is no offline indicator anywhere on the screen,
+so the only feedback contradicts what is on screen. On reconnect the queue flushes, the server value
+becomes Done, and the board converges (nothing was lost), but for as long as the connection is down
+the board disagrees with its own success message.
+Screenshot: screenshots/adv-066.png
+
+Disposition: ACCEPTED -> DEF-078
+
+## ADV-067: The chosen view is forgotten on every reload and on any navigation away and back
+
+- Session: phase-4 gate
+- Suggested severity: LOW
+
+What I did: selected the Board view on "Work Projects", then (a) reloaded, (b) navigated away and
+came back with the browser's Back/Forward buttons, (c) refreshed mid-drag.
+Expected: for something described as a local preference, the view I chose is still showing when I
+come back to that database.
+Actual: every one of those returns to the Table view. Nothing is stored - not in the URL, not in
+localStorage - so a user who works in a board loses it on every reload, and a link to a database can
+never point at its board. The filters, sort and grouping do survive (they are server state), which
+makes the reset more jarring: the board's settings are remembered but the board is not.
+
+Disposition: ACCEPTED -> DEF-081
+
+## ADV-068: Two select options can be given the same name, and the board then shows two identical columns
+
+- Session: phase-4 gate
+- Suggested severity: LOW
+
+What I did: opened Status -> "Manage options" on "Work Projects", typed "Done" (an existing option
+name) into "New option…" - the Add button stayed enabled - added it and saved, then opened the board.
+Expected: a duplicate option name is refused, or at least flagged, as a whitespace-only name already
+is (Add is correctly disabled for " ").
+Actual: the property now has two options called "Done", and the board renders two columns both
+labelled "Done", one of them empty, with nothing to tell them apart. The same duplicate appears twice
+in every Status cell editor and twice in the filter value list, where picking the wrong one silently
+matches no rows.
+Screenshot: screenshots/adv-068.png
+
+Disposition: ACCEPTED -> DEF-082
+
+## ADV-069: An option name the server rejects is discarded silently, taking every other edit in the same save with it
+
+- Session: phase-4 gate
+- Suggested severity: MEDIUM
+
+What I did: in Status -> "Manage options" I renamed "Backlog" to a 90+ character string containing
+emoji and Arabic text and pressed Save. Separately, I renamed it to " " and pressed Save. In a third
+run I renamed "Backlog" to "Icebox" _and_ added a duplicate option in the same dialog and saved.
+Expected: the dialog reports what was refused and keeps the dialog open, or the client validates the
+same rules the server enforces (<=100 chars, non-empty).
+Actual: the dialog closes as though the save succeeded, no toast, no console error, and the options
+are unchanged. The `/sync` response shows the op rejected -
+`"reason":"option name must be at most 100 characters"` and `"reason":"option name must not be
+empty"`. In the third run the legitimate rename to "Icebox" was lost too, because the whole batch was
+dropped, so a user can silently lose good edits alongside a bad one.
+
+Disposition: ACCEPTED -> DEF-079
+
+## ADV-070: The list view prints dates as raw ISO strings where every other surface formats them
+
+- Session: phase-4 gate
+- Suggested severity: LOW
+
+What I did: compared the "Due date" property for the same rows in the table and the list views of
+"Work Projects".
+Expected: one date format across the product.
+Actual: the table (and the board's row page) shows "15 Sept 2026"; the list view shows "2026-09-15".
+Screenshot: screenshots/adv-070.png
+
+Disposition: ACCEPTED -> DEF-083
+
+## ADV-071: List view properties are unlabelled, unaligned, and omitted when empty, so a value cannot be attributed to its property
+
+- Session: phase-4 gate
+- Suggested severity: LOW
+
+What I did: opened the list view of "Book Tracker" at 1280x800 and read down the rows.
+Expected: the properties shown for each row line up, so the column of pills means the same thing on
+every row.
+Actual: each row lays its properties out right-aligned and omits any property that is empty, so
+nothing lines up: "Want to read" sits at a different x on every row, and the last row shows a single
+pill, "Science", which is a _Topics_ value but reads as a Status because that is where Status appears
+on the rows above. The property name exists only as a `title` attribute on a wrapper span, so it is
+invisible and not announced. The first three properties are shown and the rest are dropped with no
+indication (Book Tracker's Finished, Rating and Notes never appear).
+Screenshot: screenshots/adv-071.png
+
+Disposition: ACCEPTED -> DEF-084
+
+## ADV-072: A database with no rows says "No rows match the current filters" although no filter is set
+
+- Session: phase-4 gate
+- Suggested severity: LOW
+
+What I did: opened the list view of a database that has no rows and no filters.
+Expected: something like "This database has no rows yet" plus a way to add one.
+Actual: "No rows match the current filters." - which sends the user looking for a filter that does
+not exist. The message is correct for ADV-058's case and wrong here; the two cases are not
+distinguished.
+Screenshot: screenshots/adv-060.png
+
+Disposition: ACCEPTED -> DEF-085
+
+## ADV-073: A second tab keeps rendering a deleted grouping property, although a filter change in one tab does reach the other
+
+- Session: phase-4 gate
+- Suggested severity: LOW
+
+What I did: opened "Work Projects" in two tabs, both on the Board view. In tab B I deleted the Status
+property (the property the board is grouped by). Then I looked at tab A without reloading. Separately,
+I added a filter in tab B and looked at tab A.
+Expected: consistent behaviour - either both kinds of change propagate to the other tab, or neither
+does.
+Actual: the filter change propagates immediately (tab A's Filter badge and columns update). The
+property deletion does not: tab A keeps drawing five columns of a property that no longer exists,
+including cards under option names that are gone, until it is reloaded - at which point it correctly
+shows "Pick a Select property to group by…". Dragging in that stale board is still possible.
+
+Disposition: REJECTED - the same root cause as ADV-057 (a view keeps referencing a deleted property); fixing DEF-071 fixes this, and a second ledger entry for one cause would be fixed twice and closed once
+
+## ADV-074: Deleting the database you are viewing sometimes leaves a "This page no longer exists" screen instead of returning to Home
+
+- Session: phase-4 gate
+- Suggested severity: LOW
+
+What I did: opened "Work Projects", switched to the Board view, then deleted the database from its
+sidebar row and confirmed. Repeated.
+Expected: the same behaviour every time - Phase 3's pass recorded that this returns you to Home.
+Actual: on one run the app stayed on the dead URL and showed
+"NOT FOUND / This page no longer exists. / Pick another page from the sidebar."; on the next run,
+with the same steps, it navigated to Home. So the redirect after deleting the page you are on is
+racy. Caveat for triage: another agent's end-to-end suite was resetting this workspace during part of
+my session, and a reset also produces that screen, so this one may be environmental - it is recorded
+because I could not rule it in or out. The same screen appeared once in a second tab opened on a URL
+the first tab was rendering fine.
+
+Disposition: REJECTED - did not reproduce in five isolated runs of the stated steps; the "This page no longer exists" screen came from a concurrent end-to-end run resetting the workspace, which the finding itself flags as the likely cause, not from a redirect race in the product.
+
+## ADV-075: Sorting by a select property sorts by option name, not by the option order the board and the editor show
+
+- Session: phase-4 gate
+- Suggested severity: LOW
+
+What I did: sorted "Work Projects" by Status ascending. The property's options are, in order,
+Backlog, In progress, Done, On hold - the order the board columns and the cell editor use.
+Expected: rows ordered by that option order, as a board-shaped product implies.
+Actual: rows come out Backlog, Backlog, Done, In progress, On hold - alphabetical by option name, so
+the sorted table disagrees with the column order of the board next to it. Empty values sort last in
+both directions, which is the right call and worth keeping.
+
+Disposition: ACCEPTED -> DEF-086
+
+## ADV-076: The board has no accessible structure, and the filter / sort popover has no accessible name
+
+- Session: phase-4 gate
+- Suggested severity: LOW
+
+What I did: read the accessibility tree of the board view and of the open Filter / Sort panel.
+Expected: columns exposed as groups or regions with their option name and count as an accessible
+name, cards as list items, and the popover named ("Filter and sort").
+Actual: the board is a flat run of text and buttons - the column name and its count are bare `text`
+nodes, there is no grouping element, and nothing associates a card with its column, so a screen
+reader user hears "Backlog, 2, Drag "Accessibility audit", Accessibility audit, Add card, In progress,
+1, …" with no structure to navigate. The popover is exposed as an unnamed `dialog`. Inside it, the
+regions are named ("Filters", "Sort", "Group by"), which shows the intent was there.
+
+Disposition: ACCEPTED -> DEF-087
+
+## ADV-077: The filter property list omits Title while the sort list includes it
+
+- Session: phase-4 gate
+- Suggested severity: LOW
+
+What I did: opened the Filter / Sort panel on "Work Projects" and compared the "Filter property" and
+"Sort property" lists.
+Expected: the two lists agree about what can be filtered and sorted, or the difference is explained.
+Actual: "Sort property" offers Title (value `title`) alongside the six properties; "Filter property"
+offers only the six. Since Title is text, `contains`/`notContains` would apply to it exactly as they
+do to the Notes property, so its absence reads as an oversight rather than a decision - and filtering
+a database by title is the first thing most people try.
+
+Disposition: ACCEPTED -> DEF-088
+
+## ADV-078: Quick-find is declared aria-modal but does not trap focus, so Tab walks out into the page behind the backdrop
+
+- Session: phase-5 gate
+- Suggested severity: MEDIUM
+
+What I did:
+
+1. Started the app and opened http://localhost:8787/w/&lt;workspaceId&gt; at 1280x800.
+2. Clicked the "Search pages" field at the top of the sidebar to open quick-find.
+3. Typed `Kyoto` so one result was listed.
+4. Pressed Tab six times, logging `document.activeElement` after each press.
+
+Expected: focus stays inside the dialog. The dialog sets `role="dialog"` and `aria-modal="true"`,
+and it uses the `aria-activedescendant` combobox pattern, so the input should be the only tab stop
+and Tab should either cycle within the dialog or do nothing. The app's own delete-confirmation
+dialog behaves that way - I repeated the same test on it and focus cycled between "Cancel" and
+"Delete permanently" forever, and the sidebar controls were not even reachable by role query while
+it was open.
+
+Actual: Tab 1 lands on the first result `<button role="option">` (options should not be in the tab
+order under the activedescendant pattern), Tab 2 lands on `<body>`, and Tab 3 onwards walks the page
+behind the backdrop: the skip link, then "Search pages", "Add a top-level page", "New database" - all
+of them under a `bg-black/45` overlay, so the focus ring is visible through the scrim on a control the
+user cannot see properly and cannot click. The dialog stays open throughout. The screenshot shows the
+focus ring sitting on the sidebar's top-level "New database" button while quick-find is open in front
+of it.
+
+Screenshot: screenshots/adv-078.png
+
+Disposition: ACCEPTED -> DEF-091
+
+## ADV-079: Once focus is on a quick-find result, Escape, Enter and Space all do nothing - the result option is a dead control
+
+- Session: phase-5 gate
+- Suggested severity: MEDIUM
+
+What I did:
+
+1. Started the app and opened http://localhost:8787/w/&lt;workspaceId&gt; at 1280x800.
+2. Clicked "Search pages" in the sidebar, typed `Kyoto`, and waited for the single result.
+3. Pressed Tab once, which moves focus onto the result row itself (`data-testid="quickfind-result"`,
+   `role="option"`) - see ADV-078.
+4. Pressed Escape, then Enter, then Space, checking the URL and whether the dialog closed after each.
+
+Expected: from anywhere inside a modal, Escape closes it; and a focused, focus-ringed row that looks
+like a button navigates on Enter or Space.
+
+Actual: all three keys are inert. Escape does not close the dialog (it stays mounted), Enter does not
+navigate (the URL is unchanged), and Space does not navigate either. The row draws a clear focus ring,
+so it advertises itself as the active control while doing nothing. The cause is visible in
+`QuickFind.tsx`: the Escape/Enter handling is `onKeyDown` on the `<input>` only, and the option
+`<button>` has just an `onMouseDown` handler with no `onClick` or key handling. The same is true after
+Tab has carried focus out of the dialog entirely: Escape no longer closes quick-find, so a
+keyboard-only user who presses Tab once has no key left that dismisses it - only a mouse click on the
+backdrop.
+
+Screenshot: screenshots/adv-079.png
+
+Disposition: ACCEPTED -> DEF-092
+
+## ADV-080: Choosing a quick-find result for a page deleted in another tab renders the deleted page as if it were real, and the first thing typed there is discarded with no message
+
+- Session: phase-5 gate
+- Suggested severity: MEDIUM
+
+What I did:
+
+1. Started the app and opened http://localhost:8787/w/&lt;workspaceId&gt; in tab A at 1280x800.
+2. Opened the same URL in tab B.
+3. In tab A, pressed Cmd+K and typed `Kyoto`, leaving the single result highlighted but not chosen.
+4. In tab B, hovered "Kyoto shortlist" in the sidebar, clicked its Delete action and confirmed with
+   "Delete permanently". Confirmed via `GET /api/workspaces/:id/snapshot` that the page is gone.
+5. Back in tab A, pressed Enter on the still-highlighted stale result.
+6. Clicked the "Click here to start writing" placeholder and typed
+   `This text should not be silently lost`, then waited.
+7. Repeated steps 3-5 with a row result (`Pragmatic`) whose whole database ("Book Tracker") was
+   deleted in tab B instead.
+
+Expected: choosing a result for a page that no longer exists lands on the "This page no longer exists"
+screen (the app has one), or refetches the snapshot first. Failing that, the write that the server
+rejects should surface as a toast rather than vanishing.
+
+Actual: tab A navigates and renders the deleted page as a completely normal page - icon, title,
+breadcrumb ("Travel / Japan 2027 / Kyoto shortlist"), "This page is empty" placeholder - and the
+sidebar still lists it. The deleted row case is worse: the row page renders with its full property
+panel (Status, Topics, Link, Finished, Rating, Notes) for a database that no longer exists. Typing on
+the phantom page produces a sync response of
+`{"status":"rejected","reason":"page no longer exists"}`; the typed text is dropped, no toast, alert
+or console message appears, and only then does the view flip to "NOT FOUND / This page no longer
+exists." So the page recovers, but the user's typing is gone and nothing ever told them why. Note
+this staleness is not unique to quick-find - tab A's sidebar is stale too - but quick-find is the path
+that invites it, because the result list is drawn from the same stale snapshot.
+
+Screenshot: screenshots/adv-080.png
+
+Disposition: ACCEPTED -> DEF-093
+
+## ADV-081: On mobile, choosing a quick-find result while the drawer is open leaves the drawer open over the destination, and its scrim then blocks the topbar search button
+
+- Session: phase-5 gate
+- Suggested severity: MEDIUM
+
+What I did:
+
+1. Started the app and opened http://localhost:8787/w/&lt;workspaceId&gt; at 390x800 (also reproduced at
+   320x800).
+2. Tapped the hamburger ("Open navigation") to open the sidebar drawer.
+3. Pressed Cmd+K (the topbar search button does the same thing), typed `Kyoto`, pressed Enter.
+4. Measured the drawer's `getBoundingClientRect().x`, then tried to tap the topbar "Search" button.
+5. For comparison, repeated step 2 and instead tapped "Journal" in the sidebar tree.
+
+Expected: the drawer closes on navigation, the way it does when you pick a page from the tree.
+Choosing a destination and then having to dismiss the navigation that hid it is a step nobody wants.
+
+Actual: after picking a result from quick-find the drawer is still fully open (x = 0) with its
+`bg-black/55` scrim over the page you just navigated to, so the destination is dimmed and
+non-interactive; picking a page from the tree closes it properly (x = -292). While the drawer is open
+the scrim also intercepts taps on the topbar "Search" button, so the second search attempt does
+nothing until the scrim is tapped first.
+
+Screenshot: screenshots/adv-081.png
+
+Disposition: ACCEPTED -> DEF-094
+
+## ADV-082: The quick-find listbox nests its options inside listitems, puts its empty and no-result messages inside the listbox, and never announces the result count
+
+- Session: phase-5 gate
+- Suggested severity: LOW
+
+What I did:
+
+1. Started the app, opened the workspace at 1280x800, pressed Cmd+K.
+2. Read `ariaSnapshot()` of the dialog in three states: nothing typed, `Kyoto` typed (one result),
+   `zzz` typed (no results).
+3. Counted `aria-live` / `role="status"` elements inside the dialog.
+
+Expected: `listbox` children are `option` elements (or groups of them); status messages such as
+"No results" live outside the listbox in a polite live region; and the number of matches is announced
+as the user types, since nothing else tells a screen-reader user that the list changed.
+
+Actual: the tree is `listbox "Search results" > listitem > option "Kyoto shortlist Page"` - the
+`<li>` wrappers take an implicit `listitem` role and sit between the listbox and its options, which
+breaks the required owned-element relationship. In the two message states the listbox's only child is
+a `listitem` holding "Type to search pages, databases and rows." or "No results for zzz." - a
+non-option inside a listbox - and `aria-expanded` on the combobox is `false` while that visible list
+is present. There is no live region anywhere in the dialog (count 0), so neither the result count nor
+the "no results" state is announced.
+
+Disposition: ACCEPTED -> DEF-095
+
+## ADV-083: Results give no parent context for pages, so several "Untitled" pages are three identical rows
+
+- Session: phase-5 gate
+- Suggested severity: LOW
+
+What I did:
+
+1. Started the app and opened the workspace at 1280x800.
+2. Clicked "Add a top-level page" three times, pressing Escape after each so the titles stayed at
+   the default "Untitled".
+3. Pressed Cmd+K and typed `Untitled`.
+4. Also typed `Week 32` to look at two similarly-named nested pages.
+
+Expected: enough context to tell results apart - the parent page name, or the path - as the row
+results already do ("Row - in Work Projects").
+
+Actual: three results render as exactly `Untitled` / `Page`, `Untitled` / `Page`, `Untitled` / `Page`,
+with nothing to distinguish them; the user has to pick one and see where they end up. The same gap
+shows on nested pages: "Week 32 - what worked" and "Week 32 - what to drop" are listed with no hint
+that they live under Journal / Weekly Review. Only `kind === 'row'` gets a `parentTitle`
+(`search.ts`), so every page and database result is context-free.
+
+Screenshot: screenshots/adv-083.png
+
+Disposition: ACCEPTED -> DEF-096
+
+## ADV-084: Quick-find results show no page icons, though every other surface in the app does
+
+- Session: phase-5 gate
+- Suggested severity: LOW
+
+What I did:
+
+1. Started the app, opened the workspace at 1280x800, pressed Cmd+K and typed `e` so many results
+   were listed.
+2. Compared the result rows with the same pages in the sidebar tree, the breadcrumb and the page
+   header.
+
+Expected: the emoji icon that identifies a page everywhere else in the app appears in its search
+result too - it is the fastest way to recognise the right row, and the seed leans heavily on icons.
+
+Actual: result rows show only the title and a kind label; the sidebar row for the same page shows
+"🏯 Kyoto shortlist" and the breadcrumb and header show the icon as well. Recording this because the
+inconsistency is visible in the same screenshot as the sidebar, not because a requirement names it.
+
+Screenshot: screenshots/adv-083.png
+
+Disposition: ACCEPTED -> DEF-097
+
+## ADV-085: Search does no Unicode folding, so "cafe" does not find "Café" and "istanbul" does not find "İstanbul"
+
+- Session: phase-5 gate
+- Suggested severity: LOW
+
+What I did:
+
+1. Started the app and opened the workspace at 1280x800.
+2. Renamed pages, through the sidebar rename action, to `Café notes`, `İstanbul trip` and
+   `مرحبا بالعالم`.
+3. Pressed Cmd+K and searched, in turn: `cafe`, `Café`, `cafÉ`, `istanbul`, `İstanbul`, `مرحبا`.
+
+Expected: at minimum the case-insensitive behaviour the requirement asks for, which it delivers. I am
+recording the accent case because typing `cafe` for a page called `Café` is a normal thing to do and
+returning "No results" reads as a bug to the user even though the matching rule is as documented.
+
+Actual: `Café` and `cafÉ` both match, so case folding works; `cafe` returns no results. Likewise
+`İstanbul` matches but `istanbul` does not - `'İ'.toLowerCase()` is `i` plus a combining dot, so the
+lowercase forms differ. Right-to-left titles search and render correctly (`مرحبا` finds
+`مرحبا بالعالم`), and a zero-width space inside a title behaves consistently (only a query containing
+the same zero-width space matches). A `normalize('NFD')` plus combining-mark strip in `search.ts`
+would close it.
+
+Disposition: ACCEPTED -> DEF-098
+
+## ADV-086: Home, End and PageUp/PageDown do nothing in quick-find, and the arrow keys do not wrap although the code comment says they do
+
+- Session: phase-5 gate
+- Suggested severity: LOW
+
+What I did:
+
+1. Started the app, opened the workspace at 1280x800, pressed Cmd+K and typed `e` (31 results).
+2. Pressed ArrowDown 36 times, then ArrowUp 36 times, reading the selected option and
+   `aria-activedescendant` after each run.
+3. Pressed Home, End and PageDown, checking the selected option after each.
+
+Expected: clamping at the ends is a legitimate choice, but then Home and End should jump to the first
+and last result - in a list of 31 that is the only quick way to reach the bottom - and the code should
+not claim otherwise.
+
+Actual: overshooting clamps correctly at both ends (option 30 at the bottom, option 0 at the top) and
+`aria-activedescendant` stays in step, which is right. Home, End and PageDown are all ignored: the
+highlight stays where it was and the caret does not move either, because the input is empty of text
+navigation at that point. Separately, the comment above `safeIndex` in `QuickFind.tsx` reads "Clamp so
+arrow-key wrapping never produces an out-of-bounds index" - there is no wrapping, only clamping, so
+the comment describes behaviour the component does not have.
+
+Disposition: ACCEPTED -> DEF-099
+
+## ADV-087: The sidebar search field hard-codes the "⌘K" hint on every platform
+
+- Session: phase-5 gate
+- Suggested severity: LOW
+
+What I did:
+
+1. Started the app and opened the workspace at 1280x800.
+2. Looked at the keyboard hint rendered inside the sidebar's search field, and confirmed against
+   `Sidebar.tsx` that the `<kbd>` content is the literal `⌘K`.
+3. Confirmed the shortcut handler in `WorkspaceShell.tsx` accepts `metaKey || ctrlKey`.
+
+Expected: the hint matches the platform - `Ctrl K` on Windows and Linux - since the handler already
+accepts both.
+
+Actual: the hint is always the Mac glyph. A Windows or Linux user is told to press a key their
+keyboard does not have, for a shortcut that in fact works for them as Ctrl+K. The quick-find dialog's
+own `Esc` hint is fine.
+
+Disposition: ACCEPTED -> DEF-100
+
+## ADV-088: A theme change does not reach other open tabs, so a second tab keeps the old theme and offers a toggle that disagrees with what is stored
+
+- Session: phase-5 gate
+- Suggested severity: LOW
+
+What I did:
+
+1. Started the app and opened http://localhost:8787/w/&lt;workspaceId&gt; in two tabs of one browser
+   context, both at 1280x800 and both in light theme.
+2. In tab 1, clicked the sidebar footer toggle ("Switch to dark theme").
+3. Read `document.documentElement.dataset.theme` in both tabs, then clicked the toggle in tab 2 and
+   read both again along with the stored value.
+
+Expected: either the other tab follows (a `window.addEventListener('storage', ...)` in the theme
+store is three lines), or it is a deliberate decision worth a comment - a PWA that a user has open
+twice showing two different themes is surprising.
+
+Actual: tab 1 goes dark, tab 2 stays light, and localStorage says `dark`. Tab 2's button still reads
+"Switch to dark theme" even though dark is what is stored, so tab 2 is offering a switch to the theme
+that is already persisted. Clicking it in tab 2 does end up dark, so the two tabs converge rather
+than fighting, and nothing breaks. Worth noting alongside this: every corruption case I tried in
+`personal-space:theme` is handled cleanly - `null`, `"dark"` with quotes, a zustand-shaped JSON blob,
+an empty string, `DARK`, ` dark`, and a 200,000-character string all fall back to light, self-heal the
+stored value and log nothing; and with `localStorage` throwing on every access the app still renders
+and the toggle still switches the theme.
+
+Disposition: ACCEPTED -> DEF-101
+
+## ADV-089: In the showcase seed, 20 of the 25 non-row pages are completely empty, including every top-level area
+
+- Session: phase-5 gate
+- Suggested severity: LOW
+
+What I did:
+
+1. Reset the workspace to the seed (`POST /api/workspaces/:id/test/reset`).
+2. Read the snapshot and counted blocks per page, printing the tree.
+3. Opened several of the empty ones in the browser at 1280x800 to confirm what a user sees.
+
+Expected: for "the seed grown into the full showcase workspace", a visitor clicking around should
+find content most places, not the "This page is empty" placeholder on four of the six top-level
+entries.
+
+Actual: only Home (5 blocks), 2026 Intentions (12), Lighting ideas (13), Film stock notes (16) and
+Packing list (5) have any content. Journal, Projects, Someday maybe, Recipes, Weeknight dinners, Miso
+noodle soup, Sheet pan chicken, Baking, Sourdough log, Travel, Japan 2027, Kyoto shortlist, Budget
+notes, Photography, Reading list, Finished in 2026, Week 32 - what worked, Week 32 - what to drop and
+two Book Tracker rows are all empty. The named recipes and both weekly-review pages having no body is
+the most noticeable, because their titles promise content. The feature-coverage half of the criterion
+is met, and I verified it separately: all eleven block types appear (paragraph 15, heading1 3,
+heading2 7, heading3 3, todo 15, bulletedList 10, numberedList 5, quote 3, callout 4, divider 3,
+code 1), all seven property types appear with real values, both databases have table, board and list
+views, Work Projects' list view carries an `isNotChecked` filter, Book Tracker's list view carries a
+descending sort, and both boards group by their Status select.
+
+Disposition: ACCEPTED -> DEF-102
+
+## ADV-090: The seeded Home page says everything lives under "the four areas in the sidebar", then names two, and the sidebar's top level has six entries
+
+- Session: phase-5 gate
+- Suggested severity: LOW
+
+What I did:
+
+1. Reset the workspace to the seed and opened Home at 1280x800 in both themes.
+2. Read its body text against the sidebar tree and against the snapshot's parent relationships.
+
+Expected: the one page written to orient a first-time visitor agrees with what the sidebar shows.
+
+Actual: Home reads "Everything lives under one of the four areas in the sidebar. This page is just the
+way in.", then lists exactly two bullets ("Journal for the weekly review and the yearly intentions",
+"Projects for anything with an end date"). Home has three children (Journal, Projects, Someday maybe),
+and the sidebar's top level has six entries (Home, Recipes, Travel, Reading list, Work Projects, Book
+Tracker), so there is no reading of the tree under which "four areas" is correct, and the two bullets
+point at children of Home rather than at siblings in the sidebar.
+
+Screenshot: screenshots/adv-090.png
+
+Disposition: ACCEPTED -> DEF-103
+
+## ADV-091: Deleting a toggle header orphans its children — they vanish from the UI forever but survive in the database
+
+- Session: phase-7 gate
+- Suggested severity: HIGH
+
+What I did:
+
+1. Created a new page, typed `/toggle`, Enter, header text "Header one".
+2. Enter, "child A", Enter, "child B" — two children inside the toggle. Verified via
+   `/api/workspaces/:ws/snapshot` that both children carry
+   `props={"parentToggleId":"<header id>"}`.
+3. Clicked the header, selected all, Backspace to empty it, then Backspace again to delete the
+   header block (there is no delete menu on a toggle header, so this is the only route).
+4. Re-read the DOM and the snapshot, then reloaded the page and read both again.
+
+Expected: deleting the toggle header either deletes its children with it, or promotes them to
+plain paragraphs so the user's text is still visible and editable.
+
+Actual: the header is deleted and the two children become permanently invisible. The block editor
+renders zero textareas, and the page body innerText is `""`. The snapshot still holds both
+paragraphs with `parentToggleId` pointing at the deleted header
+(`{"text":"child A","parent":"aa71"}`, `{"text":"child B","parent":"aa71"}`), and they survive a
+reload. BlockEditor skips every block that has a `parentToggleId` from the flat list, and no
+toggle group exists to render them in, so the content is unreachable through any UI path: not
+visible, not editable, not deletable. Typed content silently disappearing with no undo is the
+worst case for a note-taking product.
+
+Screenshot: screenshots/adv-091.png
+
+Disposition: ACCEPTED -> DEF-110
+
+## ADV-092: A page holding only orphaned toggle children shows neither content nor the "This page is empty" placeholder — it renders as a blank void
+
+- Session: phase-7 gate
+- Suggested severity: MEDIUM
+
+What I did: the exact steps of ADV-091, then looked at the rendered page at 1280x800.
+
+Expected: if nothing is renderable, the page shows the "This page is empty / Click here to start
+writing" placeholder that a genuinely empty page shows.
+
+Actual: the placeholder is suppressed, because it is gated on `blocks.length === 0` and the page
+still has two (unrenderable) blocks. The body below the title is entirely blank — no blocks, no
+placeholder, no affordance. The invisible full-width "Add a block at the end of the page" button
+is the only way to get a caret back, and nothing on screen suggests it exists. Any state where the
+flat block list and the toggle grouping disagree produces this same void.
+
+Screenshot: screenshots/adv-092.png
+
+Disposition: ACCEPTED -> DEF-111
+
+## ADV-093: A toggle child dragged out of the group is silently snapped back — the drop is visually undone but the persisted order is rewritten anyway
+
+- Session: phase-7 gate
+- Suggested severity: MEDIUM
+
+What I did:
+
+1. New page. `/toggle` -> header "Header one", children "child A" and "child B", then two plain
+   paragraphs after the group ("plain one", "plain two"). Confirmed sort keys a0..a4 in the
+   snapshot.
+2. Grabbed child A's drag handle and dragged it down past "plain two" (well below the last block),
+   then dropped.
+3. Read the DOM order, the snapshot order, and reloaded.
+
+Expected: either the child leaves the toggle and becomes a plain paragraph at the bottom (the drop
+I performed), or the drag is refused visibly so I know children cannot be dragged out.
+
+Actual: the write goes through — child A's sortKey becomes a5, i.e. last on the page, after
+"plain two" — but the render pulls it back into the toggle group by its `parentToggleId`, so on
+screen it merely swapped places with child B inside the toggle. The flat order and the rendered
+order now permanently disagree (persisted: header, child B, plain one, plain two, child A;
+rendered: header, [child B, child A], plain one, plain two), and this survives a reload. A drag
+that appears to do something completely different from what you dropped, and quietly corrupts the
+ordering underneath, is worse than a refused drag.
+
+Screenshot: screenshots/adv-093.png
+
+Disposition: ACCEPTED -> DEF-112
+
+## ADV-094: The block actions menu ("Delete block") opens by itself when a pointer drag ends, covering the block below the drop point
+
+- Session: phase-7 gate
+- Suggested severity: MEDIUM
+
+What I did: dragged a block (a toggle child) by its grip handle down the page with a normal
+press-move-release, exactly as in ADV-093, and screenshotted immediately after the mouse-up.
+
+Expected: the drop reorders the block and nothing else opens.
+
+Actual: the dragged block's actions dropdown ("Delete block") opens on its own at the drop
+position and stays open, floating over and completely hiding the paragraph "plain one". The
+pointer-up at the end of the drag is being treated as a click on the drag-handle trigger. It is
+one stray click away from a destructive action the user never asked for, and it hides content until
+dismissed. (This is the generic block handle, so it likely predates Phase 7, but it fires on every
+toggle-child drag.)
+
+Screenshot: screenshots/adv-094.png
+
+Disposition: ACCEPTED -> DEF-113
+
+## ADV-095: A block dropped between two toggle children lands below the whole toggle group instead
+
+- Session: phase-7 gate
+- Suggested severity: MEDIUM
+
+What I did:
+
+1. New page: toggle "Header one" with children "child A", "child B", then plain paragraphs
+   "plain one" and "plain two".
+2. Dragged "plain two" up and dropped it on "child A", i.e. inside the toggle group between the
+   two children — the drop indicator was inside the group.
+3. Read the DOM order and the snapshot; then collapsed the toggle.
+
+Expected: either the block is inserted where I dropped it (becoming part of the toggle, or at least
+rendering at that vertical position), or the drop into a toggle group is refused.
+
+Actual: the write lands the block at sortKey a0V, i.e. flat-order position 2, between the header and
+child A — but the render skips children out of the flat list, so "plain two" appears _below_ both
+children, in a position I never dropped it at. Nothing tells the user the drop was relocated. With
+the toggle then collapsed, "plain two" sits flush under the header where the children used to be,
+so it reads as if it were the toggle's content when it is not.
+
+Screenshot: screenshots/adv-095.png
+
+Disposition: ACCEPTED -> DEF-114
+
+## ADV-096: Converting a toggle that has children into another block type makes the children invisible and unrecoverable
+
+- Session: phase-7 gate
+- Suggested severity: HIGH
+
+What I did:
+
+1. New page: toggle "Header one" with children "child A" and "child B".
+2. Clicked the header, cleared its text, typed `/head` and pressed Enter to convert it to a
+   Heading 1, then typed "Now a heading".
+3. Read the DOM and the snapshot, then reloaded.
+
+Expected: the children are either promoted to plain paragraphs (still visible) or deleted with the
+toggle. A type conversion should not be able to hide text.
+
+Actual: the page renders exactly one block, the heading. Both children still exist in the snapshot
+with `parentToggleId` pointing at the now-heading1 block
+(`{"type":"heading1","text":"Now a heading"}` plus two paragraphs with `parent` = that id), and
+they survive a reload. Nothing in the UI can reach them: the flat list skips any block with a
+`parentToggleId`, and only a `toggleList` renders a children region. This is a second, easier route
+into the same data loss as ADV-091 — it takes six keystrokes and no destructive action at all.
+
+Screenshot: screenshots/adv-096.png
+
+Disposition: ACCEPTED -> DEF-115
+
+## ADV-097: A nested toggle can be created, and its chevron is a dead control with a dangling aria-controls
+
+- Session: phase-7 gate
+- Suggested severity: MEDIUM
+
+What I did:
+
+1. New page: toggle "Outer" with one child.
+2. With the caret in the child, cleared it, typed `/toggle` and pressed Enter — the child is now a
+   `toggleList` that still carries `parentToggleId` of "Outer". Nested toggles are documented as out
+   of scope for Phase 7, so I expected the slash menu to refuse or the result to be flattened.
+3. Inspected the inner chevron's ARIA and clicked it three times.
+
+Expected: either nested toggles are prevented (the option not offered inside a toggle child), or
+they work.
+
+Actual: the nested toggle is created and renders inside the outer group with its own chevron, so it
+looks fully functional. It is not: the inner chevron does nothing at all on click (three clicks,
+`aria-expanded` stays `true`, `aria-label` stays "Collapse toggle", nothing changes), because
+BlockEditor only passes `isToggleOpen`/`onToggleOpenChange` to top-level rows. Its
+`aria-controls="toggle-children-<inner id>"` points at an element that does not exist in the DOM
+(`document.querySelectorAll` count 0), so a screen reader is told about a region that isn't there.
+Also `aria-expanded="true"` on a toggle with no children region is a lie.
+
+Screenshot: screenshots/adv-097.png
+
+Disposition: ACCEPTED -> DEF-116
+
+## ADV-098: Enter inside a nested toggle header is swallowed entirely — no child, no new block, no newline, and the next typing concatenates onto the header
+
+- Session: phase-7 gate
+- Suggested severity: MEDIUM
+
+What I did:
+
+1. Created the nested toggle of ADV-097 with header text "Inner toggle" (a `toggleList` child of
+   another toggle).
+2. Pressed Enter in that inner header, then typed "inner child".
+
+Expected: something — a child block, a sibling paragraph, or a literal newline.
+
+Actual: Enter is a no-op. `BlockRow` intercepts Enter for `toggleList` and calls
+`onEnterToggleHeader?.()`, which is `undefined` for a nested row, so the keypress is consumed and
+discarded. The block count does not change and the following typing lands in the same header:
+the block's text becomes `"Inner toggleinner child"` — two separate thoughts silently merged into
+one line with no separator. Any user who reaches a nested toggle has an editor where Enter is
+broken with no feedback.
+
+Screenshot: screenshots/adv-098.png
+
+Disposition: ACCEPTED -> DEF-117
+
+## ADV-099: Characters typed immediately after converting a toggle child into a nested toggle are dropped — only the first one survives
+
+- Session: phase-7 gate
+- Suggested severity: MEDIUM
+
+What I did:
+
+1. New page: toggle "Outer" with one child; caret in the child.
+2. Cleared the child, typed `/toggle`, pressed Enter, and started typing "Inner toggle"
+   immediately (15ms per key, no pause after Enter).
+3. Waited, read the DOM and the snapshot, and reloaded.
+
+Expected: all twelve characters land in the converted block, as they do for every other
+conversion.
+
+Actual: the block ends up with the single character `"I"` — the other eleven are lost, and the loss
+persists to the database and survives a reload. With an 800ms pause after Enter the same sequence
+keeps the full text, so this is a race in the convert-and-refocus path specific to converting a
+toggle _child_: converting a plain top-level block to `/head` or `/toggle` with the same zero
+pause keeps "Hello world" intact. A fast typist loses a line of text with no indication.
+
+Disposition: ACCEPTED -> DEF-118
+
+## ADV-100: After the toggle header has been dragged, exiting the toggle with Enter drops the new paragraph at the very top of the page
+
+- Session: phase-7 gate
+- Suggested severity: MEDIUM
+
+What I did:
+
+1. New page: toggle "Header one" with children "child A", "child B", then "plain one" and
+   "plain two".
+2. Dragged the toggle header (by its chevron) down below "plain two". The group moves as a unit on
+   screen — rendered order becomes plain one, plain two, Header one, child A, child B — but in the
+   flat order the children stay at a1/a2 while the header moves to a5.
+3. Clicked the end of "child B", pressed Enter (new empty child), pressed Enter again — the
+   documented "exit the toggle" gesture — and typed "AFTER THE GROUP".
+
+Expected, per REQUIREMENTS.md Phase 7: "removes the empty child, creates a sibling paragraph after
+the whole toggle group", i.e. below "child B" at the bottom of the page.
+
+Actual: the paragraph is created at sortKey a2l and renders as the _first block on the page_,
+above "plain one" and four rows above the toggle it came out of, with the caret up there. The exit
+sort key is computed from the last child's flat position, which no longer relates to where the
+toggle is rendered. The user's next sentence lands at the opposite end of the document from where
+they were typing.
+
+Screenshot: screenshots/adv-100.png
+
+Disposition: ACCEPTED -> DEF-119
+
+## ADV-101: The toggle chevron cannot be operated by keyboard at all — Space and Enter on the focused button do nothing
+
+- Session: phase-7 gate
+- Suggested severity: MEDIUM
+
+What I did:
+
+1. New page: toggle "Header one" with two children.
+2. Focused the chevron button directly (confirmed `document.activeElement` is
+   `[data-testid="block-toggle-arrow"]`) and pressed Space. Read `aria-expanded` and the rendered
+   children.
+3. Pressed Escape, refocused, pressed Enter, and read them again. Also re-read the snapshot to
+   check whether a keyboard drag had happened instead.
+
+Expected: Space or Enter on a `<button aria-expanded>` collapses the toggle, the same as clicking
+it. A keyboard-only user must be able to collapse and expand.
+
+Actual: neither key does anything. `aria-expanded` stays `true`, the children stay visible, and no
+sort keys change, so it is not even starting a keyboard drag that could be Escaped out of — the
+keypress is consumed and lost. dnd-kit's activator listeners `preventDefault()` Space/Enter on this
+button, and unlike the ordinary block handle (which has ArrowDown as its documented keyboard route
+to the menu) the toggle has no alternative keyboard path to collapse. A control that renders as a
+button, announces `aria-expanded`, and ignores both of its activation keys is the sharpest
+keyboard-only failure I found in Phase 7.
+
+Disposition: ACCEPTED -> DEF-120

@@ -99,15 +99,19 @@ describe('a rejected op (DEF-006)', () => {
     expect(String(notify.mock.calls[0]?.[0])).toContain('parent page no longer exists');
   });
 
-  it('says the user is offline rather than repeating the raw fetch error', async () => {
+  it('shows a retry prompt rather than repeating the raw fetch error', async () => {
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('Failed to fetch'));
     const { result, notify } = renderMutations();
 
     await result.current.updatePage(fixturePages[0]!, { icon: '\u{1F680}' });
 
     const message = String(notify.mock.calls[0]?.[0]);
-    expect(message).toContain('offline');
+    // When navigator.onLine is true (the test default), a TypeError is a transient network error
+    // (e.g. a keepalive body-size rejection) — not a confirmed offline condition. The message must
+    // not say "offline" (which would be false) and must not repeat the raw "Failed to fetch" text.
     expect(message).not.toContain('Failed to fetch');
+    expect(message).not.toContain('offline');
+    expect(message).toMatch(/please try again/i);
   });
 });
 

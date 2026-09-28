@@ -24,8 +24,22 @@ async function openManageOptions(
   page: import('@playwright/test').Page,
   columnName: string,
 ): Promise<void> {
+  // Dismiss any open popover or dialog first, to ensure a clean state.
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+
   const dbView = page.getByTestId('database-view');
-  await dbView.getByRole('columnheader').filter({ hasText: columnName }).click();
+  // Column headers have a trigger button inside the th element that opens the property menu.
+  // Clicking the button directly is more reliable than clicking the th element.
+  const header = dbView.getByRole('columnheader').filter({ hasText: columnName }).first();
+  await expect(header).toBeVisible({ timeout: 5000 });
+  const headerBtnLocator = header.getByRole('button');
+  const btnCount = await headerBtnLocator.count();
+  if (btnCount > 0) {
+    await headerBtnLocator.first().click();
+  } else {
+    await header.click();
+  }
   const popover = page.locator('[data-radix-popper-content-wrapper]');
   await expect(popover).toBeVisible({ timeout: 3000 });
   await popover.getByRole('button', { name: /Manage options/i }).click();
@@ -371,18 +385,32 @@ test.describe('DEF-048: removing an in-use option warns with row count; unused o
 
   test('removing an unused option does not produce a confirmation dialog', async ({ page }) => {
     await goToDatabase(page, 'Work Projects');
-    // "On hold" is seeded but has 0 rows using it.
+    // Phase 4 made every original Status option used by at least one row:
+    //   Backlog → Accessibility audit + Mobile layout pass
+    //   In progress → Phase 3: databases and table view
+    //   Done → Performance baseline
+    //   On hold → API documentation (Phase 4 addition)
+    // Strategy: open Status manage options, add a brand-new "Prototype" option (unused),
+    // then remove it immediately. Because "Prototype" has never been assigned to any row,
+    // removal must be silent (no confirmation dialog) — this is the DEF-048 criterion.
     await openManageOptions(page, 'Status');
 
-    const removeOnHold = page.getByRole('button', { name: /Remove On hold/i });
-    await expect(removeOnHold).toBeVisible();
-    await removeOnHold.click();
+    // Type a new option name in the "New option..." input and add it.
+    const newOptionInput = page.locator('input[placeholder="New option..."]');
+    await expect(newOptionInput).toBeVisible({ timeout: 3000 });
+    await newOptionInput.fill('Prototype');
+    await page.getByRole('button', { name: /^Add$/i }).click();
+
+    // The newly created option has never been assigned to any row — it is unused.
+    const removePrototype = page.getByRole('button', { name: /Remove Prototype/i });
+    await expect(removePrototype).toBeVisible({ timeout: 3000 });
+    await removePrototype.click();
 
     // No confirmation dialog should appear: the ConfirmDialog shows a "Remove option" button.
     // An unused option is removed immediately without that button appearing.
     await expect(page.getByRole('button', { name: /Remove option/i })).toHaveCount(0);
-    // The "On hold" remove button should be gone from the options list (option removed).
-    await expect(page.getByRole('button', { name: /Remove On hold/i })).toHaveCount(0);
+    // The "Prototype" remove button should be gone from the options list (option removed).
+    await expect(page.getByRole('button', { name: /Remove Prototype/i })).toHaveCount(0);
   });
 });
 

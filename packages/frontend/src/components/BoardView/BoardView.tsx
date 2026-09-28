@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -17,28 +17,40 @@ import { optionColorClass } from '../../lib/optionColors';
 import { cardMoveNewValue } from '../../lib/viewData';
 import type { BoardColumn } from '../../lib/viewData';
 import type { OptionColor, PageRecord, PropertyRecord } from '../../api/types';
+import { boardCollisionDetection, createBoardKeyboardCoordinates } from './boardKeyboard';
 
 // ── Drag announcements ────────────────────────────────────────────────────────
 
-/** Builds accessible live-region announcements for board card drags. */
-function buildBoardAnnouncements(columns: BoardColumn[]): Announcements {
+/**
+ * Builds accessible live-region announcements for board card drags.
+ * The card is named by its row title rather than its UUID (DEF-074).
+ * The onDragEnd announcement is intentionally neutral ("Released over … column") rather than
+ * claiming success, because the actual value.set op is async and may fail if offline (DEF-078).
+ * Success or failure is announced by a separate notify call after the mutation settles.
+ */
+function buildBoardAnnouncements(columns: BoardColumn[], allRows: PageRecord[]): Announcements {
   const describeColumn = (optionId: string | null) => {
     const col = columns.find((c) => c.optionId === optionId);
     return col?.label ?? 'a column';
   };
 
+  const cardTitle = (id: string | number) => {
+    const row = allRows.find((r) => r.id === String(id));
+    return row?.title ?? String(id);
+  };
+
   return {
     onDragStart: ({ active }: DragStartEvent) =>
-      `Picked up card "${String(active.id)}". Drag over a column to move it.`,
+      `Picked up card "${cardTitle(active.id)}". Drag over a column to move it.`,
     onDragOver: ({ active, over }: DragEndEvent) =>
       over
-        ? `Card "${String(active.id)}" is over the "${describeColumn(over.id === 'uncat' ? null : String(over.id))}" column.`
-        : `Card "${String(active.id)}" is not over a column.`,
+        ? `Card "${cardTitle(active.id)}" is over the "${describeColumn(over.id === 'uncat' ? null : String(over.id))}" column.`
+        : `Card "${cardTitle(active.id)}" is not over a column.`,
     onDragEnd: ({ active, over }: DragEndEvent) =>
       over
-        ? `Moved "${String(active.id)}" to "${describeColumn(over.id === 'uncat' ? null : String(over.id))}".`
-        : `Card "${String(active.id)}" was dropped outside a column and stayed in place.`,
-    onDragCancel: ({ active }: DragEndEvent) => `Cancelled moving "${String(active.id)}".`,
+        ? `Released "${cardTitle(active.id)}" over the "${describeColumn(over.id === 'uncat' ? null : String(over.id))}" column.`
+        : `Card "${cardTitle(active.id)}" was dropped outside a column and stayed in place.`,
+    onDragCancel: ({ active }: DragEndEvent) => `Cancelled moving "${cardTitle(active.id)}".`,
   };
 }
 
@@ -61,8 +73,10 @@ function BoardCard({ row, isDragging, onOpen }: BoardCardProps) {
   const style = transform ? { transform: CSS.Translate.toString(transform) } : undefined;
 
   return (
+    // role="listitem" pairs with the parent drop zone's role="list" (DEF-087).
     <div
       ref={setNodeRef}
+      role="listitem"
       style={style}
       className={cn(
         'group flex min-h-12 cursor-pointer items-center justify-between gap-2 rounded-md border border-border bg-surface px-3 py-2.5 shadow-sm transition-opacity',
@@ -84,13 +98,13 @@ function BoardCard({ row, isDragging, onOpen }: BoardCardProps) {
         </span>
       </button>
 
-      {/* Title button — opens the row page */}
+      {/* Title button — opens the row page. flex + overflow-hidden lets the inner truncate span clip. */}
       <button
         type="button"
-        className="min-w-0 flex-1 text-left text-sm font-medium text-text hover:text-blue-fg"
+        className="flex min-w-0 flex-1 items-center overflow-hidden text-left text-sm font-medium text-text hover:text-blue-fg"
         onClick={() => onOpen(row.id)}
       >
-        <span className="mr-1.5 font-emoji text-xs" aria-hidden>
+        <span className="mr-1.5 flex-none font-emoji text-xs" aria-hidden>
           {row.icon}
         </span>
         <span className="truncate">{row.title}</span>
@@ -119,14 +133,21 @@ function BoardColumnCard({ column, draggingId, onOpenRow, onCreateRow }: BoardCo
   const droppableId = column.optionId ?? 'uncat';
   const { setNodeRef, isOver } = useDroppable({ id: droppableId });
 
+  // Unique id for the column heading so role="region" can reference it (DEF-087).
+  const headingId = `board-col-heading-${droppableId}`;
+
   return (
+    // role="region" + aria-labelledby associates the column with its heading so a screen reader
+    // can navigate between named columns (DEF-087).
     <div
+      role="region"
+      aria-labelledby={headingId}
       className="flex w-[min(260px,80vw)] flex-shrink-0 flex-col gap-2"
       data-testid="board-column"
       data-column-id={droppableId}
     >
       {/* Column header */}
-      <div className="flex items-center gap-2 px-1">
+      <div id={headingId} className="flex items-center gap-2 px-1">
         {column.color ? (
           <span
             className={cn(
@@ -139,15 +160,25 @@ function BoardColumnCard({ column, draggingId, onOpenRow, onCreateRow }: BoardCo
         ) : (
           <span className="text-xs font-medium text-text-muted">{column.label}</span>
         )}
-        <span className="ml-auto text-xs text-text-muted">{column.rows.length}</span>
+        <span
+          className="ml-auto text-xs text-text-muted"
+          aria-label={`${column.rows.length} cards`}
+        >
+          {column.rows.length}
+        </span>
       </div>
 
-      {/* Drop zone: expands to fill available height so a drop is easy even in empty columns */}
+      {/* Drop zone: expands to fill available height so a drop is easy even in empty columns.
+          role="list" so each card's role="listitem" is valid (DEF-087). */}
       <div
         ref={setNodeRef}
+        role="list"
         className={cn(
           'flex min-h-[120px] flex-col gap-2 rounded-lg border-2 p-2 transition-colors',
-          isOver ? 'border-blue/60 bg-blue/5' : 'border-transparent bg-surface/40',
+          // border-border/60 gives each column a visible outline in dark theme where bg-surface/40
+          // alone creates near-zero contrast against the canvas (surface at 40% opacity on #100f14
+          // produces #0d1019, indistinguishable from the canvas itself).
+          isOver ? 'border-blue/60 bg-blue/5' : 'border-border/60 bg-surface/50',
         )}
       >
         {column.rows.map((row) => (
@@ -202,12 +233,21 @@ export interface BoardViewProps {
   onCreateRow: () => Promise<string | null>;
   /** Called on a successful card drop with the row and the new raw JSON value. */
   onSetValue: (args: { rowPageId: string; propertyId: string; value: string | null }) => void;
+  /**
+   * Optional notification callback. Called after a card move resolves to report the actual
+   * outcome — success or failure — so the user is not misled by the neutral drag announcement
+   * (DEF-078).
+   */
+  notify?: (message: string) => void;
 }
 
 /**
  * Board view: one column per select option, plus a trailing uncategorised column. Cards are
  * draggable between columns with @dnd-kit/core; a drop writes a `value.set` op on the group
  * property so the move shows in the table view and survives a refresh (criterion 3).
+ *
+ * Pointer-based collision detection (`pointerWithin`) is used so the drop target is determined
+ * from where the pointer is, not from the overlay card rectangle (DEF-075).
  *
  * The board scrolls horizontally on narrow screens so the column layout always has room to
  * breathe without horizontal overflow on the page itself.
@@ -219,12 +259,21 @@ export function BoardView({
   onSelectRow,
   onCreateRow,
   onSetValue,
+  notify,
 }: BoardViewProps) {
   const [draggingId, setDraggingId] = useState<string | null>(null);
 
+  // Re-create the getter when columns change so it can find the card's source column when `over`
+  // is null at the start of a keyboard drag. During an active drag, columns do not change until
+  // onDragEnd fires, so this memo never updates mid-gesture (DEF-077).
+  const keyboardCoordinateGetter = useMemo(
+    () => createBoardKeyboardCoordinates(columns),
+    [columns],
+  );
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(KeyboardSensor),
+    useSensor(KeyboardSensor, { coordinateGetter: keyboardCoordinateGetter }),
   );
 
   const handleDragStart = ({ active }: DragStartEvent) => {
@@ -243,15 +292,53 @@ export function BoardView({
     const sourceColumn = columns.find((c) => c.rows.some((r) => r.id === rowId));
     if (sourceColumn?.optionId === targetOptionId) return;
 
-    // Write the card's new group-property value. cardMoveNewValue handles null → null.
-    onSetValue({
-      rowPageId: rowId,
-      propertyId: groupProperty.id,
-      value: cardMoveNewValue(targetOptionId),
-    });
+    const row = allRows.find((r) => r.id === rowId);
+    const cardName = row?.title ?? rowId;
+    const targetColumn = columns.find((c) => c.optionId === targetOptionId);
+    const columnName = targetColumn?.label ?? 'No value';
+
+    // Write the card's new group-property value. The announcement is neutral (DEF-078); we
+    // notify the actual outcome after the async mutation settles.
+    // Future: Phase 6 will apply this optimistically and queue the op durably, so the card
+    // moves immediately and the notify fires on sync confirmation.
+    void (async () => {
+      try {
+        await new Promise<void>((resolve, reject) => {
+          try {
+            onSetValue({
+              rowPageId: rowId,
+              propertyId: groupProperty.id,
+              value: cardMoveNewValue(targetOptionId),
+            });
+            resolve();
+          } catch (e) {
+            reject(e);
+          }
+        });
+        notify?.(`Moved "${cardName}" to "${columnName}".`);
+      } catch {
+        notify?.(`Could not move "${cardName}" — please try again.`);
+      }
+    })();
+  };
+
+  // Builds a per-column "Add card" handler that also sets the group property value so the
+  // card appears in the correct column rather than "No value" (DEF-076).
+  const makeCreateRow = (column: BoardColumn) => async () => {
+    const rowId = await onCreateRow();
+    if (rowId && groupProperty && column.optionId !== null) {
+      onSetValue({
+        rowPageId: rowId,
+        propertyId: groupProperty.id,
+        value: cardMoveNewValue(column.optionId),
+      });
+    }
   };
 
   const draggingRow = draggingId ? allRows.find((r) => r.id === draggingId) : undefined;
+
+  // Total rows across all columns (after any active filter) — used for the empty state (DEF-072).
+  const totalFilteredRows = columns.reduce((n, c) => n + c.rows.length, 0);
 
   if (!groupProperty) {
     return (
@@ -264,13 +351,17 @@ export function BoardView({
   return (
     <DndContext
       sensors={sensors}
-      accessibility={{ announcements: buildBoardAnnouncements(columns) }}
+      // boardCollisionDetection uses pointerWithin for pointer/touch drags (DEF-075) and falls
+      // back to closestCenter for keyboard drags where pointerCoordinates is null (DEF-077).
+      collisionDetection={boardCollisionDetection}
+      accessibility={{ announcements: buildBoardAnnouncements(columns, allRows) }}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
       onDragCancel={() => setDraggingId(null)}
     >
       {/* Horizontal scroll container — allows the board to extend past the viewport on narrow
-          screens while preventing overflow on the containing page. */}
+          screens while preventing overflow on the containing page. autoScroll (default true)
+          detects this container as a scrollable ancestor and scrolls it during a drag (DEF-075). */}
       <div
         className="flex gap-4 overflow-x-auto pb-4"
         style={{ WebkitOverflowScrolling: 'touch' }}
@@ -282,10 +373,19 @@ export function BoardView({
             column={col}
             draggingId={draggingId}
             onOpenRow={onSelectRow}
-            onCreateRow={() => void onCreateRow()}
+            onCreateRow={() => void makeCreateRow(col)()}
           />
         ))}
       </div>
+
+      {/* Empty state: distinguish a genuinely empty database from a filtered-to-empty one (DEF-085). */}
+      {totalFilteredRows === 0 && (
+        <div className="py-8 text-center text-sm text-text-muted">
+          {allRows.length === 0
+            ? 'This database is empty. Add a card to get started.'
+            : 'No rows match the current filters.'}
+        </div>
+      )}
 
       {/* DragOverlay renders the floating card at the pointer during a drag. */}
       <DragOverlay>

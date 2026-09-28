@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { SlashMenu } from './SlashMenu';
-import { GripVertical, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, GripVertical, Trash2 } from 'lucide-react';
 import { cn } from '../lib/cn';
 import {
   DEFAULT_CALLOUT_EMOJI,
@@ -17,6 +17,8 @@ import { useAutosavedText } from '../hooks/useAutosavedText';
 import type { BlockRecord, BlockType } from '../api/types';
 import type { BlockTypeOption } from '../lib/blocks';
 import { DropdownMenu, DropdownMenuItem } from './ui/DropdownMenu/DropdownMenu';
+import { ImageBlock } from './ImageBlock/ImageBlock';
+import { compressPastedImage } from '../lib/images';
 import styles from './BlockRow.module.css';
 
 export interface BlockRowProps {
@@ -45,6 +47,35 @@ export interface BlockRowProps {
    * consecutive items in a run render with tighter spacing than blocks of different types.
    */
   continuesList: boolean;
+  /**
+   * Only used when block.type === 'toggleList'. Whether the toggle is currently open.
+   * Absent (or undefined) means open — the default on first render.
+   */
+  isToggleOpen?: boolean;
+  /** Only used when block.type === 'toggleList'. Called when the arrow is clicked. */
+  onToggleOpenChange?: (open: boolean) => void;
+  /**
+   * Called instead of onEnter when Enter is pressed in a toggleList header block.
+   * BlockEditor creates the first child inside the toggle and opens it if collapsed.
+   */
+  onEnterToggleHeader?: () => void;
+  /**
+   * Called instead of onEnter when Enter is pressed in a toggle child paragraph.
+   * isEmpty=true signals that the last child is empty, which exits the toggle.
+   */
+  onEnterToggleChild?: (isEmpty: boolean) => void;
+  /**
+   * Shared ref owned by BlockEditor, set synchronously in its handleDragEnd callback so BlockRow's
+   * onOpenChange can swallow the spurious click the dnd-kit pointer sensor synthesises on pointer-up.
+   * A useEffect would be too late: effects run after paint but the click fires in the same
+   * synchronous tick as the drag-end callback. (DEF-113)
+   */
+  dragJustEndedRef: React.MutableRefObject<boolean>;
+  /**
+   * Called when the user pastes an image from the clipboard into this block's textarea.
+   * Receives the base64 data URL produced by FileReader; BlockEditor inserts a new image block.
+   */
+  onPasteImage: (dataUrl: string) => void;
 }
 
 /** What an empty block of each type invites the user to do. */
@@ -82,6 +113,10 @@ const textareaTypeClasses: Record<BlockType, string> = {
   code: 'font-mono text-sm leading-relaxed text-code-text whitespace-pre',
   callout: '',
   divider: '',
+  // toggleList textarea shares paragraph styling; visual distinction comes from the arrow button.
+  toggleList: '',
+  // image blocks have no textarea; this entry satisfies the exhaustive Record type.
+  image: '',
 };
 
 /**
@@ -120,6 +155,8 @@ const handleTopClasses: Partial<Record<BlockType, string>> = {
   callout: 'top-1.5',
   // Code: language-label header (~22px tall) sits above the textarea first line; push down 22px.
   code: 'top-5.5',
+  // toggleList: header uses paragraph textarea styling, so the same offset applies.
+  toggleList: '-top-1.5',
 };
 
 /**
@@ -139,6 +176,12 @@ export function BlockRow({
   registerEditor,
   onNotice,
   continuesList,
+  isToggleOpen,
+  onToggleOpenChange,
+  onEnterToggleHeader,
+  onEnterToggleChild,
+  dragJustEndedRef,
+  onPasteImage,
 }: BlockRowProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   // Set when the slash menu converted this block, so the caret returns to it after the remount.
@@ -160,8 +203,20 @@ export function BlockRow({
     isDragging,
   } = useSortable({ id: block.id });
 
-  const options = slashQuery === null ? [] : filterBlockTypes(slashQuery);
   const props = parseBlockProps(block.props);
+  // Toggle children must not be converted to toggleList, since nested toggles are not
+  // supported in Phase 7 (the chevron would be inert, Enter would be swallowed, DEF-116/117).
+  const excludeTypes: ReadonlySet<BlockType> = props.parentToggleId
+    ? new Set<BlockType>(['toggleList'])
+    : new Set();
+  const options = slashQuery === null ? [] : filterBlockTypes(slashQuery, excludeTypes);
+
+  // Clear the shared drag-end flag when a new drag starts, so a leftover true from a previous
+  // drag cannot swallow the first genuine click of the next interaction. Only mutates a ref —
+  // not a setState call, so the react-hooks/set-state-in-effect rule is satisfied. (DEF-113)
+  useEffect(() => {
+    if (isDragging) dragJustEndedRef.current = false;
+  }, [isDragging, dragJustEndedRef]);
 
   // The textarea grows with its content: a fixed height would either clip a long paragraph or leave
   // a tall empty box on every one-line block.
@@ -171,6 +226,23 @@ export function BlockRow({
     element.style.height = 'auto';
     element.style.height = `${element.scrollHeight}px`;
   }, [value, block.type]);
+
+  // Detect isDragging transitioning from true→false during render and close the menu.
+  // Radix DropdownMenu.Trigger fires onOpenChange(true) on pointerdown (before dnd-kit's 4px
+  // activation threshold), so menuOpen can be true before isDragging becomes true. The existing
+  // `open={menuOpen && !isDragging}` guard hides the menu during a drag, but when isDragging
+  // returns to false at drag-end, menuOpen=true reveals it. This render-phase adjustment closes
+  // menuOpen at drag start so the reveal cannot happen. Calling setState during render is the
+  // React-documented pattern for derived-state adjustment — not an effect, so the
+  // react-hooks/set-state-in-effect rule does not apply. (DEF-113)
+  const [prevIsDragging, setPrevIsDragging] = useState(isDragging);
+  if (prevIsDragging !== isDragging) {
+    setPrevIsDragging(isDragging);
+    if (isDragging) {
+      // Drag started: close the menu so menuOpen=false when isDragging returns to false.
+      setMenuOpen(false);
+    }
+  }
 
   const attachEditor = (element: HTMLTextAreaElement | null) => {
     textareaRef.current = element;
@@ -270,6 +342,22 @@ export function BlockRow({
       // Inside code a newline is the point of the block, so Enter is left to the textarea.
       if (block.type === 'code') return;
       event.preventDefault();
+
+      // Toggle header Enter: open the toggle (if collapsed) and create the first child inside it.
+      if (block.type === 'toggleList') {
+        flush();
+        onEnterToggleHeader?.();
+        return;
+      }
+
+      // Toggle child Enter: create a sibling child, or exit the toggle if this is the last empty child.
+      const parentToggleId = parseBlockProps(block.props).parentToggleId;
+      if (parentToggleId) {
+        flush();
+        onEnterToggleChild?.(value === '');
+        return;
+      }
+
       const isList =
         block.type === 'bulletedList' || block.type === 'numberedList' || block.type === 'todo';
       if (isList && value === '') {
@@ -289,11 +377,21 @@ export function BlockRow({
     if (event.key === 'Backspace') {
       const element = event.currentTarget;
       const atStart = element.selectionStart === 0 && element.selectionEnd === 0;
-      // Only an empty block is removed by Backspace; merging text into the block above is not in
-      // this phase, so a non-empty block does nothing destructive here.
+      // Only an empty block acts on Backspace here; merging text into the block above is not in
+      // this phase, so a non-empty block does nothing destructive.
       if (atStart && value === '') {
         event.preventDefault();
-        onDeleteEmpty();
+        // toggleList uses Backspace-on-empty as its delete path (no DropdownMenu on the gutter),
+        // so it falls through to onDeleteEmpty even though it is not a paragraph.
+        if (block.type !== 'paragraph' && block.type !== 'toggleList') {
+          // Non-paragraph empty block: reset to paragraph rather than deleting, so the user can
+          // continue typing in place. The same refocusAfterConvert mechanism used by slash-menu
+          // conversions restores focus once the element remounts under the new block type.
+          refocusAfterConvert.current = true;
+          onConvertType('paragraph');
+        } else {
+          onDeleteEmpty();
+        }
       }
     }
   };
@@ -319,6 +417,31 @@ export function BlockRow({
       placeholder={placeholderFor(block.type)}
       onChange={(event) => handleChange(event.target.value)}
       onKeyDown={handleKeyDown}
+      onPaste={(event) => {
+        // Check for an image item in the clipboard before falling through to the default text paste.
+        const items = Array.from(event.clipboardData.items);
+        const imageItem = items.find((item) => item.type.startsWith('image/'));
+        if (!imageItem) return;
+        event.preventDefault();
+        const file = imageItem.getAsFile();
+        if (!file) return;
+        // Compress before handing off: a retina screenshot can be several MB of base64, which
+        // would exceed the server's 2 MB image limit and trigger the keepalive 64 KiB quota.
+        compressPastedImage(file)
+          .then((dataUrl) => {
+            onPasteImage(dataUrl);
+          })
+          .catch(() => {
+            // Compression failed (e.g. unsupported image format); fall back to the raw file.
+            const reader = new FileReader();
+            reader.onload = () => {
+              if (typeof reader.result === 'string') {
+                onPasteImage(reader.result);
+              }
+            };
+            reader.readAsDataURL(file);
+          });
+      }}
       onBlur={() => {
         closeSlashMenu();
         flush();
@@ -356,57 +479,126 @@ export function BlockRow({
         dedicated keyboard path to the menu. The menu is forced closed when isDragging becomes true
         so a press-then-drag does not leave it open. On hover:none devices the gutter is always
         visible; on pointer devices it appears on group-hover or when focus is inside the row.
+
+        For toggleList the gutter holds TWO buttons: the always-visible collapse/expand arrow and
+        the hover-visible drag handle that overlays it. The drag handle wrapper uses
+        pointer-events-none when invisible so the arrow below it can still receive clicks; on
+        hover/focus-within both pointer-events and opacity are restored. The always-on-touch rule
+        is omitted from the toggle's drag handle so the arrow remains tappable on phones.
+        Future: add a touch-friendly drag affordance for toggle blocks (e.g. long-press activation).
       */}
-      <div
-        className={cn(
-          // h-0: this grid cell contributes zero height, so row height comes from the body only.
-          // relative: establishes the containing block for the absolutely positioned button.
-          // overflow-visible: lets the 48px button extend beyond the h-0 boundary.
-          'relative h-0 overflow-visible',
-          'opacity-0 transition-opacity duration-100 ease-in-out',
-          'group-focus-within:opacity-100 group-hover:opacity-100',
-          // Without pointer-hover there is no way to reveal gutter controls, so always show them.
-          '[@media(hover:none)]:opacity-100',
-        )}
-      >
-        <DropdownMenu
-          open={menuOpen && !isDragging}
-          onOpenChange={(next) => {
-            // Ignore open requests while dragging: the pointer sensor needs 4px before it
-            // activates, and a fast tap can set open=true before isDragging becomes true.
-            if (!isDragging) setMenuOpen(next);
-          }}
-          align="start"
-          trigger={
-            <button
-              type="button"
-              ref={setActivatorNodeRef}
-              className={cn(
-                // absolute + left-0: places the button flush with the gutter column's left edge.
-                // The top class shifts it down so its centre aligns with the block's first text line.
-                'absolute left-0 grid h-12 w-12 cursor-grab place-items-center rounded-sm border-0 bg-transparent p-0 text-text-muted hover:bg-surface hover:text-text hover:ring-1 hover:ring-border hover:ring-inset',
-                handleTopClasses[block.type] ?? 'top-0',
-              )}
-              data-testid="block-drag-handle"
-              aria-label={`Move the ${blockTypeLabel(block.type).toLowerCase()} block`}
-              {...attributes}
-              {...listeners}
-            >
-              <GripVertical size={16} aria-hidden />
-            </button>
-          }
-        >
-          <DropdownMenuItem
-            variant="danger"
-            data-testid="block-delete"
-            aria-label={`Delete the ${blockTypeLabel(block.type).toLowerCase()} block`}
-            onSelect={onDelete}
+      {block.type === 'toggleList' ? (
+        /*
+         * Toggle gutter: one button that is both the collapse/expand arrow and the drag activator.
+         * A plain click (pointer up with <4px movement) fires onClick → toggles open/closed.
+         * Pressing and moving ≥4px activates dnd-kit's pointer sensor and reorders the block.
+         *
+         * There is no DropdownMenu here. Putting the arrow inside a DropdownMenu trigger makes
+         * Radix aria-hide the rest of the DOM when the menu opens, which breaks getByRole queries
+         * in tests and the user's ability to type in the header immediately after collapsing. Toggle
+         * blocks are deleted by pressing Backspace on an empty header, the same as every other block.
+         * Future: add a hover-only ⋮ button in the body column's right margin for a delete action
+         * that does not conflict with the primary arrow/drag affordance.
+         */
+        <div className="relative h-0 overflow-visible">
+          <button
+            type="button"
+            // h-12 w-12 satisfies the 48px touch target requirement.
+            // setActivatorNodeRef + listeners make this the dnd-kit drag activator for this block.
+            // activationConstraint: { distance: 4 } on the sensor means click and drag do not
+            // interfere: a small pointer motion triggers drag, a stationary press triggers onClick.
+            ref={setActivatorNodeRef}
+            className={cn(
+              'absolute left-0 grid h-12 w-12 cursor-grab place-items-center border-0 bg-transparent p-0 text-text-muted hover:text-text',
+              handleTopClasses['toggleList'],
+            )}
+            data-testid="block-toggle-arrow"
+            aria-expanded={isToggleOpen ?? true}
+            aria-controls={`toggle-children-${block.id}`}
+            aria-label={(isToggleOpen ?? true) ? 'Collapse toggle' : 'Expand toggle'}
+            onClick={() => onToggleOpenChange?.(!(isToggleOpen ?? true))}
+            {...attributes}
+            {...listeners}
+            onKeyDown={(e) => {
+              // Space and Enter must toggle open/closed, not start a keyboard drag.
+              // dnd-kit's {...listeners} spread above registers an onKeyDown that intercepts
+              // both keys to initiate a drag via its KeyboardSensor; this handler, placed after
+              // the spread, overrides it so keyboard collapse/expand works as aria-expanded requires.
+              // Pointer-based drag is unaffected. (DEF-120)
+              if (e.key === ' ' || e.key === 'Enter') {
+                e.preventDefault();
+                onToggleOpenChange?.(!(isToggleOpen ?? true));
+              }
+            }}
           >
-            <Trash2 size={14} aria-hidden />
-            Delete block
-          </DropdownMenuItem>
-        </DropdownMenu>
-      </div>
+            {(isToggleOpen ?? true) ? (
+              <ChevronDown size={16} aria-hidden />
+            ) : (
+              <ChevronRight size={16} aria-hidden />
+            )}
+          </button>
+        </div>
+      ) : (
+        <div
+          className={cn(
+            // h-0: this grid cell contributes zero height, so row height comes from the body only.
+            // relative: establishes the containing block for the absolutely positioned button.
+            // overflow-visible: lets the 48px button extend beyond the h-0 boundary.
+            'relative h-0 overflow-visible',
+            'opacity-0 transition-opacity duration-100 ease-in-out',
+            'group-focus-within:opacity-100 group-hover:opacity-100',
+            // Without pointer-hover there is no way to reveal gutter controls, so always show them.
+            '[@media(hover:none)]:opacity-100',
+          )}
+        >
+          <DropdownMenu
+            open={menuOpen && !isDragging}
+            onOpenChange={(next) => {
+              // Swallow the spurious open request fired by the synthetic click the pointer sensor
+              // generates on pointer-up at drag-end. BlockEditor sets dragJustEndedRef synchronously
+              // at the top of handleDragEnd (the DndContext onDragEnd callback), which runs before
+              // the click because both are in the same synchronous tick. A useEffect on isDragging
+              // would fire after paint — too late. (DEF-113)
+              if (next && dragJustEndedRef.current) {
+                dragJustEndedRef.current = false;
+                return;
+              }
+              // Ignore open requests while dragging: the pointer sensor needs 4px before it
+              // activates, and a fast tap can set open=true before isDragging becomes true.
+              if (!isDragging) setMenuOpen(next);
+            }}
+            align="start"
+            trigger={
+              <button
+                type="button"
+                ref={setActivatorNodeRef}
+                className={cn(
+                  // absolute + left-0: places the button flush with the gutter column's left edge.
+                  // The top class shifts it down so its centre aligns with the block's first text line.
+                  'absolute left-0 grid h-12 w-12 cursor-grab place-items-center rounded-sm border-0 bg-transparent p-0 text-text-muted hover:bg-surface hover:text-text hover:ring-1 hover:ring-border hover:ring-inset',
+                  handleTopClasses[block.type] ?? 'top-0',
+                )}
+                data-testid="block-drag-handle"
+                aria-label={`Move the ${blockTypeLabel(block.type).toLowerCase()} block`}
+                {...attributes}
+                {...listeners}
+              >
+                <GripVertical size={16} aria-hidden />
+              </button>
+            }
+          >
+            <DropdownMenuItem
+              variant="danger"
+              data-testid="block-delete"
+              aria-label={`Delete the ${blockTypeLabel(block.type).toLowerCase()} block`}
+              onSelect={onDelete}
+            >
+              <Trash2 size={14} aria-hidden />
+              Delete block
+            </DropdownMenuItem>
+          </DropdownMenu>
+        </div>
+      )}
 
       {/* Body: the type-specific wrapper around the shared textarea (or hr for divider). */}
       <div className={cn('min-w-0 py-0.5', bodyTopPaddingClasses[block.type])}>
@@ -476,6 +668,20 @@ export function BlockRow({
             </span>
             {editor}
           </aside>
+        ) : block.type === 'toggleList' ? (
+          /*
+           * Toggle header: the arrow button lives in the gutter (above), aligned with the block's
+           * first text line, so the editor textarea starts at the same left edge as every other
+           * block type. This wrapper carries the testid used by tests and e2e to find the header's
+           * textarea.
+           * Future: to support nested toggles, BlockEditor's grouping logic would need to recurse
+           * into toggleList children and this render would pass isToggleOpen/onToggleOpenChange
+           * to child BlockRows whose block.type is also toggleList.
+           */
+          <div data-testid="block-toggle-header">{editor}</div>
+        ) : block.type === 'image' ? (
+          // Image block: renders the pasted image; no editable text. Deletion via the gutter menu.
+          <ImageBlock src={props.src ?? ''} />
         ) : (
           editor
         )}
