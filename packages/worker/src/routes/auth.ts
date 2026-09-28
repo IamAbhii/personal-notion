@@ -107,9 +107,14 @@ export function createAuthRoutes(
     const stateParam = c.req.query('state');
     const stateCookie = getCookie(c, OAUTH_STATE_COOKIE);
 
-    // Double-submit CSRF check: both halves must be present and identical.
+    // Double-submit CSRF check: both halves must be present and identical. A genuine CSRF attempt and
+    // an expired state cookie are indistinguishable here — both correctly produce `expired` with no
+    // session created. We log a warning because the redirect is now a 302 and would otherwise be
+    // invisible in Workers metrics.
     if (!stateParam || !stateCookie || stateParam !== stateCookie) {
-      return c.json({ error: 'invalid_state', message: 'OAuth state mismatch.' }, 400);
+      console.warn('OAuth state mismatch or missing — possible CSRF attempt or expired flow');
+      clearStateCookie(c);
+      return c.redirect('/?auth_error=expired', 302);
     }
 
     // User denied the request on Google's consent screen.
@@ -119,12 +124,16 @@ export function createAuthRoutes(
       return c.redirect('/?auth_error=denied', 302);
     }
 
+    // Google did not return an authorization code — should not happen in a normal flow.
     const code = c.req.query('code');
     if (!code) {
-      return c.json({ error: 'missing_code', message: 'No authorization code received.' }, 400);
+      clearStateCookie(c);
+      return c.redirect('/?auth_error=no_code', 302);
     }
 
-    // Exchange the code and verify the ID token in one step.
+    // Exchange the code and verify the ID token in one step. We keep the console.error so the real
+    // reason (e.g. misconfigured GOOGLE_CLIENT_ID/SECRET) is visible in Workers logs even though
+    // the status code is now a 302 and no longer shows up as a 5xx in metrics.
     let profile: GoogleProfile;
     try {
       profile = await exchangeCodeForProfile(code, {
@@ -137,15 +146,14 @@ export function createAuthRoutes(
         'Token exchange or verification failed',
         err instanceof Error ? err.message : String(err),
       );
-      return c.json(
-        { error: 'token_exchange_failed', message: 'Failed to complete sign-in.' },
-        502,
-      );
+      clearStateCookie(c);
+      return c.redirect('/?auth_error=provider_error', 302);
     }
 
+    // The Google account exists but the email address has not been verified by Google.
     if (!profile.email_verified) {
       clearStateCookie(c);
-      return c.redirect('/?auth_error=not_allowed', 302);
+      return c.redirect('/?auth_error=email_unverified', 302);
     }
 
     const db = createDb(c.env.DB);

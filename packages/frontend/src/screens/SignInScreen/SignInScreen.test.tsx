@@ -54,25 +54,65 @@ describe('SignInScreen', () => {
     restoreLocation();
   });
 
-  it('shows a "not_allowed" error message when the query param is present', () => {
-    const restore = stubLocation('?auth_error=not_allowed');
-    render(<SignInScreen />);
-    expect(screen.getByText(/This Google account is not allowed/)).toBeInTheDocument();
-    restore();
-  });
-
-  it('shows a "denied" error message when the query param is present', () => {
+  it('shows the correct message for the "denied" code', () => {
     const restore = stubLocation('?auth_error=denied');
     render(<SignInScreen />);
     expect(screen.getByText(/Sign-in was cancelled/)).toBeInTheDocument();
     restore();
   });
 
-  it('shows no error note when there is no auth_error param', () => {
+  it('shows the correct message for the "not_allowed" code', () => {
+    const restore = stubLocation('?auth_error=not_allowed');
+    render(<SignInScreen />);
+    expect(screen.getByText(/does not have access to this space/)).toBeInTheDocument();
+    restore();
+  });
+
+  it('shows the correct message for the "email_unverified" code', () => {
+    const restore = stubLocation('?auth_error=email_unverified');
+    render(<SignInScreen />);
+    expect(screen.getByText(/email address is not verified/)).toBeInTheDocument();
+    restore();
+  });
+
+  it('shows the correct message for the "expired" code', () => {
+    const restore = stubLocation('?auth_error=expired');
+    render(<SignInScreen />);
+    expect(screen.getByText(/timed out or was interrupted/)).toBeInTheDocument();
+    restore();
+  });
+
+  it('shows the correct message for the "no_code" code', () => {
+    const restore = stubLocation('?auth_error=no_code');
+    render(<SignInScreen />);
+    expect(screen.getByText(/Google did not complete the sign-in/)).toBeInTheDocument();
+    restore();
+  });
+
+  it('shows the correct message for the "provider_error" code', () => {
+    const restore = stubLocation('?auth_error=provider_error');
+    render(<SignInScreen />);
+    expect(screen.getByText(/server-side problem/)).toBeInTheDocument();
+    restore();
+  });
+
+  it('shows the fallback message for an unrecognised code', () => {
+    const restore = stubLocation('?auth_error=something_unknown');
+    render(<SignInScreen />);
+    expect(screen.getByText(/Sign-in did not complete/)).toBeInTheDocument();
+    restore();
+  });
+
+  it('shows no error note and no error intent when there is no auth_error param', () => {
     const restore = stubLocation('');
     render(<SignInScreen />);
-    expect(screen.queryByText(/account is not allowed/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/cancelled/)).not.toBeInTheDocument();
+    // No note paragraph should contain error-related text
+    expect(screen.queryByText(/Sign-in did not complete/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/does not have access/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/timed out/)).not.toBeInTheDocument();
+    // Eyebrow must not carry the error (danger-fg) class
+    const eyebrow = screen.getByText('Personal Space');
+    expect(eyebrow).not.toHaveClass('text-danger-fg');
     restore();
   });
 
