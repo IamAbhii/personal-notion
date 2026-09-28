@@ -18,6 +18,7 @@ import type { BlockRecord, BlockType } from '../api/types';
 import type { BlockTypeOption } from '../lib/blocks';
 import { DropdownMenu, DropdownMenuItem } from './ui/DropdownMenu/DropdownMenu';
 import { ImageBlock } from './ImageBlock/ImageBlock';
+import { compressPastedImage } from '../lib/images';
 import styles from './BlockRow.module.css';
 
 export interface BlockRowProps {
@@ -424,13 +425,22 @@ export function BlockRow({
         event.preventDefault();
         const file = imageItem.getAsFile();
         if (!file) return;
-        const reader = new FileReader();
-        reader.onload = () => {
-          if (typeof reader.result === 'string') {
-            onPasteImage(reader.result);
-          }
-        };
-        reader.readAsDataURL(file);
+        // Compress before handing off: a retina screenshot can be several MB of base64, which
+        // would exceed the server's 2 MB image limit and trigger the keepalive 64 KiB quota.
+        compressPastedImage(file)
+          .then((dataUrl) => {
+            onPasteImage(dataUrl);
+          })
+          .catch(() => {
+            // Compression failed (e.g. unsupported image format); fall back to the raw file.
+            const reader = new FileReader();
+            reader.onload = () => {
+              if (typeof reader.result === 'string') {
+                onPasteImage(reader.result);
+              }
+            };
+            reader.readAsDataURL(file);
+          });
       }}
       onBlur={() => {
         closeSlashMenu();
