@@ -85,20 +85,25 @@ describe('GET /api/auth/google', () => {
 });
 
 describe('GET /api/auth/callback', () => {
-  it('returns 400 when the state cookie is missing', async () => {
+  // --- failure paths: all must be 302 redirects with no session cookie set ---
+
+  it('redirects to /?auth_error=expired when the state cookie is missing', async () => {
     const res = await authFetch('/callback?state=some-state&code=abc');
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toBe('invalid_state');
+    expect(res.status).toBe(302);
+    expect(res.headers.get('Location')).toBe('/?auth_error=expired');
+    // No session cookie must be created on this path.
+    const sessionCookie = getCookieFromResponse(res, SESSION_COOKIE);
+    expect(sessionCookie).toBeUndefined();
   });
 
-  it('returns 400 when state param does not match the state cookie', async () => {
+  it('redirects to /?auth_error=expired when state param does not match the state cookie', async () => {
     const res = await authFetch('/callback?state=wrong&code=abc', {
       cookies: { ps_oauth_state: 'correct' },
     });
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toBe('invalid_state');
+    expect(res.status).toBe(302);
+    expect(res.headers.get('Location')).toBe('/?auth_error=expired');
+    const sessionCookie = getCookieFromResponse(res, SESSION_COOKIE);
+    expect(sessionCookie).toBeUndefined();
   });
 
   it('redirects to /?auth_error=denied when error param is present', async () => {
@@ -108,6 +113,55 @@ describe('GET /api/auth/callback', () => {
     });
     expect(res.status).toBe(302);
     expect(res.headers.get('Location')).toBe('/?auth_error=denied');
+    const sessionCookie = getCookieFromResponse(res, SESSION_COOKIE);
+    expect(sessionCookie).toBeUndefined();
+  });
+
+  it('redirects to /?auth_error=no_code when no code param is present', async () => {
+    const nonce = 'test-nonce-no-code';
+    const res = await authFetch(`/callback?state=${nonce}`, {
+      cookies: { ps_oauth_state: nonce },
+    });
+    expect(res.status).toBe(302);
+    expect(res.headers.get('Location')).toBe('/?auth_error=no_code');
+    const sessionCookie = getCookieFromResponse(res, SESSION_COOKIE);
+    expect(sessionCookie).toBeUndefined();
+  });
+
+  it('redirects to /?auth_error=provider_error when exchangeCodeForProfile throws', async () => {
+    const throwingExchanger: ExchangeCodeForProfile = async () => {
+      throw new Error('upstream token endpoint returned 400');
+    };
+    const app = wrapAuthRoutes(throwingExchanger);
+
+    const nonce = 'test-nonce-provider-error';
+    const req = new Request(`${ORIGIN}/api/auth/callback?state=${nonce}&code=xyz`, {
+      headers: { Cookie: `ps_oauth_state=${nonce}` },
+      redirect: 'manual',
+    });
+
+    const res = await app.fetch(req, env);
+    expect(res.status).toBe(302);
+    expect(res.headers.get('Location')).toBe('/?auth_error=provider_error');
+    const sessionCookie = getCookieFromResponse(res, SESSION_COOKIE);
+    expect(sessionCookie).toBeUndefined();
+  });
+
+  it('redirects to /?auth_error=email_unverified when email_verified is false', async () => {
+    const unverifiedExchanger = fakeExchanger({ email_verified: false });
+    const app = wrapAuthRoutes(unverifiedExchanger);
+
+    const nonce = 'test-nonce-email-unverified';
+    const req = new Request(`${ORIGIN}/api/auth/callback?state=${nonce}&code=xyz`, {
+      headers: { Cookie: `ps_oauth_state=${nonce}` },
+      redirect: 'manual',
+    });
+
+    const res = await app.fetch(req, env);
+    expect(res.status).toBe(302);
+    expect(res.headers.get('Location')).toBe('/?auth_error=email_unverified');
+    const sessionCookie = getCookieFromResponse(res, SESSION_COOKIE);
+    expect(sessionCookie).toBeUndefined();
   });
 
   it('redirects to /?auth_error=not_allowed when resolveAccess returns null', async () => {
@@ -125,6 +179,8 @@ describe('GET /api/auth/callback', () => {
     const res = await app.fetch(req, env);
     expect(res.status).toBe(302);
     expect(res.headers.get('Location')).toBe('/?auth_error=not_allowed');
+    const sessionCookie = getCookieFromResponse(res, SESSION_COOKIE);
+    expect(sessionCookie).toBeUndefined();
   });
 
   it('creates a session and sets the session cookie on success', async () => {
