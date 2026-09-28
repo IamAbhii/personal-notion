@@ -7,7 +7,7 @@ import {
 } from '@tanstack/react-router';
 import type { QueryClient } from '@tanstack/react-query';
 import { meQueryOptions, snapshotQueryOptions } from './api/queries';
-import { WorkspaceShell } from './screens/WorkspaceShell';
+import { WorkspaceShell } from './screens/WorkspaceShell/WorkspaceShell';
 import { PageScreen } from './screens/PageScreen';
 import { WorkspaceHome } from './screens/WorkspaceHome';
 import { AppError, AppLoading, NoWorkspace } from './screens/StatusScreens';
@@ -19,7 +19,7 @@ import { childrenOf } from './lib/pageTree';
 const rootRoute = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   component: Outlet,
   pendingComponent: AppLoading,
-  errorComponent: ({ error }) => <AppError message={error.message} />,
+  errorComponent: ({ error }) => <AppError error={error} />,
 });
 
 /** `/` resolves the user's workspace from /api/me and redirects into it. */

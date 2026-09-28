@@ -1,0 +1,15 @@
+@reference '../../styles/app.css';
+
+/* Custom checkbox styling: appearance:auto uses OS rendering that shows a solid white square in
+   dark mode; appearance:none + manual tokens gives consistent theme-aware rendering (ADV-053). */
+.checkbox {
+  appearance: none;
+}
+
+/* Checkmark background-image: cannot be expressed as a Tailwind utility */
+.checkbox:checked {
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 16 16' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 8l3.5 3.5L13 5' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-size: 80%;
+  background-position: center;
+  background-repeat: no-repeat;
+}

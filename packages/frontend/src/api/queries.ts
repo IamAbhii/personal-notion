@@ -23,9 +23,16 @@ export const meQueryOptions = () =>
 /**
  * The whole workspace in one read. Future: this becomes the IndexedDB-persisted cache that the
  * offline queue applies ops to optimistically before any network attempt.
+ *
+ * refetchInterval provides background polling so changes made in a different tab (e.g. a deleted
+ * row, or a cell value updated by another session) are reflected within 30 seconds without
+ * requiring the user to interact or switch focus (DEF-056, DEF-057). refetchOnWindowFocus (the
+ * TanStack Query default) already covers the "switch back to this tab" case; this interval covers
+ * the "same tab, no interaction" case.
  */
 export const snapshotQueryOptions = (userId: string, workspaceId: string) =>
   queryOptions({
     queryKey: queryKeys.snapshot(userId, workspaceId),
     queryFn: () => apiGet<SnapshotResponse>(`/api/workspaces/${workspaceId}/snapshot`),
+    refetchInterval: 30_000,
   });
