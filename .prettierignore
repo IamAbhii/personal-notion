@@ -9,6 +9,8 @@ coverage/
 package-lock.json
 *.tsbuildinfo
 screenshots/
+test-results/
+playwright-report/
 
 # Operator-owned files: the product contract and the agent configuration. These are written by
 # hand and must not be reflowed by a formatter.

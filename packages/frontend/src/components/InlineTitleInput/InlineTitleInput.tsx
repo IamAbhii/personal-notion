@@ -1,0 +1,113 @@
+import { useEffect, useRef, useState } from 'react';
+import { cn } from '../../lib/cn';
+
+/**
+ * The server rejects a longer title, so the limit is enforced where the user types rather than
+ * arriving as a rejection notice after the fact.
+ */
+export const MAX_TITLE_LENGTH = 500;
+
+export interface InlineTitleInputProps {
+  value: string;
+  ariaLabel: string;
+  /** Applied to the <input> element; callers supply their own field styling. */
+  className?: string;
+  /**
+   * Controls the wrapper display mode. 'inline' (default) makes the wrapper a flex child so it
+   * fills a sidebar row. 'block' makes it display:block for the page header, which also repositions
+   * the refusal hint to the left edge.
+   */
+  layout?: 'inline' | 'block';
+  onCommit: (value: string) => void;
+  onCancel: () => void;
+}
+
+/**
+ * An input that replaces a title in place: Enter or blur commits, Escape reverts. Shared by the
+ * sidebar row and the page header so renaming behaves the same in both places.
+ */
+export function InlineTitleInput({
+  value,
+  ariaLabel,
+  className,
+  layout = 'inline',
+  onCommit,
+  onCancel,
+}: InlineTitleInputProps) {
+  const [draft, setDraft] = useState(value);
+  // A blank title is refused rather than silently thrown away: the edit stays open with this hint,
+  // so an accidental clear is never indistinguishable from a lost write.
+  const [isRefused, setRefused] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  // Guards against blur firing a second commit after Enter or Escape has already resolved the edit.
+  const settled = useRef(false);
+
+  useEffect(() => {
+    inputRef.current?.select();
+  }, []);
+
+  const commit = (fromBlur: boolean) => {
+    if (settled.current) return;
+    const trimmed = draft.trim();
+    if (!trimmed) {
+      // On blur there is nowhere to show the hint, so the edit closes and the old title reappears.
+      if (fromBlur) {
+        settled.current = true;
+        onCancel();
+        return;
+      }
+      setRefused(true);
+      setDraft(value);
+      inputRef.current?.select();
+      return;
+    }
+    settled.current = true;
+    if (trimmed !== value) onCommit(trimmed);
+    else onCancel();
+  };
+
+  return (
+    <span
+      className={cn('relative min-w-0', layout === 'block' ? '[display:block]' : 'flex flex-1')}
+    >
+      <input
+        ref={inputRef}
+        className={className}
+        aria-label={ariaLabel}
+        aria-invalid={isRefused || undefined}
+        maxLength={MAX_TITLE_LENGTH}
+        value={draft}
+        onChange={(event) => {
+          setRefused(false);
+          setDraft(event.target.value);
+        }}
+        onBlur={() => commit(true)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            commit(false);
+          } else if (event.key === 'Escape') {
+            event.preventDefault();
+            settled.current = true;
+            onCancel();
+          }
+        }}
+        autoFocus
+      />
+      {isRefused ? (
+        <span
+          className={cn(
+            // Anchored below the input, opaque danger pill. Uses font-sans explicitly because
+            // <span> inside an emoji-font parent would otherwise inherit the emoji face.
+            'absolute top-[calc(100%+4px)] z-10 w-max rounded-sm bg-danger px-2 py-1 font-sans text-xs leading-[1.35] font-[650] text-white',
+            // Block layout: anchor to the left edge and widen so long messages fit without truncation.
+            layout === 'block' ? 'left-0 max-w-[320px]' : 'right-0 max-w-[150px]',
+          )}
+          role="alert"
+        >
+          A page needs a name, so the old one was kept.
+        </span>
+      ) : null}
+    </span>
+  );
+}

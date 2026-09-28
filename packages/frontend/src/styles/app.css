@@ -1,0 +1,114 @@
+@import 'tailwindcss';
+@import './theme.css';
+
+/* The active theme is data-theme on <html>, set before first paint, so Tailwind's
+   prefers-color-scheme default is the wrong signal. */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+/*
+  Bridge every token from theme.css into the Tailwind utility namespace.
+  `inline` is required: these values reference other custom properties that change per theme, so the
+  generated utility must emit `var(--surface)` rather than a snapshot of its current value.
+*/
+@theme inline {
+  /* Semantic surface and text colors */
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-border: var(--border);
+
+  /* Panel (sidebar) colors */
+  --color-panel: var(--panel);
+  --color-panel-text: var(--panel-text);
+  --color-panel-text-muted: var(--panel-text-muted);
+  --color-panel-hover: var(--panel-hover);
+  --color-panel-border: var(--panel-border);
+  --color-row-hover-solid: var(--row-hover-solid);
+  --color-row-current-solid: var(--row-current-solid);
+
+  /* Editor surface colors */
+  --color-code-surface: var(--code-surface);
+  --color-code-border: var(--code-border);
+  --color-code-text: var(--code-text);
+  --color-callout-surface: var(--callout-surface);
+  --color-callout-border: var(--callout-border);
+  --color-marker: var(--marker);
+
+  /* Semantic helpers */
+  --color-text-on-amber: var(--text-on-amber);
+  --color-danger-soft: var(--danger-soft);
+  --color-toast-warning-surface: var(--toast-warning-surface);
+
+  /* Accessible foreground accent colors for text on --surface backgrounds (cards, popovers).
+     These swap to darker shades in light theme where the vibrant brand palette fails WCAG AA. */
+  --color-amber-fg: var(--amber-fg);
+  --color-blue-fg: var(--blue-fg);
+  --color-danger-fg: var(--danger-fg);
+  /* Hover tint for interactive items rendered on a surface background. */
+  --color-surface-hover: var(--surface-hover);
+
+  /* Brand palette (fixed across both themes) */
+  --color-amber: var(--amber);
+  --color-amber-soft: var(--amber-soft);
+  --color-blue: var(--blue);
+  --color-blue-soft: var(--blue-soft);
+  --color-purple: var(--purple);
+  --color-purple-soft: var(--purple-soft);
+  --color-danger: var(--danger);
+  /* Phase 3 option-color additions */
+  --color-teal: var(--teal);
+  --color-teal-soft: var(--teal-soft);
+  --color-rose: var(--rose);
+  --color-rose-soft: var(--rose-soft);
+  /* Accessible fg tokens for option color chips (theme-switching) */
+  --color-purple-fg: var(--purple-fg);
+  --color-teal-fg: var(--teal-fg);
+  --color-rose-fg: var(--rose-fg);
+
+  /* Radii - intentionally redefines Tailwind's rounded-sm|md|lg to project values */
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+
+  /* Fonts */
+  --font-sans: var(--font-sans);
+  --font-emoji: var(--font-emoji);
+
+  /* Shadows */
+  --shadow-panel: var(--shadow-panel);
+  --shadow-pop: var(--shadow-pop);
+}
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    font-family: var(--font-sans);
+    background: var(--canvas);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  button {
+    font: inherit;
+    color: inherit;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--blue);
+    outline-offset: 2px;
+  }
+}

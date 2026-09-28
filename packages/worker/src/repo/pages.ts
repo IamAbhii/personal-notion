@@ -2,11 +2,11 @@
 // SQL themselves. Functions come in two flavours: awaited helpers for a single write, and
 // *Statement builders that the sync applier collects into one db.batch().
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
-import { generateKeyBetween } from 'fractional-indexing';
 import type { Db } from '../db/client';
 import { runBatch, type Statement } from '../db/batch';
 import { pages, type PageRow } from '../db/schema';
 import { newId } from '../lib/ids';
+import { nextKeyAfter } from '../lib/sortKey';
 import type { Ctx } from './context';
 
 export type PageInput = {
@@ -15,6 +15,9 @@ export type PageInput = {
   title?: string;
   icon?: string | null;
   sortKey?: string;
+  // kind defaults to 'page' when omitted. Row pages must have a database parent; pages and
+  // databases must not be parented to a database or row.
+  kind?: 'page' | 'database' | 'row';
 };
 
 export type PagePatch = {
@@ -24,20 +27,22 @@ export type PagePatch = {
   sortKey?: string;
 };
 
-// Every page in the workspace, in sort_key order. The client builds the tree from parent_id; one
-// flat read keeps the snapshot to a single query.
+// Every page in the workspace, in (sort_key, id) order. The client builds the tree from parent_id; one
+// flat read keeps the snapshot to a single query. The id tiebreak is there for the same reason as in
+// listBlocks: two concurrent creates under one parent can mint the same sort_key (DEF-016), and the
+// order of the result must not depend on which read happened to run.
 // Future: if a workspace ever outgrows one response, page this by parent_id and stream it.
 export function listPages(db: Db, ctx: Ctx): Promise<PageRow[]> {
   return db
     .select()
     .from(pages)
     .where(eq(pages.workspaceId, ctx.workspaceId))
-    .orderBy(pages.sortKey);
+    .orderBy(pages.sortKey, pages.id);
 }
 
 // The tree skeleton: just what the sync applier needs to decide every op in memory (existence,
-// version comparison, cascade over descendants, cycle detection) from one query instead of one
-// lookup per op.
+// version comparison, cascade over descendants, cycle detection, and kind/parent validation) from
+// one query instead of one lookup per op.
 export function listPageStates(db: Db, ctx: Ctx) {
   return db
     .select({
@@ -45,6 +50,7 @@ export function listPageStates(db: Db, ctx: Ctx) {
       version: pages.version,
       parentId: pages.parentId,
       sortKey: pages.sortKey,
+      kind: pages.kind,
     })
     .from(pages)
     .where(eq(pages.workspaceId, ctx.workspaceId));
@@ -60,7 +66,9 @@ export async function getPage(db: Db, ctx: Ctx, id: string): Promise<PageRow | u
   return rows[0];
 }
 
-// The sort_key of the last child of parentId, used to append a new page after its siblings.
+// The sort_key of the last child of parentId, used to append a new page after its siblings. "Last" is
+// the greatest (sort_key, id) pair, matching listPages and the applier, so the caller's append key is a
+// genuine upper bound even when two siblings share a key (DEF-016).
 export async function lastSiblingSortKey(
   db: Db,
   ctx: Ctx,
@@ -72,7 +80,7 @@ export async function lastSiblingSortKey(
     .select({ sortKey: pages.sortKey })
     .from(pages)
     .where(and(eq(pages.workspaceId, ctx.workspaceId), parentFilter))
-    .orderBy(desc(pages.sortKey))
+    .orderBy(desc(pages.sortKey), desc(pages.id))
     .limit(1);
   return rows[0]?.sortKey ?? null;
 }
@@ -87,6 +95,7 @@ export function buildPageRow(ctx: Ctx, input: PageInput, sortKey: string, now: n
     title: input.title ?? 'Untitled',
     icon: input.icon ?? null,
     sortKey,
+    kind: input.kind ?? 'page',
     version: 1,
     createdAt: now,
     updatedAt: now,
@@ -107,11 +116,26 @@ export function updatePageStatement(db: Db, ctx: Ctx, id: string, patch: PagePat
     .where(and(eq(pages.workspaceId, ctx.workspaceId), eq(pages.id, id)));
 }
 
-// Delete statement for a set of page ids in this workspace (the page plus its descendants).
-export function deletePagesStatement(db: Db, ctx: Ctx, ids: string[]): Statement {
-  return db
-    .delete(pages)
-    .where(and(eq(pages.workspaceId, ctx.workspaceId), inArray(pages.id, ids)));
+// D1 allows 100 bound parameters per query, and a delete binds the workspace id plus one per page
+// id, so an id list is cut into chunks of this size.
+const DELETE_IDS_PER_STATEMENT = 90;
+
+// Delete statements for a set of page ids in this workspace (a page plus its descendants), chunked
+// to stay inside D1's bound-parameter ceiling. The cascade is expressed here rather than as an
+// ON DELETE CASCADE foreign key because SQLite runs that cascade as a trigger and D1 caps trigger
+// recursion at nine levels, while pages nest to any depth (see migration 0002).
+// Future: a subtree of more than a few thousand pages would need more statements than D1's
+// 50-queries-per-invocation budget allows; the change then is one DELETE whose id list comes from a
+// recursive CTE subquery, which binds two parameters whatever the subtree's size.
+export function deletePagesStatements(db: Db, ctx: Ctx, ids: string[]): Statement[] {
+  const statements: Statement[] = [];
+  for (let i = 0; i < ids.length; i += DELETE_IDS_PER_STATEMENT) {
+    const chunk = ids.slice(i, i + DELETE_IDS_PER_STATEMENT);
+    statements.push(
+      db.delete(pages).where(and(eq(pages.workspaceId, ctx.workspaceId), inArray(pages.id, chunk))),
+    );
+  }
+  return statements;
 }
 
 // The page plus every descendant, deepest last. Deleting a page removes its whole subtree, so the
@@ -132,9 +156,10 @@ export async function descendantIds(db: Db, ctx: Ctx, id: string): Promise<strin
 
 // Creates a page, appending it after its siblings when no sort_key is supplied.
 export async function createPage(db: Db, ctx: Ctx, input: PageInput = {}): Promise<PageRow> {
+  // nextKeyAfter rather than generateKeyBetween: a sibling row whose sort_key is not a valid
+  // fractional index must not be able to stop a page being created (DEF-003).
   const sortKey =
-    input.sortKey ??
-    generateKeyBetween(await lastSiblingSortKey(db, ctx, input.parentId ?? null), null);
+    input.sortKey ?? nextKeyAfter(await lastSiblingSortKey(db, ctx, input.parentId ?? null));
   const row = buildPageRow(ctx, input, sortKey, Date.now());
   await runBatch(db, [insertPageStatement(db, row)]);
   return row;
@@ -158,7 +183,7 @@ export async function updatePage(
 export async function deletePage(db: Db, ctx: Ctx, id: string): Promise<string[]> {
   const ids = await descendantIds(db, ctx, id);
   if (ids.length === 0) return [];
-  await runBatch(db, [deletePagesStatement(db, ctx, ids)]);
+  await runBatch(db, deletePagesStatements(db, ctx, ids));
   return ids;
 }
 
