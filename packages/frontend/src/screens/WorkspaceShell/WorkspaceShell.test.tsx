@@ -208,4 +208,28 @@ describe('WorkspaceShell mobile drawer', () => {
     // Drawer must still be open — aria-expanded stays true.
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
   });
+
+  it('Escape with a popover open does not close the drawer (z-overlay + role=dialog guard)', async () => {
+    // Popovers are now fixed at z-overlay (above z-drawer). Their Radix content carries
+    // role="dialog", so the document-level Escape guard fires and leaves the drawer open —
+    // the same mechanism as the Dialog guard, but confirmed here for popovers specifically.
+    const user = userEvent.setup();
+    render(<WorkspaceShell />);
+
+    const toggle = screen.getByRole('button', { name: 'Open navigation' });
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+
+    // Simulate a portalled Popover by injecting [role="dialog"] into body, matching Radix output.
+    const fakePopover = document.createElement('div');
+    fakePopover.setAttribute('role', 'dialog');
+    document.body.appendChild(fakePopover);
+
+    await user.keyboard('{Escape}');
+
+    // Guard fires because [role="dialog"] is present: drawer stays open.
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+
+    fakePopover.remove();
+  });
 });

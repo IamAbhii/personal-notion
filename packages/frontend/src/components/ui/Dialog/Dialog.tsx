@@ -41,15 +41,10 @@ export function Dialog({
       <RadixDialog.Portal>
         {/*
           Semi-opaque backdrop; Radix dismisses on click.
-          z-index layering for portalled overlays (all portal to document.body):
-            z-10  — mobile sticky topbar (in-flow, not portalled)
-            z-40  — mobile sidebar drawer wrapper
-            z-50  — dialogs (this), QuickFind overlay, DropdownMenu panels
-            z-[100] — SkipLink (always topmost, never obscured)
-          Raising this to z-50 ensures the dialog sits above the z-40 drawer
-          scrim, so it is tappable on mobile without the scrim intercepting touches.
+          z-overlay sits above z-drawer so the dialog is tappable on mobile.
+          See app.css @theme for the full layering table.
         */}
-        <RadixDialog.Overlay className="fixed inset-0 z-50 grid place-items-center bg-[rgba(12,11,16,0.55)]">
+        <RadixDialog.Overlay className="fixed inset-0 z-overlay grid place-items-center bg-[rgba(12,11,16,0.55)]">
           <RadixDialog.Content
             className={cn(
               'w-[min(440px,calc(100vw-2rem))] rounded-[var(--radius-lg)] bg-surface p-6 text-text shadow-[var(--shadow-pop)]',

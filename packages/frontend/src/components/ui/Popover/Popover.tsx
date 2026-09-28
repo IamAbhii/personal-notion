@@ -47,9 +47,10 @@ export function Popover({
           collisionPadding={8}
           // Constrain width so a 340px picker does not overflow a 320px viewport.
           className={cn(
+            // z-overlay places the panel above the z-drawer mobile sidebar (see app.css @theme).
             // border-border gives the panel a defined edge in dark theme where --shadow-pop
             // (dark rgba) renders invisibly against the dark canvas.
-            'max-w-[calc(100vw-1rem)] overflow-hidden rounded-[var(--radius-md)] border border-border bg-surface shadow-[var(--shadow-pop)]',
+            'z-overlay max-w-[calc(100vw-1rem)] overflow-hidden rounded-[var(--radius-md)] border border-border bg-surface shadow-[var(--shadow-pop)]',
             className,
           )}
         >

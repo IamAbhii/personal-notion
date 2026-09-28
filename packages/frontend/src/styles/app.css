@@ -81,6 +81,37 @@
   --shadow-pop: var(--shadow-pop);
 }
 
+/*
+  Named z-index tiers — single source of truth for the portalled-overlay stack.
+  Standard Tailwind v4 numeric utilities (z-5, z-10, z-20, z-30) cover in-flow elements and are
+  left as bare values. The three named utilities below are custom aliases for the tiers that
+  must be documented and kept in sync: the mobile drawer wrapper, every portalled overlay, and
+  the skip link.
+
+  Full layering order:
+    z-5      — PageView sticky breadcrumb bar (v4 bare numeric, always valid)
+    z-10     — mobile sticky topbar, DatabaseView sticky left column
+    z-20     — SlashMenu, DatabaseView sticky header cells
+    z-30     — DatabaseView sticky corner cell
+    z-drawer — mobile sidebar drawer wrapper (fixed inset-0); z-index: 40
+    z-overlay — portalled overlays: Dialog, QuickFind, DropdownMenu, Popover; z-index: 50
+    z-skip   — SkipLink (always topmost, never obscured); z-index: 100
+
+  @utility is the correct Tailwind v4 mechanism for custom named utilities. It participates in
+  the variant system (responsive, hover, etc.) and is picked up by the Tailwind scanner.
+*/
+@utility z-drawer {
+  z-index: 40;
+}
+
+@utility z-overlay {
+  z-index: 50;
+}
+
+@utility z-skip {
+  z-index: 100;
+}
+
 @layer base {
   *,
   *::before,

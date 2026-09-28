@@ -270,7 +270,7 @@ export function WorkspaceShell() {
         {/* Sidebar wrapper. On mobile it is a fixed overlay (off-canvas drawer); at md+ it
             resets to a normal in-flow grid column. The scrim and slide animation are driven by
             isSidebarOpen via cn(). */}
-        <div className="pointer-events-none fixed inset-0 z-40 md:pointer-events-auto md:static md:z-auto">
+        <div className="pointer-events-none fixed inset-0 z-drawer md:pointer-events-auto md:static md:z-auto">
           {/* Scrim: semi-transparent backdrop behind the drawer on mobile. Hidden at md+ where the
               drawer is in-flow. Clicking it closes the drawer. */}
           <div

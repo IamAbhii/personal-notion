@@ -642,4 +642,26 @@ describe('Sidebar delete confirm dialog (mobile drawer interaction)', () => {
     // The drawer's close handler must not have been called.
     expect(onClose).not.toHaveBeenCalled();
   });
+
+  it('Escape with a popover open does not close the drawer (popover role=dialog guard)', async () => {
+    // Popovers (fixed to z-overlay in this pass) portal to body with role="dialog" on their
+    // content. The Sidebar Escape guard checks document.querySelector('[role="dialog"]') before
+    // closing the drawer, so a popover should keep the drawer open just as a dialog does.
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    renderSidebar({ onClose });
+
+    // Simulate an open popover by inserting a [role="dialog"] element into the document,
+    // matching what Radix Popover.Content produces when portalled to body.
+    const fakePopover = document.createElement('div');
+    fakePopover.setAttribute('role', 'dialog');
+    document.body.appendChild(fakePopover);
+
+    await user.keyboard('{Escape}');
+
+    // The drawer must remain open (onClose not called) because a [role="dialog"] was present.
+    expect(onClose).not.toHaveBeenCalled();
+
+    fakePopover.remove();
+  });
 });

@@ -124,7 +124,7 @@ export function QuickFind({ pages, onClose, onSelect }: QuickFindProps) {
     >
       <RadixDialog.Portal>
         {/* Full-screen backdrop: Radix closes the dialog on click and on Escape. */}
-        <RadixDialog.Overlay className="fixed inset-0 z-50 flex items-start justify-center bg-black/45 px-4 pt-[15vh]">
+        <RadixDialog.Overlay className="fixed inset-0 z-overlay flex items-start justify-center bg-black/45 px-4 pt-[15vh]">
           <RadixDialog.Content
             aria-label="Quick find"
             data-testid="quickfind-dialog"
