@@ -1,4 +1,5 @@
 import { generateKeyBetween } from 'fractional-indexing';
+import { bySortKeyThenId } from './ordering';
 import type { PageRecord } from '../api/types';
 
 // Pure tree helpers over the flat page list the snapshot returns. Kept free of React so they are
@@ -12,7 +13,8 @@ export interface PageNode {
 }
 
 /**
- * Builds the nested tree from the flat page list, ordering siblings by `sortKey`.
+ * Builds the nested tree from the flat page list, ordering siblings by `(sortKey, id)` - the order
+ * the server uses, so siblings sharing a key never reshuffle when the next snapshot arrives.
  * Pages whose parent is missing are treated as roots so a partial snapshot still renders.
  */
 export function buildPageTree(pages: PageRecord[]): PageNode[] {
@@ -29,27 +31,35 @@ export function buildPageTree(pages: PageRecord[]): PageNode[] {
   const build = (parentId: string | null, depth: number): PageNode[] =>
     (byParent.get(parentId) ?? [])
       .slice()
-      .sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0))
+      .sort(bySortKeyThenId)
       .map((page) => ({ page, depth, children: build(page.id, depth + 1) }));
 
   return build(null, 0);
 }
 
-/** The direct children of a parent (null for top level), in `sortKey` order. */
+/** The direct children of a parent (null for top level), in `(sortKey, id)` order. */
 export function childrenOf(pages: PageRecord[], parentId: string | null): PageRecord[] {
-  return pages
-    .filter((page) => (page.parentId ?? null) === parentId)
-    .sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0));
+  return pages.filter((page) => (page.parentId ?? null) === parentId).sort(bySortKeyThenId);
 }
 
 /**
  * A fractional key that places a new page after the last existing sibling. Fractional keys mean a
  * later reorder is one op on one row instead of rewriting every sibling's position.
+ *
+ * `reservedKeys` are keys already minted for creates that have not landed in `pages` yet. Without
+ * them two clicks that both happen before the first result is applied compute the same key, and
+ * colliding keys leave the two rows in snapshot order with no key available between them.
  */
-export function sortKeyForNewChild(pages: PageRecord[], parentId: string | null): string {
-  const siblings = childrenOf(pages, parentId);
-  const last = siblings[siblings.length - 1];
-  return generateKeyBetween(last?.sortKey ?? null, null);
+export function sortKeyForNewChild(
+  pages: PageRecord[],
+  parentId: string | null,
+  reservedKeys: readonly string[] = [],
+): string {
+  const keys = [...childrenOf(pages, parentId).map((page) => page.sortKey), ...reservedKeys].sort(
+    (a, b) => (a < b ? -1 : a > b ? 1 : 0),
+  );
+  const last = keys[keys.length - 1];
+  return generateKeyBetween(last ?? null, null);
 }
 
 /** A fractional key strictly between two neighbours, either of which may be absent. */

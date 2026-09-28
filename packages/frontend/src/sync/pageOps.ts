@@ -1,10 +1,19 @@
 import { buildOp } from './ops';
-import type { Op, PageCreatePayload, PageDeletePayload, PageUpdatePayload } from '../api/types';
+import type {
+  Op,
+  PageCreatePayload,
+  PageDeletePayload,
+  PageKind,
+  PageUpdatePayload,
+} from '../api/types';
 
 // The three page ops of Phase 1, each a thin named wrapper over buildOp so callers never assemble
 // an op literal by hand and every op in the app has the same shape.
 
-/** A new page. The caller mints `pageId` so it can navigate to the page before the server replies. */
+/**
+ * A new page, database or row. The caller mints `pageId` so it can navigate before the server
+ * replies. `kind` defaults to 'page' when omitted.
+ */
 export function buildPageCreateOp(args: {
   workspaceId: string;
   pageId: string;
@@ -12,7 +21,16 @@ export function buildPageCreateOp(args: {
   title: string;
   icon: string;
   sortKey: string;
+  kind?: PageKind;
 }): Op<PageCreatePayload> {
+  const payload: PageCreatePayload = {
+    parentId: args.parentId,
+    title: args.title,
+    icon: args.icon,
+    sortKey: args.sortKey,
+  };
+  // Only include kind when it is not the default, so existing callers stay compatible.
+  if (args.kind && args.kind !== 'page') payload.kind = args.kind;
   return buildOp({
     workspaceId: args.workspaceId,
     entity: 'page',
@@ -20,12 +38,7 @@ export function buildPageCreateOp(args: {
     type: 'page.create',
     // A page that does not exist yet has no version to have been based on.
     baseVersion: 0,
-    payload: {
-      parentId: args.parentId,
-      title: args.title,
-      icon: args.icon,
-      sortKey: args.sortKey,
-    },
+    payload,
   });
 }
 

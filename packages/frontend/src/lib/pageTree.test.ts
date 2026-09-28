@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ancestorChain,
+  ancestorIds,
   buildPageTree,
   childrenOf,
   descendantIds,
@@ -29,6 +30,16 @@ describe('buildPageTree', () => {
     expect(buildPageTree(pages).map((node) => node.page.title)).toEqual(['A', 'B', 'C']);
   });
 
+  it('breaks a duplicate sibling sortKey on the id, as the server does', () => {
+    const pages = [
+      makePage({ id: 'p-c', title: 'C', sortKey: 'a1' }),
+      makePage({ id: 'p-a', title: 'A', sortKey: 'a1' }),
+    ];
+
+    expect(buildPageTree(pages).map((node) => node.page.title)).toEqual(['A', 'C']);
+    expect(childrenOf(pages, null).map((page) => page.title)).toEqual(['A', 'C']);
+  });
+
   it('treats a page whose parent is missing as a root', () => {
     const pages = [makePage({ id: 'orphan', title: 'Orphan', parentId: 'gone' })];
 
@@ -42,6 +53,18 @@ describe('sort keys', () => {
     const existing = childrenOf(fixturePages, null).map((page) => page.sortKey);
 
     expect(existing.every((sortKey) => sortKey < key)).toBe(true);
+  });
+
+  it('never repeats a key already reserved by a create in flight (DEF-007)', () => {
+    // Ten clicks land before the first result is applied, so the page list never changes between
+    // them; only the reservations keep the keys apart.
+    const reserved: string[] = [];
+    for (let index = 0; index < 10; index += 1) {
+      reserved.push(sortKeyForNewChild(fixturePages, null, reserved));
+    }
+
+    expect(new Set(reserved).size).toBe(10);
+    expect(reserved).toEqual([...reserved].sort());
   });
 
   it('places a key strictly between two neighbours', () => {
@@ -79,5 +102,18 @@ describe('ancestorChain', () => {
       'Trips',
       'Lisbon',
     ]);
+  });
+});
+
+describe('ancestorIds', () => {
+  it('returns the ancestor page ids (excluding the page itself)', () => {
+    // p-lisbon is under p-trips which is under p-journal.
+    const ids = ancestorIds(fixturePages, 'p-lisbon');
+    expect(ids).toEqual(['p-journal', 'p-trips']);
+    expect(ids).not.toContain('p-lisbon');
+  });
+
+  it('returns an empty array for a root-level page', () => {
+    expect(ancestorIds(fixturePages, 'p-journal')).toEqual([]);
   });
 });

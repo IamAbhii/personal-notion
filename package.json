@@ -13,17 +13,24 @@
     "migrate:local": "npm run migrate:local -w @personal-space/worker",
     "start:worker": "npm run dev -w @personal-space/worker",
     "dev": "concurrently -k -n worker,web -c blue,magenta \"npm run start:worker\" \"npm run dev -w @personal-space/frontend\"",
+    "kill-servers": "sh ./scripts/kill-servers.sh",
     "test": "npm run test:worker && npm run test:frontend",
     "test:worker": "npm run test -w @personal-space/worker",
     "test:frontend": "npm run test -w @personal-space/frontend",
+    "test:coverage": "npm run test:coverage:worker && npm run test:coverage:frontend",
+    "test:coverage:worker": "npm run test:coverage -w @personal-space/worker",
+    "test:coverage:frontend": "npm run test:coverage -w @personal-space/frontend",
+    "test:e2e": "playwright test --config=e2e/playwright.config.ts",
+    "e2e": "playwright test --config=e2e/playwright.config.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p packages/worker && tsc --noEmit -p packages/frontend"
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p packages/worker && tsc --noEmit -p packages/frontend && tsc --noEmit -p e2e"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
+    "@playwright/test": "^1.48.2",
     "concurrently": "^9.2.4",
     "eslint": "^9.39.5",
     "eslint-config-prettier": "^10.1.8",
@@ -31,6 +38,7 @@
     "eslint-plugin-react-refresh": "^0.5.4",
     "globals": "^17.9.0",
     "prettier": "^3.9.6",
+    "prettier-plugin-tailwindcss": "^0.8.1",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.67.0"
   }

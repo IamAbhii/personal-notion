@@ -1,5 +1,6 @@
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
 // Vite config for the Personal Space PWA. The dev server proxies /api to the local Worker so the
@@ -8,6 +9,7 @@ import { VitePWA } from 'vite-plugin-pwa';
 export default defineConfig({
   plugins: [
     react(),
+    tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['icon.svg'],
@@ -47,5 +49,21 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./vitest.setup.ts'],
     css: false,
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json-summary'],
+      include: ['src/**'],
+      exclude: [
+        'src/main.tsx',
+        'src/**/*.d.ts',
+        'src/routeTree.gen.ts',
+        '**/*.test.{ts,tsx}',
+        '**/*.spec.{ts,tsx}',
+        '**/vitest.setup.ts',
+      ],
+      thresholds: {
+        statements: 80,
+      },
+    },
   },
 });

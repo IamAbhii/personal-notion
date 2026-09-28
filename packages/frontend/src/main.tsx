@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from '@tanstack/react-router';
 import { createAppRouter } from './router';
+import { watchForUnload } from './sync/ops';
 import './styles/theme.css';
 import './styles/app.css';
 
@@ -15,6 +16,10 @@ const queryClient = new QueryClient({
     queries: { retry: 1, refetchOnWindowFocus: false },
   },
 });
+
+// Before anything mounts, so this listener runs ahead of every editor's own unload flush and the
+// write path knows the page is leaving by the time a flush asks it for a transport.
+watchForUnload();
 
 const router = createAppRouter(queryClient);
 

@@ -4,6 +4,8 @@ dist/
 build/
 coverage/
 .wrangler/
+playwright-report/
+test-results/
 *.tsbuildinfo
 *.db
 *.db-journal
