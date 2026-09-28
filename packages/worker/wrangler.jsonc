@@ -23,14 +23,22 @@
     {
       "binding": "DB",
       "database_name": "personal-space",
-      "database_id": "local-development",
+      "database_id": "3c853465-c09a-4c5d-9efb-4527ce07e57a",
       "migrations_dir": "migrations",
     },
   ],
 
   // Non-secret defaults. Secrets (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, SESSION_SECRET) live in
   // .dev.vars locally and in `wrangler secret put` in production, never here.
+  // NODE_ENV is set to "production" here so deployed Workers are always in production mode; local
+  // dev overrides this to "development" via .dev.vars.
   "vars": {
-    "NODE_ENV": "development",
+    "NODE_ENV": "production",
+  },
+
+  // Daily cron at 03:00 UTC to sweep expired sessions. The scheduled() handler in src/index.ts
+  // calls deleteExpiredSessions, keeping the sessions table small without touching the request path.
+  "triggers": {
+    "crons": ["0 3 * * *"],
   },
 }
