@@ -590,15 +590,31 @@ export function DatabaseView({
     }
   };
 
+  // This div is the scroll container for both axes (DEF-054).
+  //
+  // The CSS Overflow spec coerces overflow-y:clip to overflow-y:hidden when overflow-x is
+  // anything other than visible (auto/scroll/hidden). overflow-y:hidden creates a scroll
+  // container, so sticky thead and sticky-left td both resolve against this div — which never
+  // itself scrolls when the user scrolls #page-body — meaning pinning never activates.
+  //
+  // The correct fix is to make this div a genuine, bounded scroll container: overflow:auto on
+  // both axes so horizontal and vertical scrolling happen here, not in #page-body. The th cells
+  // use sticky top-0 (no topbar offset needed — the topbar is outside this container). The
+  // ConfirmDialogs use position:fixed (Radix Dialog) and escape overflow clipping. The
+  // max-h leaves ~20rem (~320px) for the topbar, page header and view bar above the table.
   return (
-    <div className="w-full overflow-x-auto" data-testid="database-view">
+    <div className="max-h-[calc(100dvh-20rem)] w-full overflow-auto" data-testid="database-view">
       <table className="w-full border-collapse text-left">
         <thead>
+          {/* sticky top-0: the topbar is outside this scroll container, so the th cells pin
+               flush to the top of the container's visible area — no offset needed. bg-canvas
+               prevents rows from showing through when they scroll behind the pinned header. */}
           <tr className="border-b border-border">
             {/* Title column — min-w-[160px] balances readability and desktop fit (DEF-042):
                  with 6 properties at 120px each, 1 title at 160px, and 40px actions the
-                 table minimum (920px) fits within the ~956px content area at 1280x800. */}
-            <th className="min-w-[160px] border-r border-border">
+                 table minimum (920px) fits within the ~956px content area at 1280x800.
+                 sticky left-0 top-0 z-30 keeps this corner cell above all other sticky cells. */}
+            <th className="sticky top-0 left-0 z-30 min-w-[160px] border-r border-border bg-canvas">
               <span className="block px-3 py-2 text-left text-xs font-semibold tracking-wide text-text-muted uppercase">
                 Title
               </span>
@@ -606,7 +622,10 @@ export function DatabaseView({
             {/* One header per property — min-w-[120px] instead of 140px to allow all seeded
                  columns to fit at 1280x800 once the 860px prose cap is lifted (DEF-042). */}
             {properties.map((prop) => (
-              <th key={prop.id} className="min-w-[120px] border-r border-border">
+              <th
+                key={prop.id}
+                className="sticky top-0 z-20 min-w-[120px] border-r border-border bg-canvas"
+              >
                 <PropertyHeaderMenu
                   property={prop}
                   optionUseCounts={optionUseCountsByProperty.get(prop.id)}
@@ -620,8 +639,8 @@ export function DatabaseView({
                 />
               </th>
             ))}
-            {/* "Add property" header cell */}
-            <th className="w-10 border-r-0">
+            {/* "Add property" header cell — sticky top-0 z-20 keeps it in the header row. */}
+            <th className="sticky top-0 z-20 w-10 border-r-0 bg-canvas">
               {addingProperty ? (
                 <DropdownMenu
                   open
@@ -678,9 +697,10 @@ export function DatabaseView({
               data-testid="database-row"
               data-row-id={row.id}
             >
-              {/* Title cell — max-w-0 prevents a long title from expanding the column beyond
-                   the TH's min-w-[160px]; overflow-hidden clips the render at the column edge. */}
-              <td className="max-w-0 overflow-hidden border-r border-border p-0">
+              {/* Title cell — sticky left-0 z-10 bg-canvas keeps the row identity visible when
+                   scrolling horizontally; max-w-0 prevents the title from widening beyond the
+                   TH's min-w-[160px]; overflow-hidden clips the render at the column edge (DEF-054). */}
+              <td className="sticky left-0 z-10 max-w-0 overflow-hidden border-r border-border bg-canvas p-0">
                 {row.id === renamingRowId ? (
                   // Inline rename input: shown immediately after in-place row creation (ADV-044).
                   <input

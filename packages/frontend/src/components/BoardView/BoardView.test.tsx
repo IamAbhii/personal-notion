@@ -261,6 +261,23 @@ describe('createBoardKeyboardCoordinates (DEF-077)', () => {
     expect(result).toEqual({ x: 130, y: 200 });
   });
 
+  it('falls back to the first column when the dragged card cannot be found in any column', () => {
+    // Lines 58-60 in boardKeyboard.ts: the safe fallback when currentIndex is still -1
+    // after trying to find the source column. Triggered by an active id that belongs to none
+    // of the columns in the getter's closure.
+    const getter = createBoardKeyboardCoordinates(kbdCols);
+    const event = { code: KeyboardCode.Right, preventDefault: vi.fn() } as unknown as KeyboardEvent;
+
+    const result = getter(event, {
+      active: 'card-not-in-any-column',
+      currentCoordinates: { x: 0, y: 0 },
+      context: makeSensorContext(kbdDroppables, null) as never,
+    });
+
+    // The fallback returns the first column's centre (col-a: left=0 + 260/2 = 130, top=0 + 400/2 = 200).
+    expect(result).toEqual({ x: 130, y: 200 });
+  });
+
   it('non-arrow keys return undefined and do not call preventDefault', () => {
     const getter = createBoardKeyboardCoordinates(kbdCols);
     const preventDefault = vi.fn();

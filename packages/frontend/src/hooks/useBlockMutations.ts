@@ -17,6 +17,8 @@ export interface CreateBlockArgs {
   pageId: string;
   type: BlockType;
   text?: string;
+  /** Type-specific extras as a JSON string (e.g. parentToggleId for toggleList children). */
+  props?: string | null;
   /** Insert directly after this block. Omitted or null appends at the end of the page. */
   afterBlockId?: string | null;
 }
@@ -88,6 +90,8 @@ export function useBlockMutations(
           pageId: args.pageId,
           type: args.type,
           text: args.text ?? '',
+          // props is only set for blocks that carry type-specific extras (e.g. parentToggleId).
+          props: args.props ?? undefined,
           sortKey: args.sortKey,
         });
         await submitOps(workspaceId, [op]);
@@ -165,7 +169,8 @@ export function useBlockMutations(
           type: args.type,
           text: args.text ?? '',
           checked: false,
-          props: null,
+          // Carry the caller's props (e.g. parentToggleId for toggleList children).
+          props: args.props ?? null,
           sortKey,
           version: 1,
           updatedAt: Date.now(),

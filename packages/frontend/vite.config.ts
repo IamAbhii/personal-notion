@@ -49,5 +49,21 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./vitest.setup.ts'],
     css: false,
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json-summary'],
+      include: ['src/**'],
+      exclude: [
+        'src/main.tsx',
+        'src/**/*.d.ts',
+        'src/routeTree.gen.ts',
+        '**/*.test.{ts,tsx}',
+        '**/*.spec.{ts,tsx}',
+        '**/vitest.setup.ts',
+      ],
+      thresholds: {
+        statements: 80,
+      },
+    },
   },
 });

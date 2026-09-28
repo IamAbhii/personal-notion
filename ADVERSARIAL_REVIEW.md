@@ -2137,3 +2137,286 @@ point at children of Home rather than at siblings in the sidebar.
 Screenshot: screenshots/adv-090.png
 
 Disposition: ACCEPTED -> DEF-103
+
+## ADV-091: Deleting a toggle header orphans its children — they vanish from the UI forever but survive in the database
+
+- Session: phase-7 gate
+- Suggested severity: HIGH
+
+What I did:
+
+1. Created a new page, typed `/toggle`, Enter, header text "Header one".
+2. Enter, "child A", Enter, "child B" — two children inside the toggle. Verified via
+   `/api/workspaces/:ws/snapshot` that both children carry
+   `props={"parentToggleId":"<header id>"}`.
+3. Clicked the header, selected all, Backspace to empty it, then Backspace again to delete the
+   header block (there is no delete menu on a toggle header, so this is the only route).
+4. Re-read the DOM and the snapshot, then reloaded the page and read both again.
+
+Expected: deleting the toggle header either deletes its children with it, or promotes them to
+plain paragraphs so the user's text is still visible and editable.
+
+Actual: the header is deleted and the two children become permanently invisible. The block editor
+renders zero textareas, and the page body innerText is `""`. The snapshot still holds both
+paragraphs with `parentToggleId` pointing at the deleted header
+(`{"text":"child A","parent":"aa71"}`, `{"text":"child B","parent":"aa71"}`), and they survive a
+reload. BlockEditor skips every block that has a `parentToggleId` from the flat list, and no
+toggle group exists to render them in, so the content is unreachable through any UI path: not
+visible, not editable, not deletable. Typed content silently disappearing with no undo is the
+worst case for a note-taking product.
+
+Screenshot: screenshots/adv-091.png
+
+Disposition: ACCEPTED -> DEF-110
+
+## ADV-092: A page holding only orphaned toggle children shows neither content nor the "This page is empty" placeholder — it renders as a blank void
+
+- Session: phase-7 gate
+- Suggested severity: MEDIUM
+
+What I did: the exact steps of ADV-091, then looked at the rendered page at 1280x800.
+
+Expected: if nothing is renderable, the page shows the "This page is empty / Click here to start
+writing" placeholder that a genuinely empty page shows.
+
+Actual: the placeholder is suppressed, because it is gated on `blocks.length === 0` and the page
+still has two (unrenderable) blocks. The body below the title is entirely blank — no blocks, no
+placeholder, no affordance. The invisible full-width "Add a block at the end of the page" button
+is the only way to get a caret back, and nothing on screen suggests it exists. Any state where the
+flat block list and the toggle grouping disagree produces this same void.
+
+Screenshot: screenshots/adv-092.png
+
+Disposition: ACCEPTED -> DEF-111
+
+## ADV-093: A toggle child dragged out of the group is silently snapped back — the drop is visually undone but the persisted order is rewritten anyway
+
+- Session: phase-7 gate
+- Suggested severity: MEDIUM
+
+What I did:
+
+1. New page. `/toggle` -> header "Header one", children "child A" and "child B", then two plain
+   paragraphs after the group ("plain one", "plain two"). Confirmed sort keys a0..a4 in the
+   snapshot.
+2. Grabbed child A's drag handle and dragged it down past "plain two" (well below the last block),
+   then dropped.
+3. Read the DOM order, the snapshot order, and reloaded.
+
+Expected: either the child leaves the toggle and becomes a plain paragraph at the bottom (the drop
+I performed), or the drag is refused visibly so I know children cannot be dragged out.
+
+Actual: the write goes through — child A's sortKey becomes a5, i.e. last on the page, after
+"plain two" — but the render pulls it back into the toggle group by its `parentToggleId`, so on
+screen it merely swapped places with child B inside the toggle. The flat order and the rendered
+order now permanently disagree (persisted: header, child B, plain one, plain two, child A;
+rendered: header, [child B, child A], plain one, plain two), and this survives a reload. A drag
+that appears to do something completely different from what you dropped, and quietly corrupts the
+ordering underneath, is worse than a refused drag.
+
+Screenshot: screenshots/adv-093.png
+
+Disposition: ACCEPTED -> DEF-112
+
+## ADV-094: The block actions menu ("Delete block") opens by itself when a pointer drag ends, covering the block below the drop point
+
+- Session: phase-7 gate
+- Suggested severity: MEDIUM
+
+What I did: dragged a block (a toggle child) by its grip handle down the page with a normal
+press-move-release, exactly as in ADV-093, and screenshotted immediately after the mouse-up.
+
+Expected: the drop reorders the block and nothing else opens.
+
+Actual: the dragged block's actions dropdown ("Delete block") opens on its own at the drop
+position and stays open, floating over and completely hiding the paragraph "plain one". The
+pointer-up at the end of the drag is being treated as a click on the drag-handle trigger. It is
+one stray click away from a destructive action the user never asked for, and it hides content until
+dismissed. (This is the generic block handle, so it likely predates Phase 7, but it fires on every
+toggle-child drag.)
+
+Screenshot: screenshots/adv-094.png
+
+Disposition: ACCEPTED -> DEF-113
+
+## ADV-095: A block dropped between two toggle children lands below the whole toggle group instead
+
+- Session: phase-7 gate
+- Suggested severity: MEDIUM
+
+What I did:
+
+1. New page: toggle "Header one" with children "child A", "child B", then plain paragraphs
+   "plain one" and "plain two".
+2. Dragged "plain two" up and dropped it on "child A", i.e. inside the toggle group between the
+   two children — the drop indicator was inside the group.
+3. Read the DOM order and the snapshot; then collapsed the toggle.
+
+Expected: either the block is inserted where I dropped it (becoming part of the toggle, or at least
+rendering at that vertical position), or the drop into a toggle group is refused.
+
+Actual: the write lands the block at sortKey a0V, i.e. flat-order position 2, between the header and
+child A — but the render skips children out of the flat list, so "plain two" appears _below_ both
+children, in a position I never dropped it at. Nothing tells the user the drop was relocated. With
+the toggle then collapsed, "plain two" sits flush under the header where the children used to be,
+so it reads as if it were the toggle's content when it is not.
+
+Screenshot: screenshots/adv-095.png
+
+Disposition: ACCEPTED -> DEF-114
+
+## ADV-096: Converting a toggle that has children into another block type makes the children invisible and unrecoverable
+
+- Session: phase-7 gate
+- Suggested severity: HIGH
+
+What I did:
+
+1. New page: toggle "Header one" with children "child A" and "child B".
+2. Clicked the header, cleared its text, typed `/head` and pressed Enter to convert it to a
+   Heading 1, then typed "Now a heading".
+3. Read the DOM and the snapshot, then reloaded.
+
+Expected: the children are either promoted to plain paragraphs (still visible) or deleted with the
+toggle. A type conversion should not be able to hide text.
+
+Actual: the page renders exactly one block, the heading. Both children still exist in the snapshot
+with `parentToggleId` pointing at the now-heading1 block
+(`{"type":"heading1","text":"Now a heading"}` plus two paragraphs with `parent` = that id), and
+they survive a reload. Nothing in the UI can reach them: the flat list skips any block with a
+`parentToggleId`, and only a `toggleList` renders a children region. This is a second, easier route
+into the same data loss as ADV-091 — it takes six keystrokes and no destructive action at all.
+
+Screenshot: screenshots/adv-096.png
+
+Disposition: ACCEPTED -> DEF-115
+
+## ADV-097: A nested toggle can be created, and its chevron is a dead control with a dangling aria-controls
+
+- Session: phase-7 gate
+- Suggested severity: MEDIUM
+
+What I did:
+
+1. New page: toggle "Outer" with one child.
+2. With the caret in the child, cleared it, typed `/toggle` and pressed Enter — the child is now a
+   `toggleList` that still carries `parentToggleId` of "Outer". Nested toggles are documented as out
+   of scope for Phase 7, so I expected the slash menu to refuse or the result to be flattened.
+3. Inspected the inner chevron's ARIA and clicked it three times.
+
+Expected: either nested toggles are prevented (the option not offered inside a toggle child), or
+they work.
+
+Actual: the nested toggle is created and renders inside the outer group with its own chevron, so it
+looks fully functional. It is not: the inner chevron does nothing at all on click (three clicks,
+`aria-expanded` stays `true`, `aria-label` stays "Collapse toggle", nothing changes), because
+BlockEditor only passes `isToggleOpen`/`onToggleOpenChange` to top-level rows. Its
+`aria-controls="toggle-children-<inner id>"` points at an element that does not exist in the DOM
+(`document.querySelectorAll` count 0), so a screen reader is told about a region that isn't there.
+Also `aria-expanded="true"` on a toggle with no children region is a lie.
+
+Screenshot: screenshots/adv-097.png
+
+Disposition: ACCEPTED -> DEF-116
+
+## ADV-098: Enter inside a nested toggle header is swallowed entirely — no child, no new block, no newline, and the next typing concatenates onto the header
+
+- Session: phase-7 gate
+- Suggested severity: MEDIUM
+
+What I did:
+
+1. Created the nested toggle of ADV-097 with header text "Inner toggle" (a `toggleList` child of
+   another toggle).
+2. Pressed Enter in that inner header, then typed "inner child".
+
+Expected: something — a child block, a sibling paragraph, or a literal newline.
+
+Actual: Enter is a no-op. `BlockRow` intercepts Enter for `toggleList` and calls
+`onEnterToggleHeader?.()`, which is `undefined` for a nested row, so the keypress is consumed and
+discarded. The block count does not change and the following typing lands in the same header:
+the block's text becomes `"Inner toggleinner child"` — two separate thoughts silently merged into
+one line with no separator. Any user who reaches a nested toggle has an editor where Enter is
+broken with no feedback.
+
+Screenshot: screenshots/adv-098.png
+
+Disposition: ACCEPTED -> DEF-117
+
+## ADV-099: Characters typed immediately after converting a toggle child into a nested toggle are dropped — only the first one survives
+
+- Session: phase-7 gate
+- Suggested severity: MEDIUM
+
+What I did:
+
+1. New page: toggle "Outer" with one child; caret in the child.
+2. Cleared the child, typed `/toggle`, pressed Enter, and started typing "Inner toggle"
+   immediately (15ms per key, no pause after Enter).
+3. Waited, read the DOM and the snapshot, and reloaded.
+
+Expected: all twelve characters land in the converted block, as they do for every other
+conversion.
+
+Actual: the block ends up with the single character `"I"` — the other eleven are lost, and the loss
+persists to the database and survives a reload. With an 800ms pause after Enter the same sequence
+keeps the full text, so this is a race in the convert-and-refocus path specific to converting a
+toggle _child_: converting a plain top-level block to `/head` or `/toggle` with the same zero
+pause keeps "Hello world" intact. A fast typist loses a line of text with no indication.
+
+Disposition: ACCEPTED -> DEF-118
+
+## ADV-100: After the toggle header has been dragged, exiting the toggle with Enter drops the new paragraph at the very top of the page
+
+- Session: phase-7 gate
+- Suggested severity: MEDIUM
+
+What I did:
+
+1. New page: toggle "Header one" with children "child A", "child B", then "plain one" and
+   "plain two".
+2. Dragged the toggle header (by its chevron) down below "plain two". The group moves as a unit on
+   screen — rendered order becomes plain one, plain two, Header one, child A, child B — but in the
+   flat order the children stay at a1/a2 while the header moves to a5.
+3. Clicked the end of "child B", pressed Enter (new empty child), pressed Enter again — the
+   documented "exit the toggle" gesture — and typed "AFTER THE GROUP".
+
+Expected, per REQUIREMENTS.md Phase 7: "removes the empty child, creates a sibling paragraph after
+the whole toggle group", i.e. below "child B" at the bottom of the page.
+
+Actual: the paragraph is created at sortKey a2l and renders as the _first block on the page_,
+above "plain one" and four rows above the toggle it came out of, with the caret up there. The exit
+sort key is computed from the last child's flat position, which no longer relates to where the
+toggle is rendered. The user's next sentence lands at the opposite end of the document from where
+they were typing.
+
+Screenshot: screenshots/adv-100.png
+
+Disposition: ACCEPTED -> DEF-119
+
+## ADV-101: The toggle chevron cannot be operated by keyboard at all — Space and Enter on the focused button do nothing
+
+- Session: phase-7 gate
+- Suggested severity: MEDIUM
+
+What I did:
+
+1. New page: toggle "Header one" with two children.
+2. Focused the chevron button directly (confirmed `document.activeElement` is
+   `[data-testid="block-toggle-arrow"]`) and pressed Space. Read `aria-expanded` and the rendered
+   children.
+3. Pressed Escape, refocused, pressed Enter, and read them again. Also re-read the snapshot to
+   check whether a keyboard drag had happened instead.
+
+Expected: Space or Enter on a `<button aria-expanded>` collapses the toggle, the same as clicking
+it. A keyboard-only user must be able to collapse and expand.
+
+Actual: neither key does anything. `aria-expanded` stays `true`, the children stay visible, and no
+sort keys change, so it is not even starting a keyboard drag that could be Escaped out of — the
+keypress is consumed and lost. dnd-kit's activator listeners `preventDefault()` Space/Enter on this
+button, and unlike the ordinary block handle (which has ArrowDown as its documented keyboard route
+to the menu) the toggle has no alternative keyboard path to collapse. A control that renders as a
+button, announces `aria-expanded`, and ignores both of its activation keys is the sharpest
+keyboard-only failure I found in Phase 7.
+
+Disposition: ACCEPTED -> DEF-120

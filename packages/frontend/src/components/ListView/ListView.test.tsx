@@ -182,3 +182,183 @@ describe('ListView', () => {
     expect(propContainer!.className).toMatch(/\bsm:flex\b/);
   });
 });
+
+// ── Cell renderer coverage ────────────────────────────────────────────────────
+// These tests exercise the renderCellValue switch cases not covered by the main suite above.
+
+function makeProp(
+  id: string,
+  type: PropertyRecord['type'],
+  overrides?: Partial<PropertyRecord>,
+): PropertyRecord {
+  return {
+    id,
+    databasePageId: 'db-1',
+    name: type,
+    type,
+    options: [],
+    sortKey: id,
+    version: 1,
+    updatedAt: 0,
+    ...overrides,
+  };
+}
+
+function makeRow(id: string): PageRecord {
+  return {
+    id,
+    parentId: 'db-1',
+    title: 'R',
+    icon: '',
+    sortKey: id,
+    kind: 'row',
+    version: 1,
+    updatedAt: 0,
+  };
+}
+
+function makeVal(rowPageId: string, propertyId: string, value: string | null): PropertyValueRecord {
+  return { rowPageId, propertyId, value, version: 1, updatedAt: 0 };
+}
+
+describe('ListView — renderCellValue: number', () => {
+  it('renders a number value as a string', () => {
+    const prop = makeProp('p-num', 'number');
+    render(
+      <ListView
+        rows={[makeRow('r1')]}
+        properties={[prop]}
+        values={[makeVal('r1', 'p-num', JSON.stringify(42))]}
+        onSelectRow={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('42')).toBeInTheDocument();
+  });
+});
+
+describe('ListView — renderCellValue: checkbox', () => {
+  it('renders "Yes" for a checked value', () => {
+    const prop = makeProp('p-cb', 'checkbox');
+    render(
+      <ListView
+        rows={[makeRow('r1')]}
+        properties={[prop]}
+        values={[makeVal('r1', 'p-cb', JSON.stringify(true))]}
+        onSelectRow={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('Yes')).toBeInTheDocument();
+  });
+
+  it('renders "No" for an unchecked value', () => {
+    const prop = makeProp('p-cb', 'checkbox');
+    render(
+      <ListView
+        rows={[makeRow('r1')]}
+        properties={[prop]}
+        values={[makeVal('r1', 'p-cb', JSON.stringify(false))]}
+        onSelectRow={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('No')).toBeInTheDocument();
+  });
+});
+
+describe('ListView — renderCellValue: select', () => {
+  const options = [
+    { id: 'o1', name: 'Alpha', color: 'blue' as const },
+    { id: 'o2', name: 'Beta', color: 'teal' as const },
+  ];
+
+  it('renders the option name as a badge', () => {
+    const prop = makeProp('p-sel', 'select', { options });
+    render(
+      <ListView
+        rows={[makeRow('r1')]}
+        properties={[prop]}
+        values={[makeVal('r1', 'p-sel', JSON.stringify('o1'))]}
+        onSelectRow={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('Alpha')).toBeInTheDocument();
+  });
+
+  it('returns null (empty indicator) when the option id no longer exists', () => {
+    const prop = makeProp('p-sel', 'select', { options });
+    render(
+      <ListView
+        rows={[makeRow('r1')]}
+        properties={[prop]}
+        values={[makeVal('r1', 'p-sel', JSON.stringify('gone'))]}
+        onSelectRow={vi.fn()}
+      />,
+    );
+    // The empty indicator (the dash) must appear instead of an option name.
+    expect(screen.getByLabelText(/empty/i)).toBeInTheDocument();
+  });
+});
+
+describe('ListView — renderCellValue: multiSelect', () => {
+  const options = [
+    { id: 'o1', name: 'Tag A', color: 'blue' as const },
+    { id: 'o2', name: 'Tag B', color: 'teal' as const },
+  ];
+
+  it('renders all selected option names as badges', () => {
+    const prop = makeProp('p-ms', 'multiSelect', { options });
+    render(
+      <ListView
+        rows={[makeRow('r1')]}
+        properties={[prop]}
+        values={[makeVal('r1', 'p-ms', JSON.stringify(['o1', 'o2']))]}
+        onSelectRow={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('Tag A')).toBeInTheDocument();
+    expect(screen.getByText('Tag B')).toBeInTheDocument();
+  });
+
+  it('skips option ids that no longer exist', () => {
+    const prop = makeProp('p-ms', 'multiSelect', { options });
+    render(
+      <ListView
+        rows={[makeRow('r1')]}
+        properties={[prop]}
+        values={[makeVal('r1', 'p-ms', JSON.stringify(['o1', 'deleted']))]}
+        onSelectRow={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('Tag A')).toBeInTheDocument();
+    expect(screen.queryByText('deleted')).not.toBeInTheDocument();
+  });
+});
+
+describe('ListView — renderCellValue: url', () => {
+  it('renders a url value as plain text', () => {
+    const prop = makeProp('p-url', 'url');
+    render(
+      <ListView
+        rows={[makeRow('r1')]}
+        properties={[prop]}
+        values={[makeVal('r1', 'p-url', JSON.stringify('https://example.com'))]}
+        onSelectRow={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('https://example.com')).toBeInTheDocument();
+  });
+});
+
+describe('ListView — renderCellValue: invalid JSON', () => {
+  it('shows the empty indicator (catch path) when the stored value is malformed JSON', () => {
+    const prop = makeProp('p-num', 'number');
+    render(
+      <ListView
+        rows={[makeRow('r1')]}
+        properties={[prop]}
+        values={[makeVal('r1', 'p-num', 'not-json')]}
+        onSelectRow={vi.fn()}
+      />,
+    );
+    expect(screen.getByLabelText(/empty/i)).toBeInTheDocument();
+  });
+});

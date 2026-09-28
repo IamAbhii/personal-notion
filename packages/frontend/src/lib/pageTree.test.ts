@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ancestorChain,
+  ancestorIds,
   buildPageTree,
   childrenOf,
   descendantIds,
@@ -101,5 +102,18 @@ describe('ancestorChain', () => {
       'Trips',
       'Lisbon',
     ]);
+  });
+});
+
+describe('ancestorIds', () => {
+  it('returns the ancestor page ids (excluding the page itself)', () => {
+    // p-lisbon is under p-trips which is under p-journal.
+    const ids = ancestorIds(fixturePages, 'p-lisbon');
+    expect(ids).toEqual(['p-journal', 'p-trips']);
+    expect(ids).not.toContain('p-lisbon');
+  });
+
+  it('returns an empty array for a root-level page', () => {
+    expect(ancestorIds(fixturePages, 'p-journal')).toEqual([]);
   });
 });

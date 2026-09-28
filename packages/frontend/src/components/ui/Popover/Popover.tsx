@@ -47,7 +47,9 @@ export function Popover({
           collisionPadding={8}
           // Constrain width so a 340px picker does not overflow a 320px viewport.
           className={cn(
-            'max-w-[calc(100vw-1rem)] overflow-hidden rounded-[var(--radius-md)] bg-surface shadow-[var(--shadow-pop)]',
+            // border-border gives the panel a defined edge in dark theme where --shadow-pop
+            // (dark rgba) renders invisibly against the dark canvas.
+            'max-w-[calc(100vw-1rem)] overflow-hidden rounded-[var(--radius-md)] border border-border bg-surface shadow-[var(--shadow-pop)]',
             className,
           )}
         >

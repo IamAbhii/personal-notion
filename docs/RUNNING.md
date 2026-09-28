@@ -121,18 +121,21 @@ helper command lines. To see what holds a port:
 
 All from the repo root. It is an npm workspace (`packages/frontend`, `packages/worker`).
 
-| Command                                         | Does                                                                        |
-| ----------------------------------------------- | --------------------------------------------------------------------------- |
-| `npm install`                                   | Install everything                                                          |
-| `npm start`                                     | Build frontend, apply local migrations, serve on **8787**. This is the app. |
-| `npm run dev`                                   | Worker on 8787 **and** Vite on 5173, concurrently. Development only.        |
-| `npm run test`                                  | Worker unit tests, then frontend unit tests                                 |
-| `npm run test:worker` / `npm run test:frontend` | One side only (`vitest run`)                                                |
-| `npm run test:e2e`                              | Playwright, config at `e2e/playwright.config.ts`                            |
-| `npm run migrate:local`                         | Apply D1 migrations to the local database                                   |
-| `npm run typecheck` / `lint` / `format:check`   | The three pre-commit gates                                                  |
-| `npm run lint:fix` / `format`                   | Mechanical fixes                                                            |
-| `npm run kill-servers`                          | Kill stale wrangler/workerd and assert 8787 and 8788 are free               |
+| Command                                         | Does                                                                                                        |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `npm install`                                   | Install everything                                                                                          |
+| `npm start`                                     | Build frontend, apply local migrations, serve on **8787**. This is the app.                                 |
+| `npm run dev`                                   | Worker on 8787 **and** Vite on 5173, concurrently. Development only.                                        |
+| `npm run test`                                  | Worker unit tests, then frontend unit tests                                                                 |
+| `npm run test:worker` / `npm run test:frontend` | One side only (`vitest run`)                                                                                |
+| `npm run test:coverage`                         | Worker coverage (Istanbul), then frontend coverage (v8), both with text summary and 80% statement threshold |
+| `npm run test:coverage:worker`                  | Worker coverage only — prints the Istanbul text table to stdout                                             |
+| `npm run test:coverage:frontend`                | Frontend coverage only — prints the v8 text table to stdout                                                 |
+| `npm run test:e2e`                              | Playwright, config at `e2e/playwright.config.ts`                                                            |
+| `npm run migrate:local`                         | Apply D1 migrations to the local database                                                                   |
+| `npm run typecheck` / `lint` / `format:check`   | The three pre-commit gates                                                                                  |
+| `npm run lint:fix` / `format`                   | Mechanical fixes                                                                                            |
+| `npm run kill-servers`                          | Kill stale wrangler/workerd and assert 8787 and 8788 are free                                               |
 
 **Always `vitest run`, never bare `vitest`** — the bare form watches forever.
 
@@ -161,6 +164,15 @@ poll the port; or avoid them entirely.
 **Everything that terminates runs in the foreground with an explicit timeout**: test runs, builds,
 typechecks, migrations. Backgrounding those and polling for completion is how you invent a deadlock.
 The timeout is what turns a hang into an error you can read and react to.
+
+## A failure shape that looks like product bugs but is not
+
+Two setup mistakes produce errors that are indistinguishable from bugs in the request path:
+
+- **Running the worker before `npm run migrate:local`**: The database schema is missing, so every request that touches the database fails with a SQLite error. Pages appear to not exist, creates return 500, and page ids are absent from the snapshot. Run `npm run migrate:local` once after cloning or after deleting the local D1 state.
+- **Two wrangler instances alive at the same time**: The second one binds to 8788 silently. The e2e suite's `baseURL` still points at 8787, which is held by the first (stale) instance. Tests then fail with "page no longer exists" or shifting ids because they are hitting a different database than the one the suite reset. Run `npm run kill-servers` and verify with `lsof -nP -iTCP:8787 -sTCP:LISTEN` before starting a new server.
+
+Both failure shapes were found by the adversary as apparently legitimate bugs and cost several investigation cycles before the setup state was confirmed.
 
 ## Secrets and the auth bypass
 

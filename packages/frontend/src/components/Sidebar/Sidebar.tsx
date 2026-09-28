@@ -12,6 +12,12 @@ import { cn } from '../../lib/cn';
 import { useUiStoreShallow } from '../../stores/uiStore';
 import type { PageRecord, PropertyRecord } from '../../api/types';
 
+// Detect macOS so the search shortcut hint shows the platform-correct key.
+// Uses the userAgent string; navigator.platform is deprecated.
+const isMac =
+  typeof navigator !== 'undefined' &&
+  /Macintosh|MacIntel|MacPPC|Mac OS X/.test(navigator.userAgent);
+
 export interface SidebarProps {
   workspaceName: string;
   role: string;
@@ -423,9 +429,10 @@ export function Sidebar({
         >
           <Search size={13} aria-hidden className="flex-none" />
           <span className="min-w-0 flex-1 truncate">Search...</span>
-          {/* Keyboard shortcut hint: hidden on narrow widths to avoid crowding the 320px layout. */}
+          {/* Keyboard shortcut hint: hidden on narrow widths to avoid crowding the 320px layout.
+              Shows the correct modifier for the platform: ⌘K on macOS, Ctrl K elsewhere. */}
           <kbd className="hidden flex-none items-center rounded border border-panel-border px-1 text-[10px] sm:flex">
-            ⌘K
+            {isMac ? '⌘K' : 'Ctrl K'}
           </kbd>
         </button>
       ) : null}

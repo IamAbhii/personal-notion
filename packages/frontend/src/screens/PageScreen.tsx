@@ -353,15 +353,18 @@ function DatabasePageContent({
     >
       {/* View bar: switcher on the left, filter/sort on the right */}
       <div className="mb-3 flex items-center gap-2 border-b border-border pb-3">
-        <ViewSwitcher activeKind={activeKind} onSwitch={onSwitchView} className="flex-1" />
+        <ViewSwitcher activeKind={activeKind} onSwitch={onSwitchView} />
+        {/* ml-auto pushes the filter control to the right without stretching the view switcher */}
         {activeView && (
-          <FilterSortControl
-            view={activeView}
-            properties={dbProperties}
-            rows={displayRows}
-            viewKind={activeKind}
-            onUpdate={handleViewUpdate}
-          />
+          <div className="ml-auto">
+            <FilterSortControl
+              view={activeView}
+              properties={dbProperties}
+              rows={displayRows}
+              viewKind={activeKind}
+              onUpdate={handleViewUpdate}
+            />
+          </div>
         )}
       </div>
 

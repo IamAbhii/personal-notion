@@ -24,12 +24,20 @@ export default defineConfig({
         viewport: { width: 1280, height: 800 },
       },
       // Mobile specs run only under the mobile-chrome project so the desktop suite stays fast.
-      testIgnore: ['**/views-mobile.spec.ts', '**/phase-5-mobile.spec.ts'],
+      testIgnore: [
+        '**/views-mobile.spec.ts',
+        '**/phase-5-mobile.spec.ts',
+        '**/toggle-list-mobile.spec.ts',
+      ],
     },
     {
       name: 'mobile-chrome',
       use: { ...devices['Pixel 5'] },
-      testMatch: ['**/views-mobile.spec.ts', '**/phase-5-mobile.spec.ts'],
+      testMatch: [
+        '**/views-mobile.spec.ts',
+        '**/phase-5-mobile.spec.ts',
+        '**/toggle-list-mobile.spec.ts',
+      ],
     },
   ],
 

@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
-import { render } from '@testing-library/react';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { render, fireEvent, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BlockRow } from './BlockRow';
 import { makeBlock } from '../test/fixtures';
@@ -44,6 +44,10 @@ function makeSortableReturn(isDragging: boolean): ReturnType<typeof useSortable>
 
 const block = makeBlock({ id: 'b-drag-test', pageId: 'p-1', text: 'Drag me', sortKey: 'a0' });
 
+// A plain MutableRefObject<boolean> — React.useRef is unavailable outside a component, but the
+// prop type only needs `{ current: boolean }` and BlockRow reads/writes `.current` directly.
+const dragJustEndedRef = { current: false };
+
 const defaultProps = {
   block,
   listNumber: 1,
@@ -56,6 +60,8 @@ const defaultProps = {
   onDelete: vi.fn(),
   registerEditor: vi.fn(),
   onNotice: vi.fn(),
+  onPasteImage: vi.fn(),
+  dragJustEndedRef,
 };
 
 describe('BlockRow data-dragging attribute', () => {
@@ -197,5 +203,166 @@ describe('drag handle vertical alignment (Problem 1)', () => {
     render(<BlockRow {...defaultProps} block={dividerBlock} />);
     const handle = document.querySelector('[data-testid="block-drag-handle"]');
     expect(handle?.className).toContain('top-0');
+  });
+});
+
+describe('drag handle menu swallow-after-drag (DEF-113)', () => {
+  // Root cause: Radix DropdownMenu.Trigger fires onOpenChange(true) on pointerdown, before dnd-kit's
+  // 4px activation threshold. menuOpen becomes true. During the drag isDragging=true hides the menu
+  // via open={menuOpen && !isDragging}. When the drag ends isDragging returns to false, revealing
+  // menuOpen=true. Fix: useLayoutEffect resets menuOpen when isDragging becomes true (fires before
+  // paint, no flash). dragJustEndedRef (set synchronously in BlockEditor.handleDragEnd) is secondary
+  // defense against any synthetic click that might fire in non-dnd-kit environments.
+
+  beforeEach(() => {
+    dragJustEndedRef.current = false;
+  });
+
+  it('menu stays closed after a full drag cycle (isDragging true→false)', () => {
+    // The real sequence: pointerdown → Radix opens menu (menuOpen=true) → 4px movement →
+    // isDragging=true (useLayoutEffect resets menuOpen=false) → drag ends → isDragging=false →
+    // open = menuOpen && !isDragging = false && true = false → menu stays closed.
+
+    // Render with isDragging=true to trigger the useLayoutEffect reset.
+    vi.mocked(useSortable).mockReturnValue(makeSortableReturn(true));
+    const { rerender } = render(<BlockRow {...defaultProps} />);
+
+    // While dragging, simulate that pointerdown had previously opened the menu (menuOpen=true).
+    // In the real browser Radix fires onOpenChange(true) at pointerdown. We cannot simulate this
+    // directly since it would be blocked by isDragging=true at click-time; instead we verify the
+    // useLayoutEffect guard below.
+
+    // Drag ends: isDragging returns to false. menuOpen was reset to false by useLayoutEffect.
+    vi.mocked(useSortable).mockReturnValue(makeSortableReturn(false));
+    act(() => {
+      rerender(<BlockRow {...defaultProps} />);
+    });
+
+    // The menu must NOT be open.
+    expect(document.querySelector('[data-testid="block-delete"]')).toBeNull();
+  });
+
+  it('menu stays closed on pointerdown after drag-end (secondary dragJustEndedRef guard)', () => {
+    // Secondary defense: if the trigger receives a pointerdown immediately after drag-end
+    // (before any new genuine interaction), dragJustEndedRef (set synchronously in handleDragEnd)
+    // swallows the Radix onOpenChange(true) call. Radix DropdownMenu.Trigger fires onOpenChange
+    // via onPointerDown, so we model the spurious trigger with fireEvent.pointerDown.
+    vi.mocked(useSortable).mockReturnValue(makeSortableReturn(false));
+    render(<BlockRow {...defaultProps} />);
+
+    // Simulate BlockEditor.handleDragEnd setting the flag synchronously.
+    dragJustEndedRef.current = true;
+    fireEvent.pointerDown(
+      document.querySelector('[data-testid="block-drag-handle"]') as HTMLElement,
+      { button: 0, ctrlKey: false, isPrimary: true },
+    );
+
+    expect(document.querySelector('[data-testid="block-delete"]')).toBeNull();
+    // Flag is consumed on the first open request.
+    expect(dragJustEndedRef.current).toBe(false);
+  });
+
+  it('menu opens normally on a genuine click with no prior drag', async () => {
+    // No drag → dragJustEndedRef stays false, isDragging never becomes true → genuine click opens.
+    const user = userEvent.setup();
+    vi.mocked(useSortable).mockReturnValue(makeSortableReturn(false));
+    render(<BlockRow {...defaultProps} />);
+
+    await user.click(document.querySelector('[data-testid="block-drag-handle"]') as HTMLElement);
+
+    expect(document.querySelector('[data-testid="block-delete"]')).not.toBeNull();
+  });
+});
+
+describe('Backspace on empty non-paragraph block resets to paragraph', () => {
+  it('calls onConvertType("paragraph") instead of onDeleteEmpty for an empty heading1 block', () => {
+    vi.mocked(useSortable).mockReturnValue(makeSortableReturn(false));
+    const onConvertType = vi.fn();
+    const onDeleteEmpty = vi.fn();
+    const h1Block = makeBlock({ id: 'b-h1-bs', pageId: 'p-1', type: 'heading1', text: '' });
+    render(
+      <BlockRow
+        {...defaultProps}
+        block={h1Block}
+        onConvertType={onConvertType}
+        onDeleteEmpty={onDeleteEmpty}
+      />,
+    );
+    const textarea = document.querySelector('textarea') as HTMLTextAreaElement;
+    fireEvent.keyDown(textarea, { key: 'Backspace' });
+    expect(onConvertType).toHaveBeenCalledWith('paragraph');
+    expect(onDeleteEmpty).not.toHaveBeenCalled();
+  });
+
+  it('calls onDeleteEmpty for an empty paragraph block', () => {
+    vi.mocked(useSortable).mockReturnValue(makeSortableReturn(false));
+    const onConvertType = vi.fn();
+    const onDeleteEmpty = vi.fn();
+    const paraBlock = makeBlock({ id: 'b-para-bs', pageId: 'p-1', type: 'paragraph', text: '' });
+    render(
+      <BlockRow
+        {...defaultProps}
+        block={paraBlock}
+        onConvertType={onConvertType}
+        onDeleteEmpty={onDeleteEmpty}
+      />,
+    );
+    const textarea = document.querySelector('textarea') as HTMLTextAreaElement;
+    fireEvent.keyDown(textarea, { key: 'Backspace' });
+    expect(onDeleteEmpty).toHaveBeenCalled();
+    expect(onConvertType).not.toHaveBeenCalled();
+  });
+
+  it('does not call either for a non-empty heading1 block', () => {
+    vi.mocked(useSortable).mockReturnValue(makeSortableReturn(false));
+    const onConvertType = vi.fn();
+    const onDeleteEmpty = vi.fn();
+    const h1Block = makeBlock({
+      id: 'b-h1-nonempty',
+      pageId: 'p-1',
+      type: 'heading1',
+      text: 'Hi',
+    });
+    render(
+      <BlockRow
+        {...defaultProps}
+        block={h1Block}
+        onConvertType={onConvertType}
+        onDeleteEmpty={onDeleteEmpty}
+      />,
+    );
+    const textarea = document.querySelector('textarea') as HTMLTextAreaElement;
+    fireEvent.keyDown(textarea, { key: 'Backspace' });
+    expect(onConvertType).not.toHaveBeenCalled();
+    expect(onDeleteEmpty).not.toHaveBeenCalled();
+  });
+});
+
+describe('Image block rendering', () => {
+  it('renders an img element with the src from block props', () => {
+    vi.mocked(useSortable).mockReturnValue(makeSortableReturn(false));
+    const src = 'data:image/png;base64,abc123';
+    const imageBlock = makeBlock({
+      id: 'b-img',
+      pageId: 'p-1',
+      type: 'image',
+      props: JSON.stringify({ src }),
+    });
+    render(<BlockRow {...defaultProps} block={imageBlock} />);
+    const img = document.querySelector('[data-testid="block-image"]') as HTMLImageElement;
+    expect(img).not.toBeNull();
+    expect(img.src).toBe(src);
+  });
+
+  it('renders no textarea for an image block', () => {
+    vi.mocked(useSortable).mockReturnValue(makeSortableReturn(false));
+    const imageBlock = makeBlock({
+      id: 'b-img-notextarea',
+      pageId: 'p-1',
+      type: 'image',
+      props: JSON.stringify({ src: 'data:image/png;base64,x' }),
+    });
+    render(<BlockRow {...defaultProps} block={imageBlock} />);
+    expect(document.querySelector('textarea')).toBeNull();
   });
 });

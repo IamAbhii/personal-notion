@@ -274,3 +274,58 @@ describe('DatabaseView — new property with a pre-existing value', () => {
     expect(screen.getByDisplayValue('9')).toBeInTheDocument();
   });
 });
+
+describe('DatabaseView — sticky header and title column (DEF-054)', () => {
+  // Note: whether the header visually sticks when the user scrolls requires a real layout engine
+  // and cannot be verified in jsdom. The structural assertions below confirm the intent is wired
+  // (classes present, scroll container fixed). Screenshots at screenshots/def-054.png and
+  // screenshots/phase-6-def054-dark.png demonstrate the actual sticky behaviour.
+
+  it('uses semantic table structure with a thead so the sticky header has the right DOM shape (DEF-054)', () => {
+    // Sticky pinning requires a <thead> inside the table so position:sticky on <th> works
+    // across all browsers. jsdom cannot verify actual scroll geometry; screenshots and qa's
+    // geometry assertions cover the behavioural proof.
+    renderDB();
+    const wrapper = screen.getByTestId('database-view');
+    const table = wrapper.querySelector('table');
+    expect(table).not.toBeNull();
+    const thead = table!.querySelector('thead');
+    expect(thead).not.toBeNull();
+    const firstTh = thead!.querySelector('th');
+    expect(firstTh?.textContent).toContain('Title');
+  });
+
+  it('the Title <th> corner cell has sticky positioning on both axes', () => {
+    // The corner cell must be sticky on both axes (top to pin to header row, left to pin to title
+    // column) so it stays visible when scrolling in either direction (DEF-054).
+    renderDB();
+    const titleHeader = screen.getByText('Title').closest('th');
+    expect(titleHeader).not.toBeNull();
+    expect(titleHeader?.className).toContain('sticky');
+    expect(titleHeader?.className).toContain('left-0');
+  });
+
+  it('each row title <td> has sticky left positioning', () => {
+    // The first column in every body row must remain visible when scrolling horizontally,
+    // so the user always knows which row a cell belongs to (DEF-054).
+    renderDB();
+    const titleCells = screen.getAllByTestId('row-title-cell');
+    expect(titleCells.length).toBeGreaterThan(0);
+    const firstTd = titleCells[0]!.closest('td');
+    expect(firstTd).not.toBeNull();
+    expect(firstTd?.className).toContain('sticky');
+    expect(firstTd?.className).toContain('left-0');
+  });
+
+  it('sticky cells have a bg-canvas background to occlude scrolling content', () => {
+    // Without a solid background, content scrolling behind the sticky header shows through,
+    // making the header unreadable. bg-canvas is the page background token (DEF-054).
+    renderDB();
+    const titleHeader = screen.getByText('Title').closest('th');
+    expect(titleHeader?.className).toContain('bg-canvas');
+
+    const titleCells = screen.getAllByTestId('row-title-cell');
+    const firstTd = titleCells[0]!.closest('td');
+    expect(firstTd?.className).toContain('bg-canvas');
+  });
+});
