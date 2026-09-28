@@ -297,6 +297,57 @@ describe('CellEditor — url', () => {
   });
 });
 
+// ---------- URL: prop-sync (DEF-107) ----------
+
+describe('CellEditor — url: incoming value sync (DEF-107)', () => {
+  const prop = makeProperty({ id: 'p4', databasePageId: 'db1', name: 'Spec', type: 'url' });
+
+  it('updates the displayed value when the prop changes while the cell is not focused', () => {
+    // An empty cell in view/idle state: a background refetch delivering a value should switch
+    // the cell to view mode showing the new URL, not silently ignore the update.
+    const { rerender } = render(
+      <CellEditor property={prop} rowPageId="r1" value={null} onSave={onSave} />,
+    );
+    // Initially empty: input is shown with no value.
+    expect(screen.getByRole('textbox')).toHaveValue('');
+    // Simulate a background refetch arriving while the field is not focused.
+    rerender(
+      <CellEditor
+        property={prop}
+        rowPageId="r1"
+        value={JSON.stringify('https://updated.com')}
+        onSave={onSave}
+      />,
+    );
+    // The cell should now show the link from the refetch.
+    expect(screen.getByRole('link')).toHaveAttribute('href', 'https://updated.com');
+  });
+
+  it('does not overwrite an in-progress edit when the prop changes while focused', async () => {
+    // The draft is authoritative while the user holds focus. A 30-second snapshot refetch
+    // must not discard what the user is typing.
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <CellEditor property={prop} rowPageId="r1" value={null} onSave={onSave} />,
+    );
+    const input = screen.getByRole('textbox');
+    await user.click(input);
+    await user.type(input, 'draft.com');
+    // Simulate a background refetch arriving while the field is focused.
+    rerender(
+      <CellEditor
+        property={prop}
+        rowPageId="r1"
+        value={JSON.stringify('https://from-server.com')}
+        onSave={onSave}
+      />,
+    );
+    // The user's draft must survive the refetch; the input should still be visible and show the
+    // typed value, not the server value or a blank.
+    expect(screen.getByRole('textbox')).toHaveValue('draft.com');
+  });
+});
+
 // ---------- Select ----------
 
 describe('CellEditor — select', () => {

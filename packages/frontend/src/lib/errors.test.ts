@@ -10,12 +10,15 @@ describe('isOfflineError', () => {
     expect(isOfflineError(new ApiError(500, 'Internal error'))).toBe(false);
   });
 
-  it('returns true for a "Failed to fetch" TypeError (network gone)', () => {
-    expect(isOfflineError(new TypeError('Failed to fetch'))).toBe(true);
+  it('returns false for a "Failed to fetch" TypeError when navigator.onLine is true', () => {
+    // With the fix, a network-ish TypeError is only offline when navigator.onLine is false.
+    // When the browser says we are online, a TypeError is more likely a keepalive body-size
+    // rejection (the 64 KiB Fetch spec cap) than genuine offline, so we return false.
+    expect(isOfflineError(new TypeError('Failed to fetch'))).toBe(false);
   });
 
-  it('returns true for a "Load failed" error (Safari offline phrasing)', () => {
-    expect(isOfflineError(new TypeError('Load failed'))).toBe(true);
+  it('returns false for a "Load failed" TypeError when navigator.onLine is true', () => {
+    expect(isOfflineError(new TypeError('Load failed'))).toBe(false);
   });
 
   it('returns false for a generic application error', () => {
@@ -74,10 +77,37 @@ describe('describeWriteFailure', () => {
     expect(msg).toContain('Renaming "Lisbon"');
   });
 
-  it('says "offline" when the network was unreachable', () => {
-    const msg = describeWriteFailure('Creating a page', new TypeError('Failed to fetch'));
-    expect(msg).toMatch(/offline/i);
-    expect(msg).toContain('Creating a page');
+  it('says "offline" when navigator.onLine is false', () => {
+    const original = Object.getOwnPropertyDescriptor(window.navigator, 'onLine');
+    Object.defineProperty(window.navigator, 'onLine', {
+      value: false,
+      configurable: true,
+      writable: true,
+    });
+    try {
+      const msg = describeWriteFailure('Creating a page', new TypeError('Failed to fetch'));
+      expect(msg).toMatch(/offline/i);
+      expect(msg).toContain('Creating a page');
+    } finally {
+      if (original) {
+        Object.defineProperty(window.navigator, 'onLine', original);
+      } else {
+        Object.defineProperty(window.navigator, 'onLine', {
+          value: true,
+          configurable: true,
+          writable: true,
+        });
+      }
+    }
+  });
+
+  it('says "Please try again" (not "offline") for a TypeError when navigator.onLine is true', () => {
+    // This is the keepalive 64 KiB cap case: fetch() rejects with a TypeError even though the
+    // device is online. We must not say "offline" — that is the bug this fix addresses.
+    const msg = describeWriteFailure('Adding a image block', new TypeError('Failed to fetch'));
+    expect(msg).not.toMatch(/offline/i);
+    expect(msg).toMatch(/please try again/i);
+    expect(msg).toContain('Adding a image block');
   });
 
   it('includes the error message as detail for a plain Error (fallback path)', () => {
@@ -97,9 +127,34 @@ describe('describeWriteFailure', () => {
 // ── describeLoadFailure ────────────────────────────────────────────────────────
 
 describe('describeLoadFailure', () => {
-  it('returns "You are offline" for a fetch failure', () => {
+  it('returns "You are offline" when navigator.onLine is false', () => {
+    // isOfflineError only returns true when navigator.onLine is explicitly false.
+    const original = Object.getOwnPropertyDescriptor(window.navigator, 'onLine');
+    Object.defineProperty(window.navigator, 'onLine', {
+      value: false,
+      configurable: true,
+      writable: true,
+    });
+    try {
+      const { title } = describeLoadFailure(new TypeError('Failed to fetch'));
+      expect(title).toBe('You are offline');
+    } finally {
+      if (original) {
+        Object.defineProperty(window.navigator, 'onLine', original);
+      } else {
+        Object.defineProperty(window.navigator, 'onLine', {
+          value: true,
+          configurable: true,
+          writable: true,
+        });
+      }
+    }
+  });
+
+  it('returns "Something went wrong" for a fetch TypeError when navigator.onLine is true', () => {
+    // A TypeError while online is not an offline error — it falls through to the generic path.
     const { title } = describeLoadFailure(new TypeError('Failed to fetch'));
-    expect(title).toBe('You are offline');
+    expect(title).toBe('Something went wrong');
   });
 
   it('returns the API status for an ApiError', () => {

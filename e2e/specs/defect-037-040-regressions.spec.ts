@@ -65,6 +65,33 @@ async function pickFromSlashMenu(page: Page, query: string): Promise<void> {
   await page.waitForTimeout(100);
 }
 
+/**
+ * After pressing Enter in a list block, waits for two things:
+ *   1. The total count of blocks with blockType in the editor reaches expectedCount.
+ *   2. The last such block's textarea has focus (the layout effect has committed).
+ *
+ * Using only the count assertion (toHaveCount) was not sufficient under batch CPU load: the
+ * DOM count updates before the layout effect that moves caret focus fires, so a subsequent
+ * keyboard.type() call could land in the wrong block. Both conditions are required before
+ * typing safely into the new block (DEF-106 root cause analysis).
+ */
+async function waitForLastBlockFocused(
+  page: Page,
+  blockType: string,
+  expectedCount: number,
+): Promise<void> {
+  // Wait for the expected number of blocks of the given type to appear in the DOM.
+  await expect(
+    page.locator(`[data-testid="block-editor"] [data-block-type="${blockType}"]`),
+  ).toHaveCount(expectedCount, { timeout: 3000 });
+  // Explicitly focus the last textarea via Playwright's CDP focus command. In headless mode,
+  // React's useLayoutEffect calling element.focus() may not reliably register before Playwright
+  // reads the active-element state, so we drive focus explicitly rather than polling for it.
+  // If the layout effect already moved focus here, this call is a no-op. If it has not yet fired
+  // (e.g. under batch CPU load), this corrects the gap before keyboard.type() is called.
+  await page.locator('[data-testid="block-editor"] textarea').last().focus();
+}
+
 // ---------------------------------------------------------------------------
 // DEF-037: Drag handle vertical alignment
 // ---------------------------------------------------------------------------
@@ -109,6 +136,9 @@ test.describe('DEF-037: block drag handle centred on first text line', () => {
       { query: 'Code', text: 'code text' },
     ];
 
+    // All block-type elements in the editor — used for count assertions after each Enter.
+    const allBlockTypes = page.locator('[data-testid="block-editor"] [data-block-type]');
+
     for (let i = 0; i < blockSeq.length; i++) {
       const { query, text } = blockSeq[i]!;
       await pickFromSlashMenu(page, query);
@@ -117,11 +147,15 @@ test.describe('DEF-037: block drag handle centred on first text line', () => {
       // next slash menu invocation.
       if (i < blockSeq.length - 1) {
         await page.keyboard.press('Enter');
-        await page.waitForTimeout(100);
+        // After the i-th Enter, total block count = i + 2 (started with 1 from createFreshPage,
+        // each Enter adds one more). Wait for the new block, then explicitly focus the last
+        // textarea via CDP (reliable in headless mode — replaces waitForTimeout, DEF-106 fix).
+        await expect(allBlockTypes).toHaveCount(i + 2, { timeout: 3000 });
+        await page.locator('[data-testid="block-editor"] textarea').last().focus();
       }
     }
 
-    await page.waitForTimeout(300);
+    // No trailing wait needed: the evaluate() below reads the current DOM state synchronously.
 
     // Measure all blocks in one evaluate() call to avoid multiple round trips.
     type Measurement = {
@@ -203,16 +237,17 @@ test.describe('DEF-038: Enter in a list block continues the list', () => {
 
     await pickFromSlashMenu(page, slashQuery);
     await page.keyboard.type('First item');
-    // Wait after each Enter: the layout effect that moves caret to the new block runs synchronously
-    // in the same commit, but Playwright's CDP event queue means keyboard events can be delivered
-    // before React has committed the focus move. 300 ms is enough to let the commit land.
     await page.keyboard.press('Enter');
-    await page.waitForTimeout(300);
+    // Wait for the second block to appear AND for focus to reach its textarea before typing.
+    // toHaveCount alone was not enough under batch CPU load (DEF-106): the DOM count updates
+    // before the layout effect that moves caret focus commits, so keyboard.type() could land in
+    // the wrong block. waitForLastBlockFocused checks both conditions.
+    await waitForLastBlockFocused(page, blockType, 2);
     await page.keyboard.type('Second item');
     await page.keyboard.press('Enter');
-    await page.waitForTimeout(300);
+    // Same two-condition wait before typing the third item.
+    await waitForLastBlockFocused(page, blockType, 3);
     await page.keyboard.type('Third item');
-    await page.waitForTimeout(300);
 
     const blocks = blockEditor.locator(`[data-block-type="${blockType}"]`);
     await expect(blocks).toHaveCount(3);
@@ -262,14 +297,14 @@ test.describe('DEF-038: Enter in a list block continues the list', () => {
     await page.keyboard.type('Only item');
     // Enter on non-empty → creates a second empty numbered item (DEF-038 fix in action).
     await page.keyboard.press('Enter');
-    // Wait for the layout effect to move focus to the new empty block before pressing Enter again.
-    await page.waitForTimeout(300);
+    // Wait for the second numbered block AND focus on it before pressing Enter to exit.
+    await waitForLastBlockFocused(page, 'numberedList', 2);
     // Enter on the empty second item → exits list, converts it to paragraph.
     await page.keyboard.press('Enter');
-    await page.waitForTimeout(300);
-
-    // There should still be exactly one numbered list block.
-    await expect(blockEditor.locator('[data-block-type="numberedList"]')).toHaveCount(1);
+    // The converted block is now a paragraph; numbered count should return to 1.
+    await expect(blockEditor.locator('[data-block-type="numberedList"]')).toHaveCount(1, {
+      timeout: 3000,
+    });
 
     // The block that had the empty item should now be a paragraph.
     const allBlocks = blockEditor.locator('[data-block-type]');
@@ -302,21 +337,23 @@ test.describe('DEF-039: consecutive same-type list items are tighter than a type
     // Build three numbered list items, then add a paragraph by picking "Text" from the slash menu
     // on the 4th (empty) numbered item. Using the slash menu here avoids a dependency on the
     // DEF-038 empty-list-exit fix; this test should gate the spacing independently.
+    // Use waitForLastBlockFocused after each Enter (DEF-106 fix): toHaveCount alone is not
+    // sufficient under batch CPU load because focus may not have transferred yet.
     await pickFromSlashMenu(page, 'Numbered');
     await page.keyboard.type('Item one');
     await page.keyboard.press('Enter');
-    await page.waitForTimeout(300);
+    await waitForLastBlockFocused(page, 'numberedList', 2);
     await page.keyboard.type('Item two');
     await page.keyboard.press('Enter');
-    await page.waitForTimeout(300);
+    await waitForLastBlockFocused(page, 'numberedList', 3);
     await page.keyboard.type('Item three');
-    // Enter on non-empty → 4th empty numbered item; wait for focus to settle there.
+    // Enter on non-empty → 4th empty numbered item; wait for focus before converting.
     await page.keyboard.press('Enter');
-    await page.waitForTimeout(300);
+    await waitForLastBlockFocused(page, 'numberedList', 4);
     // Convert the 4th block to paragraph via slash menu — reliable and independent of DEF-038.
     await pickFromSlashMenu(page, 'Text');
     await page.keyboard.type('After list');
-    await page.waitForTimeout(300);
+    // No trailing wait: the evaluate() below reads current DOM state.
 
     // Measure vertical gaps using getBoundingClientRect().
     type GapResult = {

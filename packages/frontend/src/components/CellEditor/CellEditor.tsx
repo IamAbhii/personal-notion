@@ -647,17 +647,30 @@ function UrlCell({
   onSave: (v: string | null) => void;
   label: string;
 }) {
+  // `editing` tracks whether the user explicitly clicked the edit button on a non-empty cell.
+  // `focused` tracks whether the input currently has DOM focus (covers both the editing case and
+  // the always-visible empty-cell input). Both are needed to guard view-mode re-entry.
+  //
+  // DEF-107: the old code used a useState initializer for `draft` (runs only once) and guarded
+  // view mode with `!editing && raw` only. When a background refetch delivered a value to an empty
+  // cell the user was typing in, `raw` became truthy, the branch flipped to view mode, and the
+  // draft was discarded. The fix mirrors TextCell (DEF-105): derive the displayed value from
+  // `focused` — the prop when idle, the local draft while the user is typing — so a refetch can
+  // update a passive cell but cannot clobber an in-progress edit.
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(() => parseValue<string>(value) ?? '');
-  // Track value at edit-start so Escape can revert to it (ADV-034).
-  const revertTo = useRef(draft);
+  const [focused, setFocused] = useState(false);
+  const [draft, setDraft] = useState('');
+  // Track value at edit/focus-start so Escape can revert to it (ADV-034).
+  const revertTo = useRef('');
 
   const raw = parseValue<string>(value) ?? '';
 
-  // View mode with a stored value: show anchor (if URL-like) or plain text, plus an edit button.
+  // View mode: a stored value exists and the user is not actively editing or focused in the input.
+  // The !focused guard is the DEF-107 fix: a background refetch delivering a value to an empty
+  // cell cannot silently discard what the user was typing.
   // The anchor is NOT given onFocus that switches to edit mode, so clicking/tabbing to it follows
   // the link as expected (ADV-032).
-  if (!editing && raw) {
+  if (!editing && !focused && raw) {
     const likelyUrl = isLikelyUrl(raw);
     return (
       <div className="group/url flex min-h-[40px] min-w-0 items-center gap-1 px-2 py-1.5">
@@ -701,36 +714,47 @@ function UrlCell({
     );
   }
 
-  // Edit mode (or no stored value): show the input.
+  // Input mode: shown when editing, focused, or the cell is empty.
+  // Display the draft while the user holds focus/is editing; fall back to the decoded prop value
+  // so a passive (unfocused, non-editing) empty cell always reflects the latest server state.
+  const displayValue = focused || editing ? draft : raw;
+
   return (
     <input
       type="url"
       aria-label={label}
       className={inputBase}
-      value={draft}
+      value={displayValue}
       // autoFocus only when switching from view mode; without it the input would steal focus on
       // every mount (e.g. when the cell first renders empty).
       autoFocus={editing}
       placeholder="https://example.com"
       onChange={(e) => setDraft(e.target.value)}
       onFocus={() => {
-        // Sync the revert target to the latest stored value each time the input is focused.
-        revertTo.current = parseValue<string>(value) ?? '';
+        // Snapshot the stored value at focus time; this becomes the Escape revert target and the
+        // initial draft — so Escape always returns to what was last saved, not a stale closure.
+        const decoded = parseValue<string>(value) ?? '';
+        revertTo.current = decoded;
+        setDraft(decoded);
+        setFocused(true);
       }}
       onKeyDown={(e) => {
         if (e.key === 'Enter') {
           e.preventDefault();
           setEditing(false);
+          setFocused(false);
           onSave(encodeUrl(draft));
         }
         if (e.key === 'Escape') {
           e.preventDefault();
           setEditing(false);
+          setFocused(false);
           setDraft(revertTo.current);
         }
       }}
       onBlur={() => {
         setEditing(false);
+        setFocused(false);
         onSave(encodeUrl(draft));
       }}
     />
