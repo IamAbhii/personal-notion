@@ -388,7 +388,7 @@ export async function applyOps(db: Db, ctx: Ctx, ops: Op[]): Promise<SyncOutcome
         now,
       );
       dataStatements.push(insertBlockStatement(db, row));
-      blockState.set(row.id, { version: row.version, pageId: row.pageId, sortKey });
+      blockState.set(row.id, { version: row.version, pageId: row.pageId, type: row.type, sortKey });
       accept(op, row.version);
       continue;
     }
@@ -423,6 +423,7 @@ export async function applyOps(db: Db, ctx: Ctx, ops: Op[]): Promise<SyncOutcome
       blockState.set(op.entityId, {
         version: nextVersion,
         pageId: current.pageId,
+        type: patch.type ?? current.type,
         sortKey: patch.sortKey ?? current.sortKey,
       });
       accept(op, nextVersion);
