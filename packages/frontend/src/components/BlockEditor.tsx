@@ -3,13 +3,13 @@ import { flushSync } from 'react-dom';
 import {
   DndContext,
   KeyboardSensor,
-  MouseSensor,
   TouchSensor,
   closestCenter,
   useDroppable,
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
+import { MouseCompatPointerSensor } from '../lib/sensors';
 import type { DragEndEvent, DragMoveEvent, DragStartEvent } from '@dnd-kit/core';
 import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import {
@@ -122,7 +122,10 @@ export function BlockEditor({
 
   const sensors = useSensors(
     // A few pixels of movement before a drag starts, so clicking into a block's text still works.
-    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
+    // MouseCompatPointerSensor uses onPointerDown (not onMouseDown) so Radix's preventDefault on
+    // pointerdown — which suppresses the compatibility mousedown — cannot starve it. It declines
+    // touch pointers so TouchSensor can apply the delay constraint for those instead.
+    useSensor(MouseCompatPointerSensor, { activationConstraint: { distance: 4 } }),
     // Touch gets its own sensor rather than sharing a PointerSensor with the mouse, because the two
     // need opposite activation rules: a mouse should drag as soon as it moves, while a finger that
     // moves immediately is scrolling the page. A 200ms hold with an 8px tolerance means a tap still
