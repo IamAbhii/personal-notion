@@ -3,12 +3,14 @@ import { flushSync } from 'react-dom';
 import {
   DndContext,
   KeyboardSensor,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   closestCenter,
+  useDroppable,
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
-import type { DragEndEvent, DragMoveEvent } from '@dnd-kit/core';
+import type { DragEndEvent, DragMoveEvent, DragStartEvent } from '@dnd-kit/core';
 import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import {
   SortableContext,
@@ -16,8 +18,15 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { BlockRow } from './BlockRow';
-import { numberedListNumber, parseBlockProps, sortKeyForMove } from '../lib/blocks';
+import {
+  numberedListNumber,
+  parseBlockProps,
+  sortKeyAfterIndex,
+  sortKeyForMove,
+  toggleGroupForDrop,
+} from '../lib/blocks';
 import { buildDragAnnouncements } from '../lib/dragAnnouncements';
+import { cn } from '../lib/cn';
 import type { BlockRecord, BlockType, BlockUpdatePayload } from '../api/types';
 
 export interface BlockEditorProps {
@@ -36,6 +45,44 @@ export interface BlockEditorProps {
   onDeleteBlock: (block: BlockRecord) => void;
   /** Says something to the user - used when a paste is clamped to the block text limit. */
   onNotice: (message: string) => void;
+}
+
+/**
+ * Id prefix for the placeholder droppable that an empty, open toggle shows while a drag is in
+ * progress. Prefixing rather than reusing the block id keeps it out of the sortable item list,
+ * where it would be treated as a reorderable row.
+ */
+const TOGGLE_DROP_ZONE_PREFIX = 'toggle-drop-zone-';
+
+/** The toggle header id a droppable id refers to, or undefined if it is not a drop zone id. */
+function toggleDropZoneTarget(overId: string | number): string | undefined {
+  const id = String(overId);
+  return id.startsWith(TOGGLE_DROP_ZONE_PREFIX)
+    ? id.slice(TOGGLE_DROP_ZONE_PREFIX.length)
+    : undefined;
+}
+
+/**
+ * The drop target an empty toggle shows while something is being dragged. Without it a toggle with
+ * no children has no slot of its own in the flat block list, so nothing could ever be dragged into
+ * one. It is rendered only during a drag, so an empty toggle still looks empty at rest.
+ */
+function ToggleDropZone({ toggleId }: { toggleId: string }) {
+  const { setNodeRef, isOver } = useDroppable({ id: `${TOGGLE_DROP_ZONE_PREFIX}${toggleId}` });
+
+  return (
+    <div
+      ref={setNodeRef}
+      data-testid="block-toggle-drop-zone"
+      data-over={isOver ? 'true' : 'false'}
+      className={cn(
+        'my-1 rounded-sm border border-dashed px-2 py-2 text-sm text-text-muted',
+        isOver ? 'border-amber bg-surface-sunken' : 'border-border',
+      )}
+    >
+      Drop here to add to this toggle
+    </div>
+  );
 }
 
 /** Which block should take the caret once it exists in the list, and at which end of its text. */
@@ -62,6 +109,9 @@ export function BlockEditor({
   // Toggle open/closed state: a block id in this set means collapsed. Absent = open (default).
   // This is intentionally component-local state — never persisted, resets to open on refresh.
   const [collapsedToggles, setCollapsedToggles] = useState<ReadonlySet<string>>(() => new Set());
+  // The block currently being dragged, or null. Only used to reveal the empty-toggle drop zones,
+  // which must not be on screen when nothing is moving.
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
 
   // Shared across all BlockRows so the gutter handle's onOpenChange can swallow the spurious click
   // that the pointer sensor synthesises immediately after drag-end. The flag is set synchronously
@@ -72,7 +122,14 @@ export function BlockEditor({
 
   const sensors = useSensors(
     // A few pixels of movement before a drag starts, so clicking into a block's text still works.
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
+    // Touch gets its own sensor rather than sharing a PointerSensor with the mouse, because the two
+    // need opposite activation rules: a mouse should drag as soon as it moves, while a finger that
+    // moves immediately is scrolling the page. A 200ms hold with an 8px tolerance means a tap still
+    // taps, a swipe still scrolls, and a long-press drags. PointerSensor cannot express both, and
+    // with the distance rule it shared with the mouse the browser claimed the touch for scrolling
+    // before dnd-kit ever activated, so block drag did nothing at all on a phone.
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
     // scrollBehavior: 'auto' makes the viewport scroll instantaneously rather than smoothly during
     // a keyboard drag; instant scroll means the DOM is in its final position before the next
     // keydown fires, giving the coordinate getter an accurate layout to read.
@@ -166,13 +223,22 @@ export function BlockEditor({
   };
 
   /**
-   * Returns the toggle group id that `b` belongs to: the block's own id if it is a toggle header,
-   * its `parentToggleId` if it is a child, or undefined otherwise.
+   * Writes a block's move in one op: the new sort key, plus a props rewrite when the move changes
+   * which toggle the block belongs to. `groupId` undefined means top level, which drops the
+   * parentToggleId field while preserving every other prop (language, emoji, src).
    */
-  const getToggleGroupId = (b: BlockRecord | null): string | undefined => {
-    if (!b) return undefined;
-    if (b.type === 'toggleList') return b.id;
-    return parseBlockProps(b.props).parentToggleId;
+  const moveBlockToGroup = (moved: BlockRecord, sortKey: string, groupId: string | undefined) => {
+    const movedProps = parseBlockProps(moved.props);
+    const rest = Object.fromEntries(
+      Object.entries(movedProps).filter(([key]) => key !== 'parentToggleId'),
+    );
+    const nextProps = groupId ? { ...rest, parentToggleId: groupId } : rest;
+    const props = Object.keys(nextProps).length > 0 ? JSON.stringify(nextProps) : null;
+    onUpdateBlock(moved, { sortKey, props });
+  };
+
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveDragId(String(event.active.id));
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
@@ -181,56 +247,54 @@ export function BlockEditor({
     // spurious open request. Setting it unconditionally covers both the no-op (same-position) drag
     // and the out-of-bounds release cases (DEF-113).
     dragJustEndedRef.current = true;
+    setActiveDragId(null);
     const { active, over } = event;
-    if (!over || active.id === over.id) return;
+    if (!over) return;
     const fromIndex = blocks.findIndex((block) => block.id === active.id);
-    const toIndex = blocks.findIndex((block) => block.id === over.id);
     const moved = blocks[fromIndex];
-    if (!moved || fromIndex < 0 || toIndex < 0) return;
+    if (!moved || fromIndex < 0) return;
+
+    // Dropped on an empty open toggle's placeholder: there is no sibling row to sort against, so
+    // the key is taken directly after the header. This is the only way into a toggle that has no
+    // children yet - with nothing rendered between the header and the next block, the flat list
+    // offers no slot inside the group at all.
+    const emptyToggleId = toggleDropZoneTarget(over.id);
+    if (emptyToggleId) {
+      if (moved.id === emptyToggleId || moved.type === 'toggleList') return;
+      const withoutMoved = blocks.filter((block) => block.id !== moved.id);
+      const headerIndex = withoutMoved.findIndex((block) => block.id === emptyToggleId);
+      if (headerIndex < 0) return;
+      moveBlockToGroup(moved, sortKeyAfterIndex(withoutMoved, headerIndex), emptyToggleId);
+      return;
+    }
+
+    if (active.id === over.id) return;
+    const toIndex = blocks.findIndex((block) => block.id === over.id);
+    if (toIndex < 0) return;
 
     const newSortKey = sortKeyForMove(blocks, fromIndex, toIndex);
 
-    // Determine the new flat-order neighbors of `moved` after the reorder.
-    // `remaining` mirrors what `sortKeyForMove` uses, so these are the same neighbors the
-    // new sort key lands between.
+    // The block that will sit immediately above `moved` once the reorder lands. `remaining`
+    // mirrors what `sortKeyForMove` uses, so this is the same neighbour the new sort key lands
+    // after.
     const remaining = blocks.filter((_, i) => i !== fromIndex);
     const beforeBlock: BlockRecord | null = remaining[toIndex - 1] ?? null;
-    const afterBlock: BlockRecord | null = remaining[toIndex] ?? null;
 
-    const movedProps = parseBlockProps(moved.props);
-    const movedGroupId = movedProps.parentToggleId;
+    const movedGroupId = parseBlockProps(moved.props).parentToggleId;
+    const targetGroupId = toggleGroupForDrop({
+      beforeBlock,
+      movedType: moved.type,
+      collapsedToggleIds: collapsedToggles,
+    });
 
-    if (movedGroupId) {
-      // `moved` is a toggle child. If neither new neighbor belongs to the same toggle group,
-      // the child was dragged outside — promote it to a plain top-level block (DEF-112).
-      if (
-        getToggleGroupId(beforeBlock) !== movedGroupId &&
-        getToggleGroupId(afterBlock) !== movedGroupId
-      ) {
-        const restProps = Object.fromEntries(
-          Object.entries(movedProps).filter(([key]) => key !== 'parentToggleId'),
-        );
-        const newProps = Object.keys(restProps).length > 0 ? JSON.stringify(restProps) : null;
-        onUpdateBlock(moved, { sortKey: newSortKey, props: newProps });
-        return;
-      }
-    } else if (moved.type !== 'toggleList') {
-      // `moved` is a plain block (not a toggle header). If both new neighbors belong to the
-      // same toggle group, adopt `moved` into that group so it renders at the indicated position
-      // rather than below the whole group (DEF-114). Toggle headers are excluded because
-      // adopting one would create an unsupported nested toggle.
-      const beforeGroupId = getToggleGroupId(beforeBlock);
-      const afterGroupId = getToggleGroupId(afterBlock);
-      if (beforeGroupId && beforeGroupId === afterGroupId) {
-        onUpdateBlock(moved, {
-          sortKey: newSortKey,
-          props: JSON.stringify({ ...movedProps, parentToggleId: beforeGroupId }),
-        });
-        return;
-      }
+    // Group membership changed: adopted into a toggle (DEF-114), moved between two toggles, or
+    // dragged out of one and promoted to top level (DEF-112). One op carries key and props.
+    if (targetGroupId !== movedGroupId) {
+      moveBlockToGroup(moved, newSortKey, targetGroupId);
+      return;
     }
 
-    // Standard reorder: update the sort key only.
+    // Standard reorder within the same group: update the sort key only.
     onUpdateBlock(moved, { sortKey: newSortKey });
   };
 
@@ -260,8 +324,10 @@ export function BlockEditor({
         // A block stack only reorders vertically; sideways movement would just look broken.
         modifiers={[restrictToVerticalAxis]}
         accessibility={{ announcements }}
+        onDragStart={handleDragStart}
         onDragMove={handleDragMove}
         onDragEnd={handleDragEnd}
+        onDragCancel={() => setActiveDragId(null)}
       >
         <SortableContext
           items={blocks.map((block) => block.id)}
@@ -312,6 +378,14 @@ export function BlockEditor({
                   )
                 : [];
               const lastChild = toggleChildren[toggleChildren.length - 1] ?? null;
+              // Only for an open, empty toggle, only mid-drag, and never for the toggle being
+              // dragged itself.
+              const showDropZone =
+                isToggle &&
+                isOpen &&
+                toggleChildren.length === 0 &&
+                activeDragId !== null &&
+                activeDragId !== block.id;
 
               const setOpen = (open: boolean) => {
                 setCollapsedToggles((prev) => {
@@ -403,8 +477,14 @@ export function BlockEditor({
                       className="pl-6"
                       role="region"
                       aria-label="Toggle contents"
-                      hidden={!isOpen || toggleChildren.length === 0}
+                      hidden={!isOpen || (toggleChildren.length === 0 && !showDropZone)}
                     >
+                      {/*
+                        An empty open toggle gets an explicit drop target while a drag is running,
+                        because with no children rendered there is no row inside the group for
+                        dnd-kit to collide with and nothing could be dragged in.
+                      */}
+                      {showDropZone ? <ToggleDropZone toggleId={block.id} /> : null}
                       {toggleChildren.map((child) => {
                         const childIndex = blocks.indexOf(child);
                         return (

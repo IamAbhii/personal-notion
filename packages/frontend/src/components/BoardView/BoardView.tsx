@@ -3,7 +3,8 @@ import {
   DndContext,
   DragOverlay,
   KeyboardSensor,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   useDraggable,
   useDroppable,
   useSensor,
@@ -272,7 +273,11 @@ export function BoardView({
   );
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    // Mouse and touch are split rather than sharing a PointerSensor: a mouse should drag as soon
+    // as it moves, while a finger that moves immediately is scrolling the board. A 200ms hold with
+    // an 8px tolerance drags on touch and leaves taps and swipes alone.
+    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: keyboardCoordinateGetter }),
   );
 

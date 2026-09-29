@@ -485,7 +485,8 @@ export function BlockRow({
         pointer-events-none when invisible so the arrow below it can still receive clicks; on
         hover/focus-within both pointer-events and opacity are restored. The always-on-touch rule
         is omitted from the toggle's drag handle so the arrow remains tappable on phones.
-        Future: add a touch-friendly drag affordance for toggle blocks (e.g. long-press activation).
+        On touch, both affordances share one gesture budget: a tap collapses, a 200ms long press
+        drags (TouchSensor's activation constraint in BlockEditor).
       */}
       {block.type === 'toggleList' ? (
         /*
@@ -505,11 +506,13 @@ export function BlockRow({
             type="button"
             // h-12 w-12 satisfies the 48px touch target requirement.
             // setActivatorNodeRef + listeners make this the dnd-kit drag activator for this block.
-            // activationConstraint: { distance: 4 } on the sensor means click and drag do not
-            // interfere: a small pointer motion triggers drag, a stationary press triggers onClick.
+            // Mouse drag needs 4px of motion and touch drag needs a 200ms hold, so neither steals
+            // the plain click: a quick tap or a stationary press still collapses the toggle.
+            // touch-none is what makes the touch drag work at all - without it the browser claims
+            // the gesture for page scrolling and dnd-kit never sees the move.
             ref={setActivatorNodeRef}
             className={cn(
-              'absolute left-0 grid h-12 w-12 cursor-grab place-items-center border-0 bg-transparent p-0 text-text-muted hover:text-text',
+              'absolute left-0 grid h-12 w-12 cursor-grab touch-none place-items-center border-0 bg-transparent p-0 text-text-muted select-none hover:text-text',
               handleTopClasses['toggleList'],
             )}
             data-testid="block-toggle-arrow"
@@ -575,7 +578,7 @@ export function BlockRow({
                 className={cn(
                   // absolute + left-0: places the button flush with the gutter column's left edge.
                   // The top class shifts it down so its centre aligns with the block's first text line.
-                  'absolute left-0 grid h-12 w-12 cursor-grab place-items-center rounded-sm border-0 bg-transparent p-0 text-text-muted hover:bg-surface hover:text-text hover:ring-1 hover:ring-border hover:ring-inset',
+                  'absolute left-0 grid h-12 w-12 cursor-grab touch-none place-items-center rounded-sm border-0 bg-transparent p-0 text-text-muted select-none hover:bg-surface hover:text-text hover:ring-1 hover:ring-border hover:ring-inset',
                   handleTopClasses[block.type] ?? 'top-0',
                 )}
                 data-testid="block-drag-handle"

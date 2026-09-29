@@ -223,6 +223,42 @@ export function parseBlockProps(props: string | null): BlockProps {
   }
 }
 
+/**
+ * The toggle group a block belongs to: its own id when it is a toggle header, its `parentToggleId`
+ * when it is a child of one, and undefined when it is a plain top-level block.
+ */
+export function toggleGroupId(block: BlockRecord | null): string | undefined {
+  if (!block) return undefined;
+  if (block.type === 'toggleList') return block.id;
+  return parseBlockProps(block.props).parentToggleId;
+}
+
+/**
+ * The toggle group a dragged block should belong to once it lands directly below `beforeBlock`.
+ *
+ * The decision is made from the block above the drop alone. A block dropped under a toggle header,
+ * or under any of that toggle's children, joins the group; anything else is top level. That is what
+ * makes every slot inside a toggle reachable by drag - including the last one, which an earlier
+ * rule requiring *both* neighbours to be in the group could never match, so a todo could not be
+ * dragged to the end of a toggle (DEF-114).
+ *
+ * Two cases never adopt: a collapsed toggle, because the dropped block would vanish on release,
+ * and a dragged toggle header, because nested toggles are not supported.
+ * Future: when nested toggles land, a dragged header adopts like any other block and this returns
+ * the parent group instead of undefined.
+ */
+export function toggleGroupForDrop(args: {
+  beforeBlock: BlockRecord | null;
+  movedType: BlockType;
+  collapsedToggleIds: ReadonlySet<string>;
+}): string | undefined {
+  const { beforeBlock, movedType, collapsedToggleIds } = args;
+  if (movedType === 'toggleList') return undefined;
+  const groupId = toggleGroupId(beforeBlock);
+  if (!groupId || collapsedToggleIds.has(groupId)) return undefined;
+  return groupId;
+}
+
 /** Whether a type has editable text at all — the divider and image types do not. */
 export function isTextualBlock(type: BlockType): boolean {
   return type !== 'divider' && type !== 'image';
