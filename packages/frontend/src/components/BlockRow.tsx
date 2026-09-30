@@ -192,6 +192,15 @@ export function BlockRow({
   // Tracks the per-block actions dropdown: forced closed while dragging so a press-then-drag does
   // not leave the menu open once the drag activates (the pointer sensor requires 4px movement).
   const [menuOpen, setMenuOpen] = useState(false);
+  // Tracks the pointer type of the most recent interaction on the drag handle. Used to distinguish
+  // touch (opens menu on click) from mouse/pen (opens menu on pointerdown via Radix). A ref rather
+  // than state because it does not affect rendering — it is a side-channel for event handlers only.
+  const gutterPointerTypeRef = useRef<string>('');
+  // Set to true when a touch pointerdown lands on the drag handle. onOpenChange reads and clears it
+  // to reject Radix's own onPointerDown-triggered open, keeping the menu closed during the 200ms
+  // TouchSensor drag-activation window. Without this, Radix fires onOpenToggle() on every touch
+  // press because DropdownMenuTrigger has no pointerType guard (unlike Radix ContextMenu/Select).
+  const touchPointerDownActiveRef = useRef(false);
   const { value, edit, reset, flush } = useAutosavedText(block.text, onChangeText);
   const {
     attributes,
@@ -449,6 +458,12 @@ export function BlockRow({
     />
   );
 
+  // Capture dnd-kit's onPointerDown listener so it can be composed with the touch-block guard.
+  // listeners is Record<string, Function> (SyntheticListenerMap) — cast to a callable type that
+  // matches the React synthetic-event handler shape dnd-kit actually registers.
+  const dndOnPointerDown = listeners?.['onPointerDown'] as
+    ((e: React.SyntheticEvent) => void) | undefined;
+
   return (
     <div
       ref={setNodeRef}
@@ -557,13 +572,22 @@ export function BlockRow({
           <DropdownMenu
             open={menuOpen && !isDragging}
             onOpenChange={(next) => {
-              // Swallow the spurious open request fired by the synthetic click the pointer sensor
-              // generates on pointer-up at drag-end. BlockEditor sets dragJustEndedRef synchronously
-              // at the top of handleDragEnd (the DndContext onDragEnd callback), which runs before
-              // the click because both are in the same synchronous tick. A useEffect on isDragging
-              // would fire after paint — too late. (DEF-113)
-              if (next && dragJustEndedRef.current) {
+              // Mouse/pen only: swallow the spurious open request fired by the synthetic click
+              // the pointer sensor generates on pointer-up at drag-end. BlockEditor sets
+              // dragJustEndedRef synchronously at the top of handleDragEnd, which runs before
+              // the click because both are in the same synchronous tick. Touch handles this flag
+              // in its own onPointerUp handler instead, since touch opens via pointerup not pointerdown. (DEF-113)
+              if (next && dragJustEndedRef.current && gutterPointerTypeRef.current !== 'touch') {
                 dragJustEndedRef.current = false;
+                return;
+              }
+              // Touch: reject the Radix-initiated open from its onPointerDown handler. Radix's
+              // DropdownMenuTrigger calls onOpenToggle() from onPointerDown with no pointerType
+              // check, which opens the menu before TouchSensor's 200ms drag-activation window
+              // has expired. This flag is set in the button's onPointerDown (below) and cleared
+              // here. The touch tap path opens the menu via the button's onPointerUp instead.
+              if (next && touchPointerDownActiveRef.current) {
+                touchPointerDownActiveRef.current = false;
                 return;
               }
               // Ignore open requests while dragging: the pointer sensor needs 4px before it
@@ -585,6 +609,39 @@ export function BlockRow({
                 aria-label={`Move the ${blockTypeLabel(block.type).toLowerCase()} block`}
                 {...attributes}
                 {...listeners}
+                onPointerDown={(e) => {
+                  // Call dnd-kit's pointer-sensor handler first so mouse/pen drag activation works.
+                  // This prop is placed after {...listeners} to override the spread's onPointerDown,
+                  // so we call the original manually here.
+                  dndOnPointerDown?.(e);
+                  gutterPointerTypeRef.current = e.pointerType;
+                  // For touch: set the flag that onOpenChange uses to reject Radix's immediate
+                  // open-on-pointerdown. Touch drag needs a 200ms hold via TouchSensor before
+                  // activating; allowing the menu to open in that window would steal the gesture.
+                  // Mouse and pen pointers are unchanged — Radix opens the menu on their pointerdown.
+                  if (e.pointerType === 'touch') {
+                    touchPointerDownActiveRef.current = true;
+                  }
+                }}
+                onPointerUp={() => {
+                  // Touch tap path: open the menu here on pointerup rather than on click.
+                  // Radix's onPointerDown calls event.preventDefault() when context.open is false,
+                  // which suppresses the subsequent click event on real touch devices (the Pointer
+                  // Events spec only protects compatibility mouse events, not pointerup itself, so
+                  // pointerup fires regardless of preventDefault on pointerdown).
+                  // Mouse/pen skip this path — Radix already opened the menu on their pointerdown.
+                  if (gutterPointerTypeRef.current !== 'touch') return;
+                  // Still dragging: the long-press activated the drag sensor; do not open.
+                  if (isDragging) return;
+                  // A drag just ended synchronously before this pointerup: consume the flag so
+                  // a quick release after drag-end does not reopen. (Secondary guard; isDragging
+                  // above handles the primary case because the drag is still active at pointerup time.)
+                  if (dragJustEndedRef.current) {
+                    dragJustEndedRef.current = false;
+                    return;
+                  }
+                  setMenuOpen(true);
+                }}
               >
                 <GripVertical size={16} aria-hidden />
               </button>

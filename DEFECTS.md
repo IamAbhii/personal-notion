@@ -1,3 +1,38 @@
+## DEF-128: Touch on block gutter handle opens Delete menu instantly — long-press drag unusable on mobile
+
+- Status: CLOSED
+- Severity: HIGH
+- Found by: operator report
+- Phase: 9
+
+Steps to reproduce (pre-fix):
+
+1. Launch the app: `npm start`, open http://localhost:8787 in a Pixel 5 emulated context (Playwright `mobile-chrome` project, or any touch device).
+2. Navigate to a page with at least two paragraph blocks.
+3. Long-press the gutter drag handle (`[data-testid="block-drag-handle"]`) on any block.
+
+Expected: after 200 ms of stationary hold, dnd-kit's TouchSensor activates and the block is picked up for dragging. The "Delete block" dropdown does NOT appear.
+
+Actual: the "Delete block" Radix dropdown opens the instant the finger lands on the handle (on `pointerdown`), before the 200 ms TouchSensor hold can expire. The drag gesture is stolen by the menu. The block cannot be reordered by touch.
+
+Root cause: `BlockRow.tsx`'s gutter handle is both the dnd-kit drag activator and a Radix `DropdownMenu.Trigger`. Radix's `DropdownMenuTrigger` calls `onOpenToggle()` from `onPointerDown` with no `pointerType` guard, opening the menu before the TouchSensor delay could activate.
+
+Fix (branch fix/mobile-touch-drag-and-toggle-drop): the handle's `onPointerDown` sets a `touchPointerDownActiveRef` flag when `e.pointerType === 'touch'`; `onOpenChange` rejects Radix's immediate open while the flag is set; the menu instead opens from the handle's `onPointerUp` only when no drag has started (`isDragging === false`).
+
+Screenshot: screenshots/def-touch-drag-tap-menu-open.png
+
+History:
+
+- operator: reported — touch long-press fires Delete menu instead of activating drag
+- frontend-dev: fix landed on fix/mobile-touch-drag-and-toggle-drop — touch open path moved to onPointerUp with isDragging guard; touchPointerDownActiveRef blocks Radix's onPointerDown open
+- qa: first retest INVALID — initial Case 2 used point-in-time visibility checks (assert not visible right after touchStart; assert not visible at +350ms). Orchestrator ran the same spec against pre-fix code (b4b3bd5~1) and both mobile cases passed: 2 passed, 2 skipped (17.6s). Root cause: pre-fix code opens the menu on pointerdown but renders it as `open={menuOpen && !isDragging}`; the ~200ms flash resolves before both sample points. The test discriminated nothing.
+- qa: revised Case 2 — replaced point-in-time checks with an in-page `MutationObserver` armed on `document.body` (childList, subtree) before `touchStart`; it sets `window.__menuFlashDetected=true` the instant any `[data-testid="block-delete"]` element is connected to the DOM, capturing the transient portal mount that point-in-time checks miss.
+- orchestrator: ran pre-fix proof (`b4b3bd5~1` BlockRow.tsx, `--project=mobile-chrome`). Case 2 failed: `[data-testid="block-delete"] was connected to the DOM during the long-press drag gesture at t=1790789966650 — the menu flashed open (pre-fix: Radix opens on pointerdown before TouchSensor activates).` Result: 1 failed, 2 skipped, 1 passed (20.3s).
+- orchestrator: ran post-fix proof (BlockRow.tsx restored to b4b3bd5). Result: 2 passed, 2 skipped (17.6s).
+- qa: CLOSED — MutationObserver approach discriminates correctly: pre-fix fails on the flash assertion, post-fix passes. Post-fix full spec: 4 passed, 4 skipped (27.0s). Screenshots: `screenshots/def-touch-drag-tap-menu-open.png` (mobile, menu visible after tap), `screenshots/def-touch-drag-long-press-reorder.png` (mobile, block reordered, no menu).
+
+---
+
 ## DEF-127: Touch drag does not reorder blocks on mobile — TouchSensor not activating via CDP input
 
 - Status: CLOSED
