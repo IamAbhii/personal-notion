@@ -83,6 +83,81 @@ test.describe('Block drag to reorder', () => {
     expect(reloadedIds).toEqual(newIds);
   });
 
+  test('drag block to new position using pointer (mouse)', async ({ page }) => {
+    /*
+     * Drives the MouseCompatPointerSensor — activates on pointerdown, declines touch.
+     * A dead pointer sensor would leave the block order unchanged and fail the assertion,
+     * so this test catches any regression that kills mouse drag.
+     */
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+
+    const blockEditor = page.locator('[data-testid="block-editor"]');
+    await expect(blockEditor).toBeVisible();
+
+    // Seed at least 3 blocks (seeded page already has several, but be explicit).
+    const firstBlock = blockEditor.locator('[data-block-type]').first();
+    await firstBlock.click();
+    await page.keyboard.press('End');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(200);
+    await page.keyboard.type('Mouse Drag A');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(200);
+    await page.keyboard.type('Mouse Drag B');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(200);
+    await page.keyboard.type('Mouse Drag C');
+    await page.waitForTimeout(1000);
+
+    // Record IDs before drag.
+    const allBlocks = blockEditor.locator('[data-block-id]');
+    const idsBefore = await allBlocks.evaluateAll((els) =>
+      els.map((el) => el.getAttribute('data-block-id')),
+    );
+
+    // Drag "Mouse Drag A" down past "Mouse Drag B" using the pointer.
+    const blockA = blockEditor.locator('[data-block-type]').filter({ hasText: 'Mouse Drag A' });
+    const blockC = blockEditor.locator('[data-block-type]').filter({ hasText: 'Mouse Drag C' });
+    const handleA = blockA.locator('[data-testid="block-drag-handle"]');
+
+    const fromBox = await handleA.boundingBox();
+    const toBox = await blockC.boundingBox();
+    expect(fromBox, 'drag handle A bounding box must be measurable').toBeTruthy();
+    expect(toBox, 'block C bounding box must be measurable').toBeTruthy();
+
+    const fromX = fromBox!.x + fromBox!.width / 2;
+    const fromY = fromBox!.y + fromBox!.height / 2;
+    const toX = toBox!.x + toBox!.width / 2;
+    const toY = toBox!.y + toBox!.height + 5;
+
+    await page.mouse.move(fromX, fromY);
+    await page.mouse.down();
+    // Initial small move to exceed the activation distance.
+    await page.mouse.move(fromX, fromY + 5, { steps: 3 });
+    await page.mouse.move(toX, toY, { steps: 20 });
+    await page.waitForTimeout(300);
+    await page.mouse.up();
+    await page.waitForTimeout(1500);
+
+    // Block order must have changed.
+    const idsAfterDrag = await allBlocks.evaluateAll((els) =>
+      els.map((el) => el.getAttribute('data-block-id')),
+    );
+    expect(
+      idsAfterDrag,
+      'block order did not change after pointer drag — MouseCompatPointerSensor may be broken',
+    ).not.toEqual(idsBefore);
+
+    // Order must persist after reload.
+    await page.reload();
+    await page.waitForLoadState('networkidle');
+    const idsAfterReload = await blockEditor
+      .locator('[data-block-id]')
+      .evaluateAll((els) => els.map((el) => el.getAttribute('data-block-id')));
+    expect(idsAfterReload).toEqual(idsAfterDrag);
+  });
+
   test('verify block content remains intact after reordering', async ({ page }) => {
     // Navigate to the app
     await page.goto('/');
