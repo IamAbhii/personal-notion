@@ -338,6 +338,121 @@ describe('Backspace on empty non-paragraph block resets to paragraph', () => {
   });
 });
 
+describe('BlockRow gutter touch-tap vs touch-drag distinction', () => {
+  // Root cause: Radix DropdownMenuTrigger calls context.onOpenToggle() from its onPointerDown
+  // handler with no pointerType check. A touch press opens the menu immediately — before
+  // TouchSensor's 200ms drag-activation window expires. Fix: intercept in the button's
+  // onPointerDown (which composeEventHandlers runs before Radix's own handler) and set a flag;
+  // onOpenChange rejects Radix-initiated opens while the flag is set. Touch taps open via onPointerUp.
+  //
+  // Why onPointerUp, not onClick: Radix's trigger calls event.preventDefault() on pointerdown when
+  // context.open is false, which suppresses the subsequent click on real touch devices (the Pointer
+  // Events spec defines that preventDefault on pointerdown suppresses compatibility mouse events
+  // including click, but does NOT suppress pointerup). Tests use fireEvent.pointerUp to drive the
+  // same event the production code relies on.
+
+  beforeEach(() => {
+    dragJustEndedRef.current = false;
+  });
+
+  it('a touch pointerdown on the drag handle does NOT open the menu', () => {
+    // Before fix: Radix's onPointerDown fires onOpenToggle() → menu opens immediately on touch.
+    // After fix: the touch-flag guard in onOpenChange rejects the open request.
+    vi.mocked(useSortable).mockReturnValue(makeSortableReturn(false));
+    render(<BlockRow {...defaultProps} />);
+
+    const handle = document.querySelector('[data-testid="block-drag-handle"]') as HTMLElement;
+    fireEvent.pointerDown(handle, {
+      pointerType: 'touch',
+      button: 0,
+      ctrlKey: false,
+      isPrimary: true,
+    });
+
+    // The menu must NOT be open yet — the gesture is still in the 200ms drag-activation window.
+    expect(document.querySelector('[data-testid="block-delete"]')).toBeNull();
+  });
+
+  it('a short touch tap (pointerdown then pointerup) opens the menu and Delete block is reachable', () => {
+    // After touch pointerdown is blocked from opening, a subsequent pointerup (tap completed) must
+    // open. pointerup is used — not click — because Radix's onPointerDown calls preventDefault()
+    // when context.open is false, which suppresses click on real touch devices.
+    vi.mocked(useSortable).mockReturnValue(makeSortableReturn(false));
+    render(<BlockRow {...defaultProps} />);
+
+    const handle = document.querySelector('[data-testid="block-drag-handle"]') as HTMLElement;
+
+    // Phase 1: pointerdown alone must NOT open the menu (same as the previous test).
+    fireEvent.pointerDown(handle, {
+      pointerType: 'touch',
+      button: 0,
+      ctrlKey: false,
+      isPrimary: true,
+    });
+    expect(document.querySelector('[data-testid="block-delete"]')).toBeNull();
+
+    // Phase 2: pointerup (the reliable release event, always fires regardless of preventDefault)
+    // confirms the tap and opens the menu.
+    fireEvent.pointerUp(handle, { pointerType: 'touch' });
+    expect(document.querySelector('[data-testid="block-delete"]')).not.toBeNull();
+  });
+
+  it('a mouse click on the drag handle still opens the menu (mouse behaviour unchanged)', () => {
+    // Mouse/pen pointers must open the menu on pointerdown as they always have.
+    vi.mocked(useSortable).mockReturnValue(makeSortableReturn(false));
+    render(<BlockRow {...defaultProps} />);
+
+    const handle = document.querySelector('[data-testid="block-drag-handle"]') as HTMLElement;
+    fireEvent.pointerDown(handle, {
+      pointerType: 'mouse',
+      button: 0,
+      ctrlKey: false,
+      isPrimary: true,
+    });
+
+    expect(document.querySelector('[data-testid="block-delete"]')).not.toBeNull();
+  });
+
+  it('a touch release while dragging does NOT open the menu (isDragging guard)', () => {
+    // When TouchSensor's 200ms delay fires and a drag activates, isDragging becomes true.
+    // Releasing the finger (pointerup) while isDragging=true must not open the menu.
+    vi.mocked(useSortable).mockReturnValue(makeSortableReturn(true));
+    render(<BlockRow {...defaultProps} />);
+
+    const handle = document.querySelector('[data-testid="block-drag-handle"]') as HTMLElement;
+    fireEvent.pointerDown(handle, {
+      pointerType: 'touch',
+      button: 0,
+      ctrlKey: false,
+      isPrimary: true,
+    });
+    fireEvent.pointerUp(handle, { pointerType: 'touch' });
+
+    expect(document.querySelector('[data-testid="block-delete"]')).toBeNull();
+  });
+
+  it('a touch tap after a drag-just-ended does NOT open the menu (dragJustEndedRef guard intact)', () => {
+    // Secondary guard: if dragJustEndedRef is set (drag just ended before this new gesture),
+    // the pointerup must not open the menu. The flag is consumed so the next genuine tap can open.
+    vi.mocked(useSortable).mockReturnValue(makeSortableReturn(false));
+    render(<BlockRow {...defaultProps} />);
+
+    dragJustEndedRef.current = true;
+    const handle = document.querySelector('[data-testid="block-drag-handle"]') as HTMLElement;
+    fireEvent.pointerDown(handle, {
+      pointerType: 'touch',
+      button: 0,
+      ctrlKey: false,
+      isPrimary: true,
+    });
+    fireEvent.pointerUp(handle, { pointerType: 'touch' });
+
+    expect(document.querySelector('[data-testid="block-delete"]')).toBeNull();
+    // Flag must be consumed so the next genuine interaction opens the menu.
+    expect(dragJustEndedRef.current).toBe(false);
+  });
+});
+
 describe('Image block rendering', () => {
   it('renders an img element with the src from block props', () => {
     vi.mocked(useSortable).mockReturnValue(makeSortableReturn(false));
