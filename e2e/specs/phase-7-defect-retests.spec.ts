@@ -39,6 +39,24 @@ async function fetchSnapshot(page: Page): Promise<Record<string, unknown>[]> {
 }
 
 /**
+ * Parse the `props` JSON string from a snapshot block record.
+ * Returns an empty object when props is absent or malformed.
+ * NOTE: the snapshot API returns `props` as a JSON *string*, not an object.
+ * Casting it directly to `Record<string, unknown>` is a silent no-op because
+ * property access on a string always returns `undefined`.
+ */
+function parseProps(block: Record<string, unknown>): Record<string, unknown> {
+  const raw = block['props'];
+  if (typeof raw !== 'string' || !raw) return {};
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
  * Insert a toggleList block via the slash menu, type a header, then add children.
  * Leaves the caret in the last child.
  */
@@ -138,9 +156,7 @@ test.describe('DEF-110: deleting a toggle header promotes children', () => {
     // exists or is not a toggleList.
     const blocksBeforeReload = await fetchSnapshot(page);
     const orphanedBlocks = blocksBeforeReload.filter((b) => {
-      const props = b['props'] as Record<string, unknown> | null | undefined;
-      if (!props) return false;
-      const parentId = props['parentToggleId'] as string | undefined;
+      const parentId = parseProps(b)['parentToggleId'] as string | undefined;
       if (!parentId) return false;
       const parent = blocksBeforeReload.find((pb) => pb['id'] === parentId);
       return !parent || parent['type'] !== 'toggleList';
@@ -160,9 +176,7 @@ test.describe('DEF-110: deleting a toggle header promotes children', () => {
 
     const blocksAfterReload = await fetchSnapshot(page);
     const orphanedAfterReload = blocksAfterReload.filter((b) => {
-      const props = b['props'] as Record<string, unknown> | null | undefined;
-      if (!props) return false;
-      const parentId = props['parentToggleId'] as string | undefined;
+      const parentId = parseProps(b)['parentToggleId'] as string | undefined;
       if (!parentId) return false;
       const parent = blocksAfterReload.find((pb) => pb['id'] === parentId);
       return !parent || parent['type'] !== 'toggleList';
@@ -407,8 +421,7 @@ test.describe('DEF-112: toggle child dragged out of group clears parentToggleId'
     const childABlock = blocksAfterReload.find((b) => (b['text'] as string) === 'child A');
 
     if (childABlock) {
-      const props = childABlock['props'] as Record<string, unknown> | null | undefined;
-      const parentId = props?.['parentToggleId'];
+      const parentId = parseProps(childABlock)['parentToggleId'];
       expect(
         parentId,
         'child A still has parentToggleId after being dragged out — DEF-112 still present',
@@ -627,9 +640,7 @@ test.describe('DEF-114: block dropped between toggle children renders correctly'
       // Can't drag — skip drag portion, check snapshot is at least consistent.
       const blocks = await fetchSnapshot(page);
       const orphaned = blocks.filter((b) => {
-        const p = b['props'] as Record<string, unknown> | null | undefined;
-        if (!p) return false;
-        const pid = p['parentToggleId'] as string | undefined;
+        const pid = parseProps(b)['parentToggleId'] as string | undefined;
         if (!pid) return false;
         const parent = blocks.find((pb) => pb['id'] === pid);
         return !parent || parent['type'] !== 'toggleList';
@@ -732,9 +743,7 @@ test.describe('DEF-115: converting a toggle to another type promotes children', 
     // Check snapshot before reload: no block should have parentToggleId pointing at a non-toggle.
     const blocksBeforeReload = await fetchSnapshot(page);
     const orphanedBefore = blocksBeforeReload.filter((b) => {
-      const p = b['props'] as Record<string, unknown> | null | undefined;
-      if (!p) return false;
-      const parentId = p['parentToggleId'] as string | undefined;
+      const parentId = parseProps(b)['parentToggleId'] as string | undefined;
       if (!parentId) return false;
       const parent = blocksBeforeReload.find((pb) => pb['id'] === parentId);
       return !parent || parent['type'] !== 'toggleList';
@@ -754,9 +763,7 @@ test.describe('DEF-115: converting a toggle to another type promotes children', 
 
     const blocksAfterReload = await fetchSnapshot(page);
     const orphanedAfter = blocksAfterReload.filter((b) => {
-      const p = b['props'] as Record<string, unknown> | null | undefined;
-      if (!p) return false;
-      const parentId = p['parentToggleId'] as string | undefined;
+      const parentId = parseProps(b)['parentToggleId'] as string | undefined;
       if (!parentId) return false;
       const parent = blocksAfterReload.find((pb) => pb['id'] === parentId);
       return !parent || parent['type'] !== 'toggleList';

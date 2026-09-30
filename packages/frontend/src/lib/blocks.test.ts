@@ -12,6 +12,8 @@ import {
   sortKeyAfterIndex,
   sortKeyForMove,
   sortKeyForNewBlock,
+  toggleGroupForDrop,
+  toggleGroupId,
 } from './blocks';
 import { makeBlock } from '../test/fixtures';
 
@@ -231,5 +233,82 @@ describe('clampBlockText', () => {
     expect(result.text).toBe(`${'a'.repeat(MAX_BLOCK_TEXT_LENGTH - 2)}\u{1F600}`);
     expect(result.text.length).toBe(MAX_BLOCK_TEXT_LENGTH);
     expect(result.truncated).toBe(true);
+  });
+});
+
+// ── Toggle drag-and-drop grouping ─────────────────────────────────────────────
+
+describe('toggleGroupId', () => {
+  const header = makeBlock({ id: 'tgl', pageId: 'p-1', type: 'toggleList', sortKey: 'a0' });
+  const child = makeBlock({
+    id: 'c1',
+    pageId: 'p-1',
+    sortKey: 'a1',
+    props: JSON.stringify({ parentToggleId: 'tgl' }),
+  });
+  const plain = makeBlock({ id: 'p1', pageId: 'p-1', sortKey: 'a2' });
+
+  it('reads a toggle header as its own group', () => {
+    expect(toggleGroupId(header)).toBe('tgl');
+  });
+
+  it('reads a child as belonging to its parent toggle', () => {
+    expect(toggleGroupId(child)).toBe('tgl');
+  });
+
+  it('reads a plain block and a missing block as no group', () => {
+    expect(toggleGroupId(plain)).toBeUndefined();
+    expect(toggleGroupId(null)).toBeUndefined();
+  });
+});
+
+describe('toggleGroupForDrop', () => {
+  const none: ReadonlySet<string> = new Set();
+  const header = makeBlock({ id: 'tgl', pageId: 'p-1', type: 'toggleList', sortKey: 'a0' });
+  const child = makeBlock({
+    id: 'c1',
+    pageId: 'p-1',
+    sortKey: 'a1',
+    props: JSON.stringify({ parentToggleId: 'tgl' }),
+  });
+  const plain = makeBlock({ id: 'p1', pageId: 'p-1', sortKey: 'a2' });
+
+  it('adopts a block dropped directly under a toggle header', () => {
+    expect(
+      toggleGroupForDrop({ beforeBlock: header, movedType: 'todo', collapsedToggleIds: none }),
+    ).toBe('tgl');
+  });
+
+  it('adopts a block dropped under an existing child - the end-of-toggle slot', () => {
+    // This is the case the old "both neighbours in the group" rule missed: the block after the
+    // drop is outside the group, so a todo could not be dragged to the end of a toggle.
+    expect(
+      toggleGroupForDrop({ beforeBlock: child, movedType: 'todo', collapsedToggleIds: none }),
+    ).toBe('tgl');
+  });
+
+  it('keeps a block dropped under a plain block, or at the very top, top level', () => {
+    expect(
+      toggleGroupForDrop({ beforeBlock: plain, movedType: 'todo', collapsedToggleIds: none }),
+    ).toBeUndefined();
+    expect(
+      toggleGroupForDrop({ beforeBlock: null, movedType: 'todo', collapsedToggleIds: none }),
+    ).toBeUndefined();
+  });
+
+  it('never adopts into a collapsed toggle, so the dropped block stays visible', () => {
+    expect(
+      toggleGroupForDrop({
+        beforeBlock: child,
+        movedType: 'todo',
+        collapsedToggleIds: new Set(['tgl']),
+      }),
+    ).toBeUndefined();
+  });
+
+  it('never adopts a dragged toggle header, because nested toggles are unsupported', () => {
+    expect(
+      toggleGroupForDrop({ beforeBlock: child, movedType: 'toggleList', collapsedToggleIds: none }),
+    ).toBeUndefined();
   });
 });

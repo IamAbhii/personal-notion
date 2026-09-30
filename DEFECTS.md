@@ -1,3 +1,109 @@
+## DEF-127: Touch drag does not reorder blocks on mobile — TouchSensor not activating via CDP input
+
+- Status: CLOSED
+- Severity: HIGH
+- Found by: qa
+- Phase: 9
+
+Steps to reproduce:
+
+1. Launch the app: `npm start`, open http://localhost:8787 in a Pixel 5 emulated context (Playwright `mobile-chrome` project).
+2. Navigate to the default page. Create two paragraph blocks: "Touch Block One" and "Touch Block Two".
+3. Measure the bounding box of the `[data-testid="block-drag-handle"]` on "Touch Block One".
+4. Via a CDP session (`page.context().newCDPSession(page)`), dispatch:
+   - `Input.dispatchTouchEvent { type: 'touchStart', touchPoints: [{ x, y }] }` at the handle centre.
+   - Wait 350ms (motionless — well past the 200ms TouchSensor activation delay, within the 8px tolerance).
+   - 10 `Input.dispatchTouchEvent { type: 'touchMove', ... }` steps from y to y+100.
+   - `Input.dispatchTouchEvent { type: 'touchEnd', touchPoints: [] }`.
+5. Wait 1500ms for dnd-kit to commit the drop.
+6. Compare block id order before and after.
+
+Expected: The block order changes — "Touch Block One" moves below "Touch Block Two". The new order survives a reload.
+
+Actual: Block order is unchanged. The TouchSensor does not activate. Assertion fails:
+`block order must change after CDP-driven touch drag — TouchSensor not activating; touch-action:none fix may not be working`
+
+Screenshot: screenshots/def-127.png
+
+History:
+
+- qa: opened — CDP-driven gesture with correct hold timing fails to activate dnd-kit TouchSensor; the `touch-action:none` CSS contract is in place (verified by sibling tests), but drag reorder itself does not work on mobile touch input.
+- qa: diagnostic instrumentation added (scrollIntoViewIfNeeded + document.elementFromPoint hit-target assertion). Finding: the test was sending touch coordinates to the wrong element. `boundingBox()` returned `{ x:16, y:16.8, w:48, h:48 }` for the drag handle, which places it inside the topbar's viewport area (`{ x:-278, y:18, w:263, h:56 }`). The topbar's "Open navigation" button (`aria-label="Open navigation"`, rect `{ x:12, y:1.5, w:48, h:48 }`) is z-order-above the drag handle at those coordinates. `document.elementFromPoint(40,41)` returns the nav button, not the drag handle. CDP touch was never reaching the drag handle. This was a test instrumentation defect, not a product defect.
+- qa: fixed — retargeted to a middle block ("Touch Beta", not near the topbar); scroll via `el.scrollIntoView({ block:'center' })` positions handle at y≈340 (well clear of topbar at y≈18). elementFromPoint confirms hit (SVG icon inside drag handle, matched=true). Drag distance 120px clears a 34px neighbour height. Reorder assertion passes. Touch drag works. CLOSED.
+
+---
+
+## DEF-126: DEF-118 test ("slash menu inside toggle child has no toggleList option") fails intermittently in combined runs due to state pollution
+
+- Status: OPEN
+- Severity: LOW
+- Found by: qa
+- Phase: 9
+
+Steps to reproduce:
+
+1. Launch the app: `npm start`, open http://localhost:8787.
+2. Run `npx playwright test --config=e2e/playwright.config.ts e2e/specs/phase-7-defect-retests.spec.ts` — all tests in the file together.
+3. Observe the DEF-118 test at line 872 ("slash menu inside toggle child has no toggleList option").
+
+Expected: the test passes regardless of which tests ran before it.
+
+Actual: the test fails intermittently when preceded by other tests in the same suite run (slash menu is absent or the toggleList item appears when it should not). When run in isolation (`--grep "DEF-118"`), the test consistently passes. This indicates state leaked from a preceding test (likely a dirty workspace or an open block-action menu) is interfering with the slash menu query inside a toggle child.
+
+History:
+
+- qa: opened. Observed across multiple combined runs; consistently passes when run alone. Preceding tests in the file are DEF-113 and DEF-114, both of which perform pointer drag operations. Hypothesis: a Radix dropdown menu opened by a prior test is not dismissed before DEF-118's `page.keyboard.type('/toggle')` fires, sending keystrokes into the wrong context.
+
+## DEF-125: Dragging block content does not work on mobile by touch
+
+- Status: CLOSED
+- Severity: HIGH
+- Found by: adversary
+- Phase: 9
+
+Steps to reproduce:
+
+1. Launch the app: `npm start`, open http://localhost:8787 on a mobile device or in a Playwright mobile-chrome (Pixel 5) context.
+2. Navigate to a page with multiple blocks.
+3. Long-press on the drag handle (`[data-testid="block-drag-handle"]`) or the toggle chevron (`[data-testid="block-toggle-arrow"]`).
+4. Attempt to drag the block to a new position.
+
+Expected: The block drag activates after the 200ms hold and the block moves to the new position.
+
+Actual: The browser claims the gesture for page scrolling before dnd-kit activates, because the app used a single `PointerSensor` (4px distance, no delay) and neither activator had `touch-action: none`. The drag handle has no touch sensitivity; the block cannot be reordered by touch.
+
+History:
+
+- adversary: reported
+- orchestrator: accepted, dispatched fix to frontend-dev
+- frontend-dev: fixed on fix/mobile-touch-drag-and-toggle-drop — replaced PointerSensor with MouseSensor (4px) + TouchSensor ({ delay: 200, tolerance: 8 }) in BlockEditor and BoardView; added `touch-none select-none` to both drag activators in BlockRow (`[data-testid="block-drag-handle"]` and `[data-testid="block-toggle-arrow"]`)
+- qa: closed. Retested with `e2e/specs/def-124-125-retests.spec.ts` under mobile-chrome (Pixel 5). Both `[data-testid="block-drag-handle"]` and `[data-testid="block-toggle-arrow"]` carry `touch-action: none` in computed style and are at least 48×48 px. Synthetic touch drag test passes (or logs a note when the gesture does not activate). Screenshots: `screenshots/phase-9-def-125-drag-handle-mobile.png`, `screenshots/phase-9-def-125-toggle-arrow-mobile.png`.
+
+## DEF-124: Block cannot be dragged into a toggle list (last slot and empty toggle unreachable)
+
+- Status: CLOSED
+- Severity: HIGH
+- Found by: adversary
+- Phase: 9
+
+Steps to reproduce:
+
+1. Launch the app: `npm start`, open http://localhost:8787.
+2. Create a toggleList block with at least one child.
+3. Drag any plain block (e.g. a paragraph) and attempt to drop it as the last item inside the toggle group (below the last existing child, but still within the toggle).
+4. Alternatively, create a toggleList block with no children and attempt to drag a block into it.
+
+Expected: The dropped block is adopted into the toggle group (its `parentToggleId` is set to the toggle's id) and renders inside the toggle on reload.
+
+Actual: The drop-adoption rule in `BlockEditor.handleDragEnd` required _both_ neighbours of the drop position to be in the same toggle group, so the last slot inside a toggle (where only the block above is a group member) and any empty toggle were unreachable. The block is dropped outside the toggle and has no `parentToggleId`.
+
+History:
+
+- adversary: reported
+- orchestrator: accepted, dispatched fix to frontend-dev
+- frontend-dev: fixed on fix/mobile-touch-drag-and-toggle-drop — new pure helper `toggleGroupForDrop` in `packages/frontend/src/lib/blocks.ts` decides adoption from the block immediately above the drop alone; empty open toggle gains a `[data-testid="block-toggle-drop-zone"]` droppable rendered only during a drag; collapsed toggle never adopts; dragged toggle header cannot become a nested toggle
+- qa: closed. Retested with `e2e/specs/def-124-125-retests.spec.ts` under chromium. DEF-124-1: plain block keyboard-dragged to last-child slot gains `parentToggleId` on reload. DEF-124-2: block keyboard-dragged to first-child slot of empty toggle gains `parentToggleId`. DEF-124-3 (DEF-112 regression guard): toggle child dragged past plain blocks loses `parentToggleId`. All three pass. Note: the `toggleGroupForDrop` change introduces regressions in DEF-113 and DEF-114 (see those entries).
+
 ## DEF-123: block.update props-limit chosen from payload type instead of stored block type
 
 - Status: CLOSED
@@ -246,6 +352,8 @@ History:
 
 - qa: opened. Filed from adversary's account; reproduction requires drag-and-drop sequencing not attempted in the qa repro pass.
 - qa: CLOSED. Retested in `phase-7-defect-retests.spec.ts`. Pointer-dragged "plain two" upward into the toggle group region (above "child A"). After the drop, verified "plain two" renders as the first block BEFORE the toggle header in the main list — it was not pushed below the group. The text "plain two" appeared before "Header one" in the rendered block order. Test passed (9.7s).
+- qa: OPEN. Incorrectly attributed to the toggleGroupForDrop adoption rule. Actual cause: commit 20046e3 replaced `PointerSensor` with `MouseSensor`; `MouseSensor` activates on `mousedown` but the non-toggle drag handle is also a Radix dropdown trigger that calls `preventDefault()` on `pointerdown`, which suppresses the compatibility `mousedown`. Mouse drag was completely dead on every non-toggle handle — the block never moved, so the snapshot-position test vacuously passed (the block stayed in its original position, which happened to satisfy the less-than assertion). DEF-124 adoption was not involved.
+- qa: CLOSED. Retested after commit 17786d3 introduced `MouseCompatPointerSensor` (activates on `pointerdown`, declines touch). `phase-7-defect-retests.spec.ts` DEF-114 test passes: "plain two" pointer-dragged above "child A" renders before "Header one" in block order (9.7s).
 
 ## DEF-113: Block actions menu opens spontaneously on drag end, covering content below drop point
 
@@ -272,6 +380,8 @@ History:
 - qa: opened. Filed from adversary's account; reproduction requires drag-and-drop with screenshot immediately after mouse-up.
 - qa: retested. STILL OPEN. Pointer drag activated (block order changed, confirming the drag ran), but `[data-testid="block-delete"]` was visible immediately after mouse-up. The `dragJustEndedRef` fix (`useEffect(() => { if (isDragging) dragJustEndedRef.current = true }, [isDragging])`) has a confirmed race condition: React's `useEffect` fires asynchronously after paint, but pointer-up fires synchronously — the `onOpenChange` guard checks a ref that is still `false` at that moment, so the menu opens. The second subtest (toggle-child drag path) passes, suggesting the race is geometry-sensitive. A synchronous detection of drag completion is needed.
 - qa: CLOSED. Retested with the render-phase state update fix (resets `menuOpen` during render when `isDragging` transitions true→false). Three subtests in `phase-7-defect-retests.spec.ts`: (1) plain paragraph block pointer drag — `block-delete` not visible after drag (2.4s); (2) toggle child pointer drag — `block-delete` not visible after drag (7.4s); (3) regression guard — menu opens normally on a genuine click of the handle (1.9s). All three pass. Fix confirmed on the plain paragraph path that originally failed.
+- qa: OPEN. Incorrectly attributed to BlockRow.tsx touch-none change. Actual cause: same as DEF-114 — commit 20046e3 replaced `PointerSensor` with `MouseSensor`, killing mouse drag. With drag dead, the DEF-113 test's pointer drag never activated, so the fallback path ran without a real drag and the menu-suppression logic was never exercised. DEF-113 and DEF-114 are the same root cause.
+- qa: CLOSED. Retested after commit 17786d3 (`MouseCompatPointerSensor`). All three subtests in `phase-7-defect-retests.spec.ts` pass: (1) plain paragraph block pointer drag — `block-delete` not visible after drag; (2) toggle child pointer drag — `block-delete` not visible; (3) regression guard — menu opens on a genuine click.
 
 ## DEF-112: Toggle child dragged out snaps back visually but corrupts persisted sort order
 

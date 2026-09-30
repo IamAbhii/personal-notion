@@ -3,12 +3,13 @@ import {
   DndContext,
   DragOverlay,
   KeyboardSensor,
-  PointerSensor,
+  TouchSensor,
   useDraggable,
   useDroppable,
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
+import { MouseCompatPointerSensor } from '../../lib/sensors';
 import type { Announcements, DragEndEvent, DragStartEvent } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { Plus } from 'lucide-react';
@@ -272,7 +273,13 @@ export function BoardView({
   );
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    // Mouse and touch are split rather than sharing a PointerSensor: a mouse should drag as soon
+    // as it moves, while a finger that moves immediately is scrolling the board. A 200ms hold with
+    // an 8px tolerance drags on touch and leaves taps and swipes alone.
+    // MouseCompatPointerSensor: see lib/sensors.ts. Uses onPointerDown so Radix's
+    // preventDefault on pointerdown cannot suppress it; declines touch so TouchSensor takes over.
+    useSensor(MouseCompatPointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: keyboardCoordinateGetter }),
   );
 

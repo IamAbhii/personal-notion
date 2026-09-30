@@ -37,6 +37,7 @@ export default defineConfig({
         '**/views-mobile.spec.ts',
         '**/phase-5-mobile.spec.ts',
         '**/toggle-list-mobile.spec.ts',
+        '**/def-124-125-retests.spec.ts',
       ],
     },
   ],
